@@ -23,7 +23,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { constants as osConstants, setPriority } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -60,6 +60,7 @@ import { readHead } from './src/files.mjs'
 import { chatsByRole, oldModNeed } from './src/oldMods.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
+import { gapsNow, keptSinceJump, readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
@@ -67,7 +68,8 @@ import { workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
-import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
+import { areaOf, freshScan, keptTasks, listText, readOn, withStepSizes } from './src/taskTimes.mjs'
+import { sizeOf } from './src/work/held.mjs'
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
@@ -117,12 +119,13 @@ import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isF
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
-import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandRefusedAlone, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { landingRestarts, lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { parseList, readAccountFolders } from './src/appChats.mjs'
+import { listedWhere, parseList, readAccountFolders } from './src/appChats.mjs'
+import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
 import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
@@ -2475,7 +2478,8 @@ async function main(args) {
   // P7, the review: the none-ready episode (state.mjs `noWorkSeen`), in memory as planSeen: a restart starts it from the
   // longest-free worker's since again.
   let noWorkSeen = null
-  const readState = cached(() => trackJob('state rebuild', async () => {
+  // F42: an answer built before a PC sleep is read again (src/afterSleep.mjs).
+  const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
     rebuilds += 1
     if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
@@ -2507,7 +2511,8 @@ async function main(args) {
       // board-fast-answer: the day's work-call figures for the Supervisor's health line (src/workCalls.mjs).
       workCalls: workCalls.today(clock()),
       finishedSeen: finishedSeen ?? {},
-      taskTimes: taskTimes.tasks,
+      // F42: a kept task without an estimate counts its step's size.
+      taskTimes: withStepSizes(taskTimes.tasks, raw.work?.items),
       // Stability numbers (2026-11-05, task 4): what the loop above last recorded; the demo shows made-up days.
       stability: isDemo ? demoStability(clock()) : keepStability?.latest() ?? null,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
@@ -2519,7 +2524,7 @@ async function main(args) {
       // Signals change 7 (B914): when each worker's own plan words last changed, as the last read saw them (memory only).
       planSeen,
       noWorkSeen,
-      now: clock(),
+      now: built(clock()),
       config: { ...config, project },
     })
     planSeen = state.planSeen ?? {}
@@ -2539,7 +2544,7 @@ async function main(args) {
     return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
       // T5.2 A7: the project keys config.json still holds while the project's settings file is in use (ignored: the amber line).
       settingsIgnored: isDemo || typeof config.settingsFile !== 'string' ? null : { file: basename(config.settingsFile), keys: config.settingsIgnored ?? [] }, check: checker?.view() ?? null, clicksUnsent: (await clicks.settle(one => movedOn(one, state, store.outbox()), clock()), await clicks.unsent()) }
-  }), STATE_MS)
+  })), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
   // at the first look. Tasks a worker reported are added to the list, and the list the chats read is written anew.
@@ -2556,7 +2561,7 @@ async function main(args) {
         const item = items.get(id)
         if (item === undefined) return null
         const words = [item.head.get('Title') ?? '', ...(item.sections.get('Context') ?? []), ...(item.sections.get('Touches') ?? []).map(one => `Touches: ${one}`)].join('\n')
-        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), effort: effortOf(item).level }
+        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`) ?? sizeOf(item), effort: effortOf(item).level }
       }
       const added = []
       const routingRecords = [...items.values()].map(item => ({ item, read: readRoutingRecord(item) }))
@@ -2589,7 +2594,7 @@ async function main(args) {
       if (historyFrom === undefined) {
         // B934: the board's own measure, made again from the transcripts: no flush.
         await writeUnflushed(TASK_TIMES_FILE, JSON.stringify(taskTimes))
-        if (added.length > 0 || !hasList) await writeUnflushed(TASK_LIST_FILE, listText(taskTimes.tasks, clock()))
+        if (added.length > 0 || !hasList) await writeUnflushed(TASK_LIST_FILE, listText(withStepSizes(taskTimes.tasks, items), clock()))
         hasList = true
       }
       if (added.length > 0) readState.reset()
@@ -2757,7 +2762,11 @@ async function main(args) {
     wakesChanged()
     isOpening = true
     try {
-      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
+      // B1304 (chat 1's review, minor): a board copy under test records its launches in this file instead of starting the real program.
+      const stub = process.env.WORKER_BOARD_OPEN_STUB ?? ''
+      const done = stub !== '' ? await appendFile(stub, `${JSON.stringify({ chat: target.chat, session: target.session, at: now })}
+`).then(() => ({ launched: true, ok: true, why: null }))
+        : await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
       if (!done.launched) {
         // Nothing was launched: no try spent (the ⚙ row says why).
         wakeGivenBack(wakes, key, jobId)
@@ -3857,7 +3866,8 @@ async function main(args) {
       const setsRefusedNow = setsRefusedOf(store.outbox(), clock())
       // B1271 (chat 1's review, minor): a start or wake word a carry word carries is never a hand's too (the carry may switch on and off).
       const carried = new Set(store.outbox().filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state) && typeof one.of === 'string').map(one => one.of))
-      const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
+      // B1307 (chat 1's review 1): a side word starts a model turn, so none goes while a limit is full.
+      const isHand = message => !(message?.command === SIDE_WORD && state.limitFull === true) && !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
@@ -4040,6 +4050,13 @@ async function main(args) {
         if (PROBE_JOB.test(id)) {
           if (sent.includes(id) && !doubt.includes(id)) woke = [noteHandSent(wakes, checked.chat, clock()), noteSendLifted(wakes, clock())].includes(true) || woke
           else if (failed.includes(id) && isSendRefusal(why[id])) woke = noteHandRefused(wakes, checked.chat, clock()) || woke
+          continue
+        }
+        // B1307 (chat 1's crossing 2): a side word's send counts for this hand alone: one that went lifts its own mark, one the app
+        // refused marks it, never the board-wide refusal and never a start or wake try (it is no wake: no attempt in the record).
+        if (store.outbox().some(one => one.id === id && one.command === SIDE_WORD)) {
+          if (sent.includes(id) && !doubt.includes(id) && noteHandSent(wakes, checked.chat, clock())) woke = true
+          if (failed.includes(id) && isSendRefusal(why[id]) && noteHandRefusedAlone(wakes, checked.chat, clock())) woke = true
           continue
         }
         const chat = wakeChatOf(id)
@@ -4442,6 +4459,27 @@ async function main(args) {
         // B812 (X109): checked and put in the outbox in one go, so a look that runs beside this one says none again.
         const stops = await sayStopWords(state, store, sentNow, now, () => randomBytes(8).toString('hex'))
         if (stops.length > 0) readState.reset()
+        // B1307 (F40): a late wait on a side chat: one word to that chat by a hand (its app id from the local side-chats.json, the one the
+        // app lists under the board's account), checked against the outbox and said in one go; none found: the record of why, so the
+        // person's card comes at once. A word whose wait ended, or that no hand sent within 10 min of running time, is closed (state.mjs).
+        if (!isHolding(state.pause)) {
+          let sides = 0
+          for (const { id, why } of state.sideWordsClose ?? []) if (await store.close(id, 'dropped', why, now)) sides += 1
+          const due = (state.sideWordsDue ?? []).filter(one => sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) === null)
+          if (due.length > 0) {
+            const chats = sideChatsOf((await readHead(localFile(config, SIDE_CHATS_FILE), 16 * 1024).catch(error => { loops.failed('side-chats', error); return null }))?.text ?? '')
+            const folders = await readAccountFolders(config.appSessions).catch(error => { loops.failed('side-chats-folders', error); return null })
+            const whereOf = folders === null ? null : id => listedWhere(id, folders, { account: state.account?.board ?? null })
+            for (const one of due) {
+              if (sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) !== null) continue
+              const word = sideWordFor({ late: one, worker: one.chat, wait: one.wait, found: sideSessionOf(one.who, chats, whereOf), now, overdue: one.overdue === true })
+              await store.say({ id: randomBytes(8).toString('hex'), ...word })
+              console.log(`B1307: ${word.state === 'waiting' ? `a word to ${one.who} about ${one.chat}'s late wait on ${one.id}` : `no word to ${one.who} about ${one.id} (${word.why})`} at ${timeOf(now)}.`)
+              sides += 1
+            }
+          }
+          if (sides > 0) readState.reset()
+        }
       }
       // Signals change 4: words that wait for a chat that is not running are the wake procedure's need (src/wake.mjs), no
       // start word by the clock any more. Only the board that delivers.
@@ -4626,7 +4664,7 @@ async function main(args) {
         // Only when the state this pass read shows a held ask (its quiet `held` line): with nothing held the call would be a full work call every 10 seconds.
         await loops.run('holds-ended', async () => {
           if (!heldIn(state)) return
-          const ended = await workAction({ action: 'holds-ended', gaps: state.gaps ?? [] }, 'server')
+          const ended = await workAction({ action: 'holds-ended', gaps: gapsNow(store, clock()) }, 'server')
           if (!ended.ok) throw new Error(ended.why ?? 'holds-ended was refused')
           await sendWakes(ended)
           if (ended.result.changed === true) readState.reset()
@@ -4669,7 +4707,7 @@ async function main(args) {
         },
         // B736 (X89: work health timed out twice while the board was busy): the health summary reads what the board has.
         assets: () => assetRequests(),
-        keptState: () => readState.last() ?? null,
+        keptState: () => keptSinceJump(readState, clock()),
         keptItems: () => work.last?.()?.items ?? null,
         outbox: () => store.outbox(),
         keep,

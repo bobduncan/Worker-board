@@ -453,7 +453,8 @@ export function decide({ worker, peers = [], setsRefused = false, nextCheckAt = 
     const isLanding = typeof landing === 'string' && landing !== '' && typeof branch === 'string' && logBranchName(branch) !== '' && logBranchName(branch) === logBranchName(landing)
     if (isLanding && timed.giveBack !== null) return result(STATES.WORKING, null, { step: id, asked: timed.asked, giveBack: null, close: null, envelope: null, goOn: null, landing })
     const resume = timed.resume === null ? null
-      : { kind: RESUME_KIND, step: null, clear: null, restart: false, set: null, line: timed.resume.line, back: null, resume: timed.resume.marker }
+      // B1294: with its give-back's minutes, so rule 8 waits for that cure before it names the line (holderTimers.mjs `goOnWaitMs`).
+      : { kind: RESUME_KIND, step: null, clear: null, restart: false, set: null, line: timed.resume.line, back: null, resume: timed.resume.marker, giveBackMs: timers.giveBackMs ?? GIVE_BACK_MINUTES * MIN }
     return result(STATES.WORKING, null, {
       step: id, asked: timed.asked, giveBack: timed.giveBack, close: timed.close, envelope: resume,
       goOn: resume === null ? null : { step: id, chat: name, since: timed.since },

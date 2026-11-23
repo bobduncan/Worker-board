@@ -52,6 +52,7 @@ import { recapsOf } from './work/recap.mjs'
 import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
 import { AWAY_LINE } from './appAccount.mjs'
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
+import { isAskedSide, isLimitFull, sideClosesOf, sideKeyOf, sideStateOf, sideWordOf } from './work/sideWord.mjs'
 import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, backgroundNoNewsOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { EFFORTS, effortPlan, planWordsFor, probeOf, runSettings, setsRefusedOf } from './work/effort.mjs'
@@ -1184,7 +1185,7 @@ function needsOf(asks, lanes, outbox, gameOf, now, base = 'main', { advisor = nu
       // The asset wait (2026-11-11): the provider is past its own time limit for the job; the step stays with its holder here too.
       text: flag.kind === 'asset'
         ? `${lane.name} asked ${flag.who} for ${flag.asset} (${flag.name ?? flag.asset}) and waits for it (${flag.what}); ${flag.who} has had it ${flag.minutes} minutes, past its time limit for one job. The board holds the step for ${lane.name}: no "go on" line, nothing given back. Look at ${flag.who} on the Settings tab, or tell ${lane.name} in its chat to go on without it.`
-        : `It recorded at ${hourMinute(flag.since)} that it waits for ${flag.who} (${flag.what}) and has waited ${flag.minutes} minutes of the board's running time. The board holds its step for it: no "go on" line, nothing given back. Ask ${flag.who} for its answer, or tell ${lane.name} in its chat to go on without it (work unblock ${flag.id ?? 'B<n>'}).`,
+        : `It recorded at ${hourMinute(flag.since)} that it waits for ${flag.who} (${flag.what}) and has waited ${flag.minutes} minutes of the board's running time.${typeof flag.note === 'string' ? ` Then ${flag.note}.` : ''} The board holds its step for it: no "go on" line, nothing given back. Ask ${flag.who} for its answer, or tell ${lane.name} in its chat to go on without it (work unblock ${flag.id ?? 'B<n>'}).`,
       at: flag.since,
       ...blank,
       // No `workId`: the page reads that as an ask of the store (storeAskParts); `step` names the step.
@@ -1877,6 +1878,17 @@ const spellReportOf = (lane, kept = null) => {
   return report === null ? lane?.ownReport ?? null : { state: report.state, since: report.since ?? null, at: report.at, run: report.run ?? null, ...(Number.isFinite(report.heardAt) ? { heardAt: report.heardAt } : {}) }
 }
 
+
+/**
+ * B1304 (chat 1's review 3, 1): the wake notice of the workers the hand-out passed over says what came of their place: a new worker is asked
+ * for in it, or none as the last launch (HH:MM) started no chat. The notice as it was without a notice or a replacement.
+ */
+function withReplacement(notice, replacement, timeOf = hourMinute) {
+  if (notice === null || replacement === null) return notice
+  const line = replacement.asked === true ? 'a new worker is asked for in its place'
+    : Number.isFinite(replacement.heldAt) ? `no new worker in its place: the last launch (${timeOf(replacement.heldAt)}) started no chat` : null
+  return line === null ? notice : { ...notice, text: `${notice.text} · ${line}` }
+}
 export function buildState(raw, options) {
   // B917 (X93): the fixes and asks of every step from one index of the store per rebuild (work/links.mjs).
   return withLinks(raw?.work?.items, () => builtState(raw, options))
@@ -1989,7 +2001,11 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       .filter(one => !['done', 'dropped'].includes(raw.work.items.get(one)?.head.get('State') ?? 'done'))
     // B363: a step taken with branch none has its work outside git: no branch to show or play.
     // P1: the holder's recorded wait on a chat (`Waits on`), or null.
-    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null, blockedBy, waitsOn: waitsOnOf(item), ...savedWith(item) }
+    // B1307: a wait on a side chat the board asked (its word went): "asked chat 1 at 12:19" on the lane, plain.
+    const wait = waitsOnOf(item)
+    const word = wait !== null && isAskedSide(wait.who) ? sideWordOf(stepWords, sideKeyOf(id, wait)) : null
+    const waitsOn = word?.state === 'delivered' && Number.isFinite(word.deliveredAt) ? { ...wait, asked: `asked ${wait.who} at ${hourMinute(word.deliveredAt)}` } : wait
+    return { id, title: withoutNotes(item.head.get('Title') ?? ''), minutes: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), branch: branch === undefined || branch === '-' || branch === '' || branch.toLowerCase() === 'none' ? null : branch, about: null, blockedBy, waitsOn, ...savedWith(item) }
   }
   // B438, the review: every step the store holds for a chat and is not finished with, with its state, oldest first.
   // Rule 15: whether every open ask under the step is held for the person's words (and there is one).
@@ -2560,6 +2576,20 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
         limitMs: (Number.isInteger(config.waitOnMinutes) ? config.waitOnMinutes : 90) * MIN,
       })
     }).filter(one => one !== null)
+  // B1307 (F40): a late wait on a side chat ("chat 1".."chat 4") goes to that chat first: one word by a hand's send (work/sideWord.mjs),
+  // the person's card only once it went SIDE_ANSWER_MS of running time ago with no answer, or at once when it could not go (with why).
+  // `sideWordsDue` the late side waits with no word yet: the delivering board's look says one each (server.mjs). Read from every word,
+  // also long ago (`stepWords`), so a word that went stays found and is never said twice.
+  const sideRunningMs = from => { const since = afterPause(pauseRecord, from); return now - since - offMsOf(gaps, now)(since) }
+  // Chat 1's review: no word while a limit is full; `sideWordsClose` the words still to go whose wait ended or whose time for a hand is over.
+  const limitFull = isLimitFull(limits)
+  const lateSides = lateWaits.map(late => ({ late, side: sideStateOf({ late, word: isAskedSide(late.who) ? sideWordOf(stepWords, sideKeyOf(late.id, late.wait)) : null, runningMs: sideRunningMs, isFull: limitFull }) }))
+  const sideWordsDue = lateSides.filter(one => one.side.due && one.late.id !== null).map(({ late, side }) => ({ id: late.id, who: late.who, chat: late.chat, wait: late.wait, since: late.since, overdue: side.overdue }))
+  const sideWordsClose = !workOk || isHolding(pauseRecord) ? [] : sideClosesOf({
+    words: stepWords, isFull: limitFull, runningMs: sideRunningMs,
+    liveKeys: new Set([...raw.work.items.values()].filter(item => item.head.get('Kind') === 'step' && ['taken', 'in progress'].includes(item.head.get('State')) && waitsOnOf(item) !== null).map(item => sideKeyOf(item.head.get('Id'), waitsOnOf(item)))),
+  })
+  const lateCards = lateSides.filter(one => !one.side.hold).map(({ late, side }) => (side.note === null ? late : { ...late, note: side.note }))
   // The asset wait (2026-11-11): a request of a holder for its step past the provider's time limit for a job (work/assetWait.mjs
   // `lateAssetsOf`): one Late per request, "Codex has not delivered A224 since 10:43"; the step stays with its holder.
   const lateAssets = !workOk || isHolding(pauseRecord) || assetRecords.length === 0 ? [] : [...raw.work.items.values()]
@@ -2628,7 +2658,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     settings: { maxWorkers: config.maxWorkers, followUpMinutes: config.followUpMinutes, handOutBeyondFocus: config.handOutBeyondFocus === true, offAfterMinutes: config.offAfterMinutes, handover: config.handover ?? 'sequence' },
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
     // B1279 (X205): with the wake record, the hand-out starts a worker through the one wake procedure, and only one it can wake.
-    wakeable: (wakes?.record ?? null) === null ? null : wakeableOf(chats, wakes),
+    wakeable: (wakes?.record ?? null) === null ? null : wakeableOf(chats, wakes, now),
   })
   // B468: what each worker runs at for its step, and the words that have the main chat set it (none without the Workers
   // mod). Model per step: its model too, by the settings' model ids, and the usual setting between steps from the settings.
@@ -2871,7 +2901,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true,
       // B1279 (X205): the outbox sweep closes a waiting start word of the hand-out once the wake procedure starts workers; the notice
       // keeps "could not wake ...; open its chat" for a worker the hand-out passed over while ready work waits.
-      startsByWake: reconciled.startsByWake === true, passedOver: reconciled.passedOver ?? [] },
+      startsByWake: reconciled.startsByWake === true, passedOver: reconciled.passedOver ?? [], replacement: reconciled.replacement ?? null },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
@@ -2895,7 +2925,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     },
     // Focus 4: the partner's cards marked, for the group "From your partner".
     forYou: markPartner([
-      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, helper: helperLane, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold'), late: [...lateWaits, ...lateAssets], held: !workOk ? [] : heldAsksOf(raw.work, { names: chatNames, prefix }) }),
+      ...needsOf(asks, lanes, sent, gameOf, now, config.baseBranch, { advisor: advisorCard, advisorWaits, helper: helperLane, waits, idle: (reconciled?.flags ?? []).filter(flag => flag.kind === 'idle hold'), late: [...lateCards, ...lateAssets], held: !workOk ? [] : heldAsksOf(raw.work, { names: chatNames, prefix }) }),
       // B299: the store's asks, answered through POST /api/work.
       // B300: a blocking ask that waited longer than the ask time stands first (`isOld`).
       // Autopilot (2026-10-31): only what is routed to the person, while it is on (src/work/autopilot.mjs).
@@ -3014,6 +3044,10 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     pause: pause === null ? null : pause.state === 'away' ? pause : withReviewWaits(pause, raw.work.items, reconciled?.ready?.held ?? null, now, recapWaits),
     // B1273: which Claude account the app is on and the board's (src/appAccount.mjs `accountPicture`), null where not read.
     account: raw.account ?? null,
+    // B1307 (F40): the late side waits the board asks their side chat about (server.mjs says the word).
+    sideWordsDue,
+    sideWordsClose,
+    limitFull,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many
     // workers there are, and the newest ask for workers.
     workers: (() => {
@@ -3282,7 +3316,7 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   return {
     ...built, chats, ...roles,
     // P5: the kept reports the lanes read (the same `lane.report` the hasRunSince above reads), so the notice itself leaves out a chat that ran since its failed wake.
-    wakeNotice: noticeOf(record, targets, now, ms => sinceClock(ms, now), { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
+    wakeNotice: withReplacement(noticeOf(record, targets, now, ms => sinceClock(ms, now), { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }), built.reconciled?.replacement ?? null, ms => sinceClock(ms, now)),
     wakes: newestSpells(record),
     // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
     wakeBoardSince: nobody?.since ?? null,

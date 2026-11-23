@@ -95,7 +95,7 @@ test('every work call is counted with the rebuilds that started during it, and t
   const stall = bodyOf('  const callStall = (action, session) => {')
   assert.match(stall, /const rebuildsBefore = rebuilds/)
   assert.match(stall, /workCalls\.note\(\{ action, chat, ms: clock\(\) - begun, rebuilds: rebuilds - rebuildsBefore, at: begun \}\)/)
-  assert.match(server, /const readState = cached\(\(\) => trackJob\('state rebuild', async \(\) => \{\n\s+rebuilds \+= 1/)
+  assert.match(server, /const readState = cached\(\(\) => readAfterSleep\(built => trackJob\('state rebuild', async \(\) => \{\n\s+rebuilds \+= 1/)
   assert.match(server, /workCalls: workCalls\.today\(clock\(\)\),/)
   assert.match(server, /await workCalls\.load\(\)/)
   // The state carries the figures; the view and the health summary say them in one line, odd once a call took over 5 s.
