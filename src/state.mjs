@@ -46,7 +46,7 @@ import { advisorNextOf, advisorWorkOf, leaveOut } from './work/advisorWork.mjs'
 import { openQaTaskOf, qaStandOf } from './work/qaTask.mjs'
 import { holdsRefine } from './work/refineWait.mjs'
 // P7 (the review): the refine gate's own ask, read by the one status per step too (src/stepStatus.mjs).
-import { refineAsk, removalAsk } from './work/askOpen.mjs'
+import { newestRefines, refineAsk, removalAsk } from './work/askOpen.mjs'
 export { refineAsk } from './work/askOpen.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
@@ -1894,6 +1894,9 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const stepWords = Array.isArray(words)
     ? words.map(message => (isPaused && message.state === 'waiting' && message.command !== 'resume' ? { ...message, isHeld: true } : message))
     : sent
+  // F46: the newest refine word per step, once per build (neither list changes below): a walk of the words per step was 11% of a build.
+  const newestSent = newestRefines(sent)
+  const newestWords = stepWords === sent ? newestSent : newestRefines(stepWords)
   const started = Array.isArray(runs) ? runs : []
   const list = parseList(textOr(raw.listText, ''))
   // The start of the project's chat titles, for reading their words; '' while the list of chats is not right.
@@ -2724,8 +2727,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // T9.4 (the person, 2026-10-26: refines and incidents the Advisor took must not get lost): a refine word it took stays in its
   // list until the block is written or the step leaves new, not for half an hour only (the supervisor asks it again meanwhile).
   const refinesOpen = overviewed.flatMap(activity => activity.steps).flatMap(step => {
-    const ask = refineAsk(step, sent, now, Infinity)
-    const word = ask?.isOpen === true ? sent.findLast(one => one.command === 'refine' && one.about === step.id) : undefined
+    const ask = refineAsk(step, sent, now, Infinity, newestSent)
+    const word = ask?.isOpen === true ? newestSent.get(step.id) : undefined
     const item = raw.work?.items?.get(step.id)
     return word !== undefined && (item === undefined || holdsRefine(valueOf(item, 'State'), word)) ? [{ id: step.id, title: titleOf(step.id) ?? step.title, word }] : []
   })
@@ -2822,7 +2825,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const viewRefine = (step, item) => {
     if (step.id === null) return { refineGroup: refineStateOf({ refined: step.refined }), refineStopped: null }
     const plain = refineStateOf({ refined: step.refined })
-    const where = refineStateOf({ refined: step.refined, refineAsk: refineAsk(step, stepWords, now) })
+    const where = refineStateOf({ refined: step.refined, refineAsk: refineAsk(step, stepWords, now, undefined, newestWords) })
     const stop = where === 'none' || where === 'answered' ? refineStop({ ...step, item }, stepWords) : null
     return { refineGroup: refineGroupOf(stepStatus[step.id] ?? null, stop === null ? where : 'stopped', plain), refineStopped: stop }
   }
@@ -2940,7 +2943,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       ...activity,
       steps: activity.steps.map(step => {
         // B233: whether the Advisor was asked to refine it and has not written that round yet.
-        const asked = refineAsk(step, sent, now)
+        const asked = refineAsk(step, sent, now, undefined, newestSent)
         const read = itemOfStep(raw.work, step.key)
         // Model per step: its model only where the settings name the model ids.
         const item = read === null || hasModels ? read : { ...read, model: null }
