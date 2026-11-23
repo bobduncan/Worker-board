@@ -73,7 +73,8 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   const started = []
   t.after(async () => {
     await Promise.all(started.map(stop))
-    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    // B1304: Windows can hold a stopped board's files for seconds (EBUSY); up to about 30 s before the cleanup fails the test.
+    await rm(dir, { recursive: true, force: true, maxRetries: 60, retryDelay: 500 })
   })
   const [board, project, app, transcripts] = ['board', 'project', 'app', 'transcripts'].map(name => join(dir, name))
   for (const part of COPIED) await cp(join(ROOT, part), join(board, part), { recursive: true })

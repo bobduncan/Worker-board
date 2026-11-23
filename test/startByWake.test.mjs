@@ -147,9 +147,12 @@ test("B1304 (B1279's point 2, chat 1's review 1-3): a new worker in place of one
   const busy = [lanes[1]]
   for (const lastLaunch of [started, failed, null]) assert.deepEqual(workerStart({ ...base, lanes: busy, wakeable: { unwakeable: new Set(), waking: new Set(), lastLaunch } }), { spawn: 1 })
   assert.deepEqual(workerStart({ ...base, lanes: busy }), { spawn: 1 })
-  // Review 2: a new worker on its way (its spawn word waits): the notice keeps naming Worker 4.
+  // Review 2, re-check 2: a new worker on its way (its spawn word waits): the notice keeps naming Worker 4 and keeps saying a new one comes.
   const spawning = [{ id: 's1', command: 'spawn', count: 1, reported: 2, at: base.now - 60_000, state: 'waiting' }]
-  assert.deepEqual(workerStart({ ...base, lanes, sent: spawning, wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'] })
+  assert.deepEqual(workerStart({ ...base, lanes, sent: spawning, wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'], replaces: true })
+  // Re-check 2: not once the word is closed, nor past its wait.
+  assert.deepEqual(workerStart({ ...base, maxWorkers: 2, lanes, sent: [{ ...spawning[0], state: 'failed' }], wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'] })
+  assert.deepEqual(workerStart({ ...base, maxWorkers: 2, lanes, sent: [{ ...spawning[0], at: base.now - 11 * 60_000 }], wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'] })
   // Review 3: Worker 4 keeps its place under maxWorkers: with two places and Worker 3 running, no replacement (it may run again).
   assert.deepEqual(workerStart({ ...base, maxWorkers: 2, lanes, wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'] })
   assert.deepEqual(workerStart({ ...base, maxWorkers: 3, lanes, wakeable: { ...gone, lastLaunch: started } }), { spawn: 1, passedOver: ['Worker 4'], replaces: true })
@@ -157,6 +160,22 @@ test("B1304 (B1279's point 2, chat 1's review 1-3): a new worker in place of one
   const two = [...lanes, worker('Worker 1', { offSince: at(23, 27) })]
   assert.deepEqual(workerStart({ ...base, maxWorkers: 2, lanes: two, wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'] })
   assert.deepEqual(workerStart({ ...base, maxWorkers: 3, lanes: two, wakeable: { ...gone, lastLaunch: started } }), { start: 'Worker 1', byWake: true })
+})
+
+test("B1304 (chat 1's re-check 1): a passed-over worker with no report of its own keeps the cap of five, before and after it comes back", () => {
+  const busy = name => ({ name, state: 'working', isRunning: true, report: { state: 'busy', at: at(23, 53) } })
+  const running = [busy('Worker 1'), busy('Worker 2'), busy('Worker 3')]
+  const twoReady = [...ready, { ...ready[0], id: 'B1280' }]
+  const wakeable = { unwakeable: new Set(['Worker 4']), waking: new Set(), lastLaunch: { verdict: 'started', at: at(23, 30) } }
+  // Three run, Worker 4 is held with no report: the first new worker is the fifth chat. Its word counts Worker 4 as reported (deliver.mjs).
+  const lanes = [...running, worker('Worker 4', { report: null })]
+  assert.deepEqual(workerStart({ ...base, ready: twoReady, lanes, wakeable }), { spawn: 1, passedOver: ['Worker 4'], replaces: true })
+  const word = { id: 's1', command: 'spawn', count: 1, reported: 4, at: base.now - 60_000, state: 'waiting' }
+  // Replay 1: with that word on its way a second ready task asks for no sixth chat.
+  assert.deepEqual(workerStart({ ...base, ready: twoReady, lanes, sent: [word], wakeable }), { passedOver: ['Worker 4'], replaces: true })
+  // Replay 2: Worker 4 comes back and reports before the new worker does: its report is not the new worker's, so still no sixth chat.
+  const back = [...running, busy('Worker 4')]
+  assert.equal(workerStart({ ...base, ready: twoReady, lanes: back, sent: [word], wakeable: { ...wakeable, unwakeable: new Set() } }), null)
 })
 
 test("B1304: the last launch is the record's newest launch with a verdict (any chat's, the board-wide spell's), recent, after the app's return, not cut off by a restart", () => {

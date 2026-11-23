@@ -340,6 +340,12 @@ export function match({ ready = [], idle = [], items, prefix = '', mayTake = () 
   return given
 }
 
+/** A start or spawn word of the last START_WAIT_MS that did not fail. */
+const isStartOpen = (word, now) => Number.isFinite(word.at) && now - word.at < START_WAIT_MS && !['failed', 'expired', 'dropped'].includes(word.state)
+const isSpawnWord = word => word.command === 'spawn' && Number.isFinite(word.reported)
+/** How many of a spawn word's new workers have not reported yet, by how many workers had reported when it went (`word.reported`). */
+const spawnsLeft = (word, reported) => Math.max(0, (Number(word.count) || 1) - Math.max(0, reported - word.reported))
+
 /**
  * The workers on their way (the review of 2026-10-25: one ready task made two spawns): a worker of the list the main
  * chat was asked to start in the last START_WAIT_MS that has not reported since, and the board's own asks for new
@@ -349,8 +355,8 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
   const reported = workers.filter(lane => lane.report != null).length
   let pending = 0
   for (const word of sent) {
-    if (!Number.isFinite(word.at) || now - word.at >= START_WAIT_MS || ['failed', 'expired', 'dropped'].includes(word.state)) continue
-    if (word.command === 'spawn' && Number.isFinite(word.reported)) pending += Math.max(0, (Number(word.count) || 1) - Math.max(0, reported - word.reported))
+    if (!isStartOpen(word, now)) continue
+    if (isSpawnWord(word)) pending += spawnsLeft(word, reported)
     if (word.command === 'start') {
       const lane = workers.find(one => plain(one.name, prefix) === plain(word.about, prefix))
       // T13 part 3: an asleep worker's start (its task's line wakes it) is counted as the worker it is already, not twice.
@@ -402,11 +408,12 @@ function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, pre
   // its way may already show as a lane with no report yet: those and the pending starts are the same chats, counted once.
   // B1304 (chat 1's review 3): an off worker the board cannot wake now still holds its place under `maxWorkers`: it may run again (the app's
   // return, the person opening it as the notice says), and a replacement beside it would then make one too many.
-  const holdsPlace = lane => !isOff(lane) || unwakeable.has(lane.name)
+  // Counted apart (chat 1's re-check 1): one with no report of its own is never "the same chat" as a new worker on its way.
   const isFull = (others = workers) => {
-    const running = others.filter(holdsPlace)
+    const held = others.filter(lane => isOff(lane) && unwakeable.has(lane.name)).length
+    const running = others.filter(lane => !isOff(lane))
     const reporting = running.filter(lane => lane.report != null).length
-    return reporting + Math.max(running.length - reporting, pending) >= maxWorkers
+    return held + reporting + Math.max(running.length - reporting, pending) >= maxWorkers
   }
   const pinnedTo = pinnedStart({ ready, handed, refusedIds, workers: workers.filter(mayStart), scratch, items, sent, now, prefix, offAfterMs, isOff })
   if (pinnedTo !== null) return isFull(workers.filter(lane => lane !== pinnedTo.lane)) ? null : { start: pinnedTo.lane.name, pinned: pinnedTo.id }
@@ -429,7 +436,10 @@ function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, pre
   // stands for them for as long as the ready work waits (never "nothing waits for it"); B1304 (chat 1's review 2): also while a start
   // or a new worker is on its way, or the workers are full.
   const passedOver = offs.filter(lane => unwakeable.has(lane.name)).map(lane => lane.name)
-  const none = passedOver.length > 0 ? { passedOver } : null
+  // B1304 (chat 1's re-check 2): while the new worker asked for in their place is on its way, the notice keeps saying so.
+  const reportedNow = workers.filter(lane => lane.report != null).length
+  const isReplacing = sent.some(word => isStartOpen(word, now) && isSpawnWord(word) && spawnsLeft(word, reportedNow) > 0)
+  const none = passedOver.length === 0 ? null : isReplacing ? { passedOver, replaces: true } : { passedOver }
   if (givable - pending <= 0 || isFull()) return none
   const off = offs.filter(mayStart).sort((a, b) => (a.offSince ?? 0) - (b.offSince ?? 0) || byId(a.name, b.name))[0]
   if (off !== undefined) return { start: off.name }

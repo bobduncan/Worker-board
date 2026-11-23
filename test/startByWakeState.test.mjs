@@ -161,6 +161,14 @@ test('B1304 (B1279\'s point 2) through the pass: Worker 5 failed every way, but 
   await deliver(t, built, outbox)
   assert.deepEqual(outbox.outbox().filter(one => one.command === 'spawn').map(one => one.to), ['Main'], 'the new worker\'s word')
   assert.deepEqual(outbox.outbox().filter(one => one.command === 'start'), [], 'never a start word for Worker 5')
+  // Chat 1's re-check 1: Worker 5 has no report of its own, and the word counts it as reported, so its later report is not the new worker's.
+  assert.equal(lane(built, 'Worker 5').report ?? null, null)
+  assert.equal(outbox.outbox().find(one => one.command === 'spawn').reported, 1)
+  // Chat 1's re-check 2: the next pass, with the word on its way: no second word, and the notice still says a new one comes.
+  const next = state({ record, outbox: outbox.outbox() })
+  assert.equal(next.reconciled.start, null)
+  assert.deepEqual(next.reconciled.replacement, { asked: true })
+  assert.match(next.wakeNotice?.text ?? '', /; open its chat · a new worker is asked for in its place$/)
 })
 
 test("B1304 (chat 1's review 1) through the pass: the last launch started nothing: no new worker in Worker 5's place, and the notice says so", () => {
