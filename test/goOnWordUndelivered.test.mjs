@@ -77,6 +77,19 @@ test('every other word keeps the plain limit: a step\'s hand-over to a free work
   assert.deepEqual(named([{ ...GO_ON }, { ...TASK }], AT + 11 * MIN, tasks), ['task-word'])
 })
 
+test('B1386: a go-on line whose typing failed, or that expired, waits its give-back and the limit too (mutant: the plain 10 min on this path)', () => {
+  const failed = { ...GO_ON, state: 'failed', failedAt: AT + MIN, settledAt: AT + MIN, why: 'the line could not be typed' }
+  const expired = { ...GO_ON, state: 'expired' }
+  for (const word of [failed, expired]) {
+    assert.deepEqual(named([{ ...word }], AT + 11 * MIN), [], `${word.state}: not named at 11 min, its give-back is not due`)
+    assert.deepEqual(named([{ ...word }], AT + 24 * MIN), [], `${word.state}: not named at 24 min`)
+    assert.deepEqual(named([{ ...word }], AT + 25 * MIN + 1_000), [word.id], `${word.state}: named past its give-back and the limit`)
+  }
+  // Every other word that failed keeps the plain limit.
+  const tasks = new Map([...held, item('B1300', 'queued', 'Worker 4')])
+  assert.deepEqual(named([{ ...TASK, state: 'failed', failedAt: AT + MIN, settledAt: AT + MIN, why: 'the line could not be typed' }], AT + 11 * MIN, tasks), ['task-word'])
+})
+
 test('review 1: the board off while the line waits (a stop or PC sleep) does not count, as for the give-back (mutant: wall time)', () => {
   // The verifier's probe: the board off from 3 to 33 min after the line; the give-back comes at 15 min of running time (46 min).
   const off = [{ from: AT + 3 * MIN, to: AT + 33 * MIN }]
