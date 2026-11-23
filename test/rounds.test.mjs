@@ -75,6 +75,10 @@ test('the clock\'s line says it is the clock\'s, names the job and the project\'
   assert.match(lines[1], /^Your job: C:\\board[\\/]roles[\\/]partner\.md$/)
   assert.match(text, /Read first: docs\/vision\.md/)
   assert.match(text, /under "Advisor suggestions"/)
+  assert.match(text, /^The backlog: C:\\game[\\/]\.claude[\\/]backlog\.md \(/m, 'A1: today the view is in the project')
+  // T5.2 A1: with the data home set the briefing names the view under <data>/local, never the game checkout.
+  const moved = roundText('morning', { board: 'C:\\board', config: { ...config, data: 'C:\\game\\.workerboard' } })
+  assert.match(moved, /^The backlog: C:\\game\\\.workerboard[\\/]local[\\/]backlog\.md \(/m)
   assert.match(text, /not the user's word/)
   assert.ok(isClockLine(text) && !isClockLine('Round two, please'))
   const typed = messageText({ at: 2, ask: null, command: 'round', text }, () => '09:00')

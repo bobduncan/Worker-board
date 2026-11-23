@@ -45,7 +45,7 @@ import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
-import { assetsOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, wordsPath } from './src/projectPaths.mjs'
+import { assetsOf, backlogViewOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -119,7 +119,7 @@ import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
 import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
-import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
+import { landingRestarts, lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { parseList, readAccountFolders } from './src/appChats.mjs'
@@ -1084,7 +1084,8 @@ async function main(args) {
       return null
     }
   }
-  const viewFile = workDir === null ? null : !isShowOnly ? resolveStored(config, config.backlog) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
+  // T5.2 A1: the generated view is a runtime file (`backlogViewOf`: `<data>/local/backlog.md` once the data moves), never written into the game checkout.
+  const viewFile = workDir === null ? null : !isShowOnly ? backlogViewOf(config) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
    * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's (the page's route,
@@ -1814,6 +1815,9 @@ async function main(args) {
     // The Product owner (2026-10-31): its talks' drafts, asks and notes (work/api.mjs OWNER_MAY), nothing of a worker's.
     if (state.productOwner) roles.set(state.productOwner.name, 'owner')
     return {
+      // T5.2 A3 (chat 1's review, finding 11): the store's path as the chat reaches it, for the step files a take or next answer names
+      // (work/api.mjs rowWordsBlock); before, only the evaluate word had it and the answers fell back to the default prefix.
+      workPrefix: `${wordsPath(config, workFolder(config))}/`,
       // The supervisor's Task 5: the board's health summary for the supervisor chat's sweep (src/supervisor/health.mjs).
       ...(supervisor === null ? {} : { health: () => supervisor.health() }),
       // P1 of the one wait system: the limit of a recorded wait on a chat, for the work API's answer (src/work/waitsOn.mjs).
@@ -1850,7 +1854,7 @@ async function main(args) {
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
       chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
-      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: resolveStored(config, config.backlog),
+      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: backlogViewOf(config),
       // Part C of the asset providers: the requests' folder and the provider in use for each kind (the work tool's `asset`).
       ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
@@ -4695,7 +4699,7 @@ async function main(args) {
         // and the close of one (its tree, each process while its creation time holds; the tool's own folder); Windows only, and only on
         // the PC's first board (chat 1's review: three boards on this PC would each close the same browser and split the leak count), the
         // landing read right before the kill.
-        ...(closesBrowsers ? { processes: () => windowsProcesses.list(), closeBrowser: one => closeLeaked(one, { landing: () => { const held = lockHolder(join(HERE, 'data', 'landing.lock'), clock()); return held !== null && held.ageMs < STALE_LOCK_MS } }) } : {}),
+        ...(closesBrowsers ? { processes: () => windowsProcesses.list(), closeBrowser: one => closeLeaked(one, { landing: () => landingRestarts(lockHolder(join(HERE, 'data', 'landing.lock'), clock()), { staleMs: STALE_LOCK_MS }) }) } : {}),
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),
@@ -4703,7 +4707,8 @@ async function main(args) {
         // P2 (T2.11), the rule faults-gone: what stands in each repository now, whether a landing runs (data/landing.lock, a lock not
         // stale), when this board started, and the steps whose check runs now.
         branches: () => faultsNow({ repos: knownRepos(), run: gitRunner() }),
-        landing: () => { const held = lockHolder(join(HERE, 'data', 'landing.lock'), clock()); return held !== null && held.ageMs < STALE_LOCK_MS },
+        // F39, review 7: only a landing in its 'land' phase whose process runs (a gate can take an hour).
+        landing: () => landingRestarts(lockHolder(join(HERE, 'data', 'landing.lock'), clock()), { staleMs: STALE_LOCK_MS }),
         startedAt: () => startedAt,
         checking: () => [...runningChecks.keys()],
         // B482: what the main chat was told and since when a wait was seen, kept over a restart
