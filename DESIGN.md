@@ -1629,6 +1629,9 @@ in `art-inbox/worker-board/b262/`.
   a time (per area: how many tasks, the typical working time, how far estimates were off; an area under 5 tasks is
   still a guess), and shows "Estimates lately: 7x too high" on the Overview (its tooltip per area) and "estimate 1 h,
   took 6 min" in the Backlog tab's "Recently finished". The tasks of one step are one there. Nothing is kept by hand.
+  F42: a step's estimate is its refine Size (else the minutes of its take); a task kept without one takes it where it is read
+  (`withStepSizes`), so "Estimates lately" reads the newest ten tasks, not those from before the `Estimate` head line went out of use.
+  It says only those ten (1.6x too high on 2026-11-23); over all 329 tasks with an estimate the typical figure was about 6x.
   The picture: `art-inbox/worker-board/2026-10-14-b185-task-times.png`.
 - An estimate older than 15 minutes of work is marked as old. In step 4 the mod reminded a working chat to renew it (the
   reminder was dropped in 0.25.1 with the classic hooks: the person knows, and it was small).
@@ -2274,7 +2277,8 @@ iterfere with dota ... dont make the mode specific to dota": Strong (Idle on hal
 lagged the game (78% CPU: the board's own server and the vite servers ran at Normal).
 
 - **Two choices** the person picks, one click each, no game detection: **Full** (Normal priority, all cores, efficiency
-  mode off) and **Low** (Idle priority on the last two logical cores, efficiency mode on). Kept in `data/cpu.json`, so
+  mode off) and **Low** (what the chats and the board start: Idle priority on the last two logical cores, efficiency mode on;
+  the chats themselves at BelowNormal on all cores, F44). Kept in `data/cpu.json`, so
   it survives a restart; `cpuLimit` in config.json gives the level until one is clicked ("full" unless set). A level
   saved before reads on (`parseLevel`): "strong" is Low, "off" and "gentle" are Full. A copy of the board beside the
   person's starts at Full whatever config.json says, and applies only what was clicked on it.
@@ -2297,11 +2301,38 @@ lagged the game (78% CPU: the board's own server and the vite servers ran at Nor
   once from outside (`setPriority`): a board at Idle starts its helper at Idle, which a busy PC starved for minutes. Full
   lists nothing at all, apart from three passes (`RESTORE_PASSES`) right after Low was switched off, which give every
   chosen process Normal, all cores and efficiency mode off back (a process born while Low was on inherited it). A process that
-  cannot be set (gone, access denied) is passed over quietly and not tried again at that level; a listing that fails is
+  cannot be set (gone, access denied) is passed over quietly and not tried again at that level, except a chat's own process,
+  which is tried each pass until it took (F44); a listing that fails is
   one red line on top, gone at the next listing that works.
 - **The board under Low** is limited like the rest and stays so across its own restart (B735). Under Full its first
   pass gives the board and its keeper Normal and all cores (`boardChanges`), since a chat that started the board
   handed its own Idle priority on (B440); that pass is tried again each pass until Windows took both.
+- **The chats under Low (F44, 2026-11-23).** Five chats lost their Workers mod ("Link gone"), all under Low: at Idle on two crowded cores
+  a chat's hooks thread starved (hooks took up to 287 s) and the CLI's watchdog, which reads 5 s without an answer as a crash, unloaded the
+  mod until the process restarted. So a chat's own `claude.exe` (`isChatProcess`: a session named by an argument of its own, never words in
+  a quoted prompt, and no one-off `claude -p`, which is limited with its tree) runs at BelowNormal
+  on all cores with efficiency mode off (`CHAT_PRIORITY`, `chatChanges`), first in each pass: set once, and again only when Windows reports
+  another priority. Above all Idle work, below a game. Windows hands BelowNormal and all cores to what the chat starts, so a child is born
+  below the game and the next pass (`refreshSeconds`) limits it to Idle on the last two cores; a limited child's own children inherit
+  Idle. Full gives the chats Normal back. **What Low no longer promises:** it keeps the project below a game, not off it.
+  - A game that loads all logical cores for 5 s can still starve a chat's hooks thread, and the watchdog then unloads its mod.
+  - Until the next pass a new child runs at BelowNormal on all cores: below the game's threads, beside whatever else is below them.
+  - A test run started in that window counts 24 cores, starts its 12 vitest workers, and is then squeezed onto 2 cores: it runs slowly
+    until it ends. Accepted: Low is for playing, and a run started under it is expected to be slow.
+- **What Low left behind (F44).** A process whose parent is gone is in no tree, so Full's restore missed it (a test run stayed at Idle on
+  two cores). The restore passes also give back `strandedProcesses`: Idle, on exactly Low's cores (read by `MASK_SCRIPT`, which sets
+  nothing), a tool's program (`STRANDED_NAMES`: never a game, a browser or the desktop app), its parent gone, and what it started with the
+  same mark. Without a reading of the cores none is touched.
+- **What a chat started whose starter ended before the next pass (F44).** It is in no tree and would stay at BelowNormal on all cores for
+  life. `orphansOf` limits it under Low and Full gives it back. It is told apart by all of: a tool's program, exactly BelowNormal (a program
+  of the person's starts at Normal), its parent gone, and born since Low was switched on. The command line is no test: on the live PC 0 of
+  24 `node.exe` under the chats named the project's folder. **What this can get wrong:** a program of the person's with a tool's name that
+  a launcher started at BelowNormal during Low and then left. It runs at Idle until Full gives it back.
+  Accepted too (chat 1's final check): a worker a remembered orphan starts during Full, a helper of another program that runs at BelowNormal
+  (ASUS Armoury's do) limited until Full, `-p` as another flag's value, and doubled quotes in a command line.
+  The board remembers what it limited or gave back outside a tree (`pid@created`, in memory), so Low, Full, Low limits it again.
+- **No compiler (F44).** The efficiency call is made with Reflection.Emit, not `Add-Type`: each set used to start the C# compiler, and sets
+  that did not end cleanly left about 31,000 files in Temp. A failing efficiency call stops nothing: priority and cores are set first.
 - **Windows only.** Elsewhere the control says "not available here" and nothing runs; `POST /api/cpu` answers 409.
 - **The head** shows the level lit and what applies: "full power", or "15 processes on 2 cores, lowest priority: tests
   and builds run slower". `POST /api/cpu {level}` takes the click, from the board's own page only (token, origin, JSON,
@@ -4378,6 +4409,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
   state read under a second ago.
+  F42 (X213, X214: a 47 h PC sleep in the middle of a state rebuild): a state built more than the gap time (`GAP_MS`) before its read
+  ended is read once more (`src/afterSleep.mjs`). The hold's end takes its gaps at the call (`gapsNow`), and the Supervisor's health and
+  sweep checks leave a kept state from before such a jump (`keptSinceJump`). Other readers of `readState.last()` can still see one until
+  the next read.
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
@@ -7592,7 +7627,7 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   `work block id=B<n> on="chat 1" why="its go to land"`: only the owner of a taken or in-progress step; `who` a chat of the board
   (the list's names, with or without the prefix) or a side chat "chat 0" to "chat 4"; an id (B/Q/X/I, any case), the person ("you",
   "the person", "me") and the own name are refused with "a wait on the person is a blocking ask; a wait on a fix is on=B<n>". The
-  same who again keeps the first since (the record stands, `changed: false`). `work unblock id=B<n>` (no `on`, or `on=<who>`): the
+  same who again keeps the first since (the record stands, `changed: false`), except that on a side chat ("chat 1" to "chat 4") a new why is a new wait with a fresh clock (B1307); on a board chat it changes nothing. `work unblock id=B<n>` (no `on`, or `on=<who>`): the
   owner, the main chat or the person clear it; another worker gets 403; without a chat wait an unblock with no `on` is B306's clear
   of `Waits for`, as before. A report, a take and a give-back (the board's and a take-back of a given task) clear it too.
 - **The lane**: a stopped chat (its report idle while it holds the step: interrupted) whose step records a wait is parked on
@@ -7613,6 +7648,27 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   with its holder, and ONE Late under Needs your attention (`lateWaitOf`, kind `wait late`, the page's KINDS "Waits late"): "Worker 4
   waits for chat 1 (its go to land) since 11:24 (95 min) on B1081", the step linked in the title, with the person's action (ask the
   chat, or tell the worker to go on and unblock) and one way, "Open Worker 4's chat". The worker's own answer names the setting.
+- **A side chat is asked first** (B1307, F40; the person's "Yes, build F40", 2026-11-21: Worker 1 waited on chat 1 for B1300 from
+  10:49, the person got the Late at 136 min and carried it to chat 1 by hand). A late wait on "chat 1" to "chat 4" first gets ONE word
+  to that chat, by a hand's send (`src/work/sideWord.mjs`; hands.mjs `handJobs`, command `side-word`, the chat's own app id; start,
+  wake and the wake record untouched): "The worker board: Worker 1 waits for you on B1300 since 10:49 (<what>). Give it your answer,
+  or tell it to go on without you; the person is asked in 30 minutes if it still waits." The delivering board's look says it (server.mjs, from the state's
+  `sideWordsDue`), checked against the outbox in one go. Its key is the step and the wait's own minute, so a renewed block is a new
+  wait with a new clock, and the word is an outbox record: a board restart finds it and says none again. The Late waits while the
+  word waits for a hand (`SIDE_HAND_MS`, 10 min; past it the board gives the word up) and `SIDE_ANSWER_MS` (30 min) of running time
+  after it went; the lane says "...; asked chat 1 at HH:MM" meanwhile (plain). Answered is the wait cleared, renewed or the step moved:
+  the Late never comes. Unanswered, the Late comes as before with "Then the board asked chat 1 at HH:MM; no answer in 30 min." The ids
+  are this PC's, never in git: the local runtime file `side-chats.json` (projectPaths.mjs `localFile`), `{ "chat 1": ["local_..."] }`,
+  one id per account; the one the app lists under the board's account goes (appChats.mjs `listedWhere`). No id, only another
+  account's, a send the app refused, no hand in 10 min: the record says why and the Late comes at once with it ("Then the board could
+  not ask chat 1: chat 1 is not known to the board ..."). A board that says no word (a copy that only shows) holds the Late 10 min past
+  the limit at most, then shows it plain. Waits on Main, a worker or an asset are as before; "chat 0" only reads and is never asked. Chat 1's core review
+  (2026-11-23): no word while the 5-hour or week limit is full (it would start a model turn past the person's stop line): the Late
+  comes as before, saying so; a word given back in doubt is never a hand's job again (a late answer settles it, or the give-up);
+  a refusal that is tried again holds the Late, and the Late shows the plain words; a side word is no case for rule 8 (`undelivered`);
+  a word still to go is closed when its wait ends; the hand window is running time; a wait that was late before its word keeps its
+  card (`keepCard`) with "Then the board asked chat 1 at HH:MM"; the "no word could go" record carries text '' so the log keeps it;
+  a word the outbox reads as `expired` is the end of its hand window, so the Late says "a limit is full" or "no hand sent it".
 - **The forgotten record**: the answer to `work step` with a checkpoint while a wait stands says "You still wait on chat 1 since
   HH:MM (its go to land): work unblock B<n> once it gave its answer." Chat 1's go messages say "unblock first" (roles/main.md).
 - **Resume all** leaves a step with a standing wait out of its resume list (pause.mjs `isResumed`): a resume would only wake the
@@ -8942,3 +8998,11 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
   stops the gate and refuses. The sweep of a cut landing's gate first ends what it left running there.
 - **tools/test.mjs**: the sweep names a folder only on a path boundary, never in a folder that is or holds a board's (boards.json;
   an unreadable list: no sweep), never its own powershell. A run the helper stopped at its cap is refused like a stall. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.
+
+## F46: a build of the state walks the store once (2026-11-23, chat 4)
+
+Since the laptop import (about 1,450 steps, 4,850 items, 21,000 words) a build took about 2 s, and the live board a full core. Each
+step walked every item for its held asks, and every word for its refine word, twice. The held asks now come from the rebuild's
+index of asks by their `Of` (work/links.mjs, which falls back to a scan when the store changes size), and the newest refine word
+per step from one map per list per build (`newestRefines`). The output is the same on a copy of the real store (backlog and whole
+state hashed before and after); a build there went from 2106 ms to 662 ms.

@@ -232,7 +232,7 @@ function fakeWindows(list) {
 function toolsMachine() {
   const state = new Map([...machine(), ...tools()].map(one => [one.pid, { ...one }]))
   const settle = changes => {
-    for (const change of changes) if (state.has(change.pid)) state.get(change.pid).priority = change.priority === 'Idle' ? 4 : 8
+    for (const change of changes) if (state.has(change.pid)) state.get(change.pid).priority = { Idle: 4, BelowNormal: 6, Normal: 8 }[change.priority]
   }
   return { state, settle }
 }
@@ -265,8 +265,10 @@ test('under Low what the board and its keeper start is limited with the rest, ne
   assert.deepEqual(windows.calls.sets[0].map(one => [one.pid, one.priority, one.affinity]), [[901, 'Normal', String(0xFFFFFF)], [900, 'Normal', String(0xFFFFFF)]])
   const first = windows.calls.sets.slice(1).flat()
   assert.deepEqual(sorted(first), [200, 201, 202, 203, 300, 301, 700, 800, 810, 811, 902])
-  assert.ok(first.every(one => one.priority === 'Idle' && one.affinity === String(0xC00000) && one.eco === true))
-  assert.equal(limiter.view().count, 11)
+  // F44: the chats' own processes (200, 300) run at BelowNormal on all cores; what they and the board started is limited.
+  assert.ok(first.filter(one => [200, 300].includes(one.pid)).every(one => one.priority === 'BelowNormal' && one.affinity === String(0xFFFFFF) && one.eco === false))
+  assert.ok(first.filter(one => ![200, 300].includes(one.pid)).every(one => one.priority === 'Idle' && one.affinity === String(0xC00000) && one.eco === true))
+  assert.equal(limiter.view().count, 9)
   settle(first)
   // The board restarts from a chat at Idle (a new limiter, a new process picture): its Idle is undone, Normal on all cores, first thing.
   state.get(901).priority = 4
@@ -277,7 +279,7 @@ test('under Low what the board and its keeper start is limited with the rest, ne
   // The listing (the fake keeps 901 at Idle) has it set once more with the rest: Normal on all cores too.
   const board = windows.calls.sets.flat().filter(one => one.pid === 901 || one.pid === 900)
   assert.ok(board.length >= 2 && board.every(one => one.priority === 'Normal' && one.affinity === String(0xFFFFFF)))
-  assert.ok(windows.calls.sets.flat().filter(one => one.pid !== 901 && one.pid !== 900).every(one => one.priority === 'Idle'), 'everything else stays limited')
+  assert.ok(windows.calls.sets.flat().filter(one => ![901, 900, 200, 300].includes(one.pid)).every(one => one.priority === 'Idle'), 'everything but the board and the chats stays limited')
 })
 
 test('F24b: under Low the board\'s own Normal and all cores come FIRST, before the process listing and the sessions (a starved board never gets through those); once done it is not repeated', async t => {
@@ -338,12 +340,15 @@ test('the limiter: Full does nothing; Low sets the project; back to Full gives N
   assert.deepEqual([windows.calls.lists, windows.calls.sets.length, limiter.view().level, limiter.view().count], [0, 0, 'full', 0])
 
   const low = await limiter.set('low')
-  assert.deepEqual([low.ok, low.result.level, low.result.count, low.result.lowCores], [true, 'low', 6, 2])
+  // F44: the count is what is limited: the chats' own processes (200, 300) are not.
+  assert.deepEqual([low.ok, low.result.level, low.result.count, low.result.lowCores], [true, 'low', 4, 2])
   assert.deepEqual(JSON.parse(await readFile(join(dir, 'cpu.json'), 'utf8')), { level: 'low', at: 7 })
   assert.equal(windows.calls.sets.length, 1)
-  assert.ok(windows.calls.sets[0].every(one => one.priority === 'Idle' && one.affinity === String(0xC00000) && ![100, 101, 400, 401, 500, 600].includes(one.pid)))
+  assert.ok(windows.calls.sets[0].every(one => ![100, 101, 400, 401, 500, 600].includes(one.pid)))
+  assert.ok(windows.calls.sets[0].filter(one => ![200, 300].includes(one.pid)).every(one => one.priority === 'Idle' && one.affinity === String(0xC00000)))
+  assert.ok(windows.calls.sets[0].filter(one => [200, 300].includes(one.pid)).every(one => one.priority === 'BelowNormal' && one.affinity === String(0xFFFFFF)))
   // Windows now reports them so: the next refresh lists once and sets nothing.
-  for (const change of windows.calls.sets[0]) state.set(change.pid, { ...state.get(change.pid), priority: 4 })
+  for (const change of windows.calls.sets[0]) state.set(change.pid, { ...state.get(change.pid), priority: { Idle: 4, BelowNormal: 6, Normal: 8 }[change.priority] })
   await limiter.apply()
   assert.deepEqual([windows.calls.lists, windows.calls.sets.length], [2, 1])
 
@@ -414,7 +419,7 @@ test('a listing that fails is one line, and the next one clears it; a level is r
   assert.equal(limiter.view().level, 'low')
   await limiter.apply()
   assert.equal(limiter.view().fault, null)
-  assert.equal(limiter.view().count, 4)
+  assert.equal(limiter.view().count, 3, 'chat A\'s tree without its own process (F44)')
   assert.deepEqual(await limiter.set('max'), { ok: false, status: 400, why: 'The level is full or low.' })
 })
 

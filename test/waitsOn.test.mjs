@@ -26,6 +26,7 @@ import { storeFromText } from '../src/work/read.mjs'
 import { readStore } from '../src/work/store.mjs'
 import { WAIT_ON_MINUTES, chatWaitWords, lateWaitOf, waitWhoProblem, waitsOnLine, waitsOnOf } from '../src/work/waitsOn.mjs'
 import { buildState } from './withStore.mjs'
+import { SIDE_WORD, sideKeyOf } from '../src/work/sideWord.mjs'
 
 const MIN = 60_000
 const at = (h, m, s = 0) => new Date(2026, 10, 9, h, m, s).getTime()
@@ -81,10 +82,35 @@ test('the record: the holder writes a wait on a chat with work block (the live B
   assert.equal(await field(dir, 'B1081', 'Waits on'), WAITS_ON)
   assert.match(made.result.text, /^B1081 waits on chat 1 \(its go to land\) since 11:18\. The board holds it for you: no "go on" line and no give-back for 90 min/)
   assert.match((await history(dir, 'B1081')).at(-1), /Worker 4: waits on chat 1 · its go to land$/)
-  // The same who two minutes later: the record stands, with its first since.
-  const again = await chat(dir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Chat 1', why: 'its go' }, WAIT_AT + 2 * MIN)
-  assert.deepEqual([again.ok, again.result.changed], [true, false])
+  // The same who and why two minutes later (or no why): the record stands, with its first since.
+  for (const why of ['Its go to land', undefined]) {
+    const again = await chat(dir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Chat 1', ...(why === undefined ? {} : { why }) }, WAIT_AT + 2 * MIN)
+    assert.deepEqual([again.ok, again.result.changed], [true, false])
+    assert.equal(await field(dir, 'B1081', 'Waits on'), WAITS_ON)
+  }
+  // B1307 (chat 1's review 5): a new why is a new wait with a fresh clock; the old words again put the first why back, on a new clock too.
+  const renewed = await chat(dir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Chat 1', why: 'its core review' }, WAIT_AT + 3 * MIN)
+  assert.deepEqual([renewed.ok, renewed.result.changed], [true, true])
+  assert.equal(await field(dir, 'B1081', 'Waits on'), `chat 1 · its core review · ${stamp(WAIT_AT + 3 * MIN).slice(0, 16)}`)
+  assert.match((await history(dir, 'B1081')).at(-1), /waits on chat 1 · its core review \(before: its go to land\)$/)
+  assert.equal((await chat(dir, 'Worker 4', { action: 'unblock', id: 'B1081' }, WAIT_AT + 3 * MIN)).ok, true)
+  assert.equal((await chat(dir, 'Worker 4', { action: 'block', id: 'B1081', on: 'chat 1', why: 'its go to land' }, WAIT_AT)).ok, true)
   assert.equal(await field(dir, 'B1081', 'Waits on'), WAITS_ON)
+  // B1307 (chat 1's re-check a): the same why cut on a space at its 80th character is the same why: the clock stands.
+  const CUT = `${'x'.repeat(79)} and more words after the cut`
+  const cutDir = await storeDir({ B1081: b1081() })
+  t.after(() => rm(cutDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  assert.equal((await chat(cutDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'chat 1', why: CUT }, WAIT_AT)).result.changed, true)
+  const cutLine = await field(cutDir, 'B1081', 'Waits on')
+  assert.equal((await chat(cutDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'chat 1', why: CUT }, WAIT_AT + 5 * MIN)).result.changed, false)
+  assert.equal(await field(cutDir, 'B1081', 'Waits on'), cutLine)
+  // B1307 (chat 1's re-check b): on a board chat a new why changes nothing, as before: only a side chat's wait is renewed.
+  const boardDir = await storeDir({ B1081: b1081() })
+  t.after(() => rm(boardDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  assert.equal((await chat(boardDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Worker 5', why: 'its review' }, WAIT_AT)).result.changed, true)
+  const boardLine = await field(boardDir, 'B1081', 'Waits on')
+  assert.equal((await chat(boardDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Worker 5', why: 'another reason' }, WAIT_AT + 5 * MIN)).result.changed, false)
+  assert.equal(await field(boardDir, 'B1081', 'Waits on'), boardLine)
   // A board chat by name is a who too (the list's names).
   // The forgotten record: a checkpoint while it stands reminds the holder.
   const saved = await chat(dir, 'Worker 4', { action: 'step', id: 'B1081', commit: '03ac0c10', next: 'main merged in and pushed; waiting for chat 1\'s go' }, at(11, 24))
@@ -150,6 +176,9 @@ function storeWith(items) {
   return work
 }
 const GO_ONS = [`- ${stamp(at(11, 24))} server: the board asked Worker 4 to go on (stopped since 11:19)`, `- ${stamp(at(11, 30))} server: the board asked Worker 4 to go on (stopped since 11:25)`]
+// B1307 (F40): this board knows no side chat's app id (no side-chats.json), so its word to chat 1 is the record of why none went
+// and the Late comes at 90 min as before (test/sideWord.test.mjs has the word itself).
+const UNKNOWN_SIDE = { id: 'side-b1081', at: WAIT_AT, to: 'chat 1', about: 'chat 1', command: SIDE_WORD, key: sideKeyOf('B1081', { at: stamp(WAIT_AT).slice(0, 16) }), step: 'B1081', state: 'dropped', why: 'chat 1 is not known to the board (no app id in side-chats.json)' }
 /** The board at `now`: Worker 4 idle since 11:19:11 on B1081 (with or without the record), Worker 5 idle on B5, the app and the board up since 9:00. */
 function build({ now, waits = WAITS_ON, history = [], lines = [], items = null }) {
   const work = storeWith(items ?? [parseItem(b1081({ waits, history })), parseItem(text({ Id: 'B5', Kind: 'step', Title: 'Step B5', State: 'in progress', Owner: 'Worker 5', Activity: 'Garden', Since: stamp(at(10, 30)) }))])
@@ -158,7 +187,7 @@ function build({ now, waits = WAITS_ON, history = [], lines = [], items = null }
     work, adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: at(9, 0),
   }
   const reports = [report('Lead', 'idle', at(11, 0), now - 5_000), report('Worker 4', 'idle', IDLE_AT, now - 5_000), report('Worker 5', 'idle', at(11, 10), now - 5_000), report('Advisor', 'idle', at(11, 0), now - 5_000)]
-  const state = buildState(raw, { lines, outbox: [], runs: [], now, config, seen: { shown: {}, other: {} }, board: { startedAt: at(9, 0), offSince: null }, reports: new Map(reports) })
+  const state = buildState(raw, { lines, outbox: [UNKNOWN_SIDE], runs: [], now, config, seen: { shown: {}, other: {} }, board: { startedAt: at(9, 0), offSince: null }, reports: new Map(reports) })
   return { state, work }
 }
 const laneOf = (state, name) => state.chats.find(one => one.name === name)

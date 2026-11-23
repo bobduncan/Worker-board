@@ -25,6 +25,7 @@ import { readStore, writeStore } from '../src/work/store.mjs'
 import { lateWaitOf, waitsOnOf } from '../src/work/waitsOn.mjs'
 import { openPage } from './pageHarness.mjs'
 import { buildState } from './withStore.mjs'
+import { SIDE_WORD, sideKeyOf } from '../src/work/sideWord.mjs'
 
 const MIN = 60_000
 const at = (h, m, s = 0) => new Date(2026, 10, 9, h, m, s).getTime()
@@ -66,6 +67,9 @@ function storeWith(items, pause = null) {
   }
   return work
 }
+// B1307 (F40): this board knows no side chat's app id (no side-chats.json), so its word to chat 1 is the record of why none went
+// and the Late comes at 90 min as before (test/sideWord.test.mjs has the word itself).
+const UNKNOWN_SIDE = { id: 'side-b1081', at: WAIT_AT, to: 'chat 1', about: 'chat 1', command: SIDE_WORD, key: sideKeyOf('B1081', { at: stamp(WAIT_AT).slice(0, 16) }), step: 'B1081', state: 'dropped', why: 'chat 1 is not known to the board (no app id in side-chats.json)' }
 /** The board at `now`: Worker 4 on B1081 (its report `w4`: idle since 11:19:11 by default, or none for an unknown lane), Worker 5 idle on B5. */
 function build({ now, waits = WAITS_ON, history = [], lines = [], pause = null, w4 = 'idle', work = null, outbox = [] }) {
   const store = work ?? storeWith([parseItem(b1081({ waits, history })), parseItem(text({ Id: 'B5', Kind: 'step', Title: 'Step B5', State: 'in progress', Owner: 'Worker 5', Activity: 'Garden', Since: stamp(at(10, 30)) }))], pause)
@@ -76,7 +80,7 @@ function build({ now, waits = WAITS_ON, history = [], lines = [], pause = null, 
   // `w4`: 'idle' a fresh idle report (interrupted: it holds a step); 'stale' the same report not heard since 11:19:11 (unknown); 'ended' its session ended (off).
   const w4Report = w4 === 'idle' ? report('Worker 4', 'idle', IDLE_AT, now - 5_000) : w4 === 'stale' ? report('Worker 4', 'idle', IDLE_AT, IDLE_AT) : report('Worker 4', 'ended', IDLE_AT, IDLE_AT)
   const reports = [report('Lead', 'idle', at(11, 0), now - 5_000), w4Report, report('Worker 5', 'idle', at(11, 10), now - 5_000), report('Advisor', 'idle', at(11, 0), now - 5_000)]
-  const state = buildState(raw, { lines, outbox, runs: [], now, config, seen: { shown: {}, other: {} }, board: { startedAt: at(9, 0), offSince: null }, reports: new Map(reports) })
+  const state = buildState(raw, { lines, outbox: [...outbox, UNKNOWN_SIDE], runs: [], now, config, seen: { shown: {}, other: {} }, board: { startedAt: at(9, 0), offSince: null }, reports: new Map(reports) })
   return { state, work: store }
 }
 const laneOf = (state, name) => state.chats.find(one => one.name === name)
