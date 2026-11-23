@@ -205,8 +205,10 @@ test('review 12: a target that woke before the courier asked: its word is not li
 })
 
 test('A (landing 2, on in this copy), review 1, 2: a carrier whose report is busy takes no carry word; the attempt is not sent at a take, only once its turn on the word began', { timeout: 240_000 }, async t => {
-  const word = { id: 'c0c0c0c0c0c0c004', at: NOW - MIN, to: 'Main', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'x', text: 'Wake Worker 2 for the worker board: send_message with session_id "local_w2"', state: 'waiting' }
-  const attempt = { path: 'message', at: NOW - MIN, by: 'Main', jobId: word.id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: 'model' }
+  // B1304: a minute before THIS test: on a slow run the file's NOW is past the word's 10-minute window, and the board rightly drops it.
+  const justNow = Date.now() - MIN
+  const word = { id: 'c0c0c0c0c0c0c004', at: justNow, to: 'Main', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'x', text: 'Wake Worker 2 for the worker board: send_message with session_id "local_w2"', state: 'waiting' }
+  const attempt = { path: 'message', at: justNow, by: 'Main', jobId: word.id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: 'model' }
   const { json, claim, words, record } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt], byModel: true })
   assert.deepEqual((await claim()).filter(job => job.id === word.id), [], 'no hand takes it')
   // Main busy on its own turn: its take does not get the word.
@@ -421,12 +423,13 @@ test('B1271 (chat 1\'s review 1): every hand that claims is refused, the launch 
 // B1304 (fix of B1279's check, point 1): the carry pass's live branch while the hands MAY send (no refusal): a hand's send that went
 // and brought no report is followed at once by ONE carry word, before the launch (X205: 22:15 Main's hands sent, nothing started).
 // As live, its verdict is newer than the runs this board hears at its start (G1 would re-open a spent spell: this board cannot launch).
-const SILENT_AT = Date.now() + 30 * MIN
-const SILENT = { path: 'message', at: SILENT_AT - 10 * MIN, by: 'Main', jobId: `wake:${SPELL}:Worker 2`, sentAt: SILENT_AT - 10 * MIN, runBefore: 1, verdict: 'failed', verdictAt: SILENT_AT - 8 * MIN, why: 'no report within 2 minutes of the message', step: null }
+// Made per test, from the clock at that test: on a slow run the file's NOW is too old for the answer's and the verdict's windows.
+const SILENT_WHY = 'no report within 2 minutes of the message'
+const silentSend = (at = Date.now() + 30 * MIN) => ({ path: 'message', at: at - 10 * MIN, by: 'Main', jobId: `wake:${SPELL}:Worker 2`, sentAt: at - 10 * MIN, runBefore: 1, verdict: 'failed', verdictAt: at - 8 * MIN, why: SILENT_WHY, step: null })
 
 test('B1304 (X205) on the board: the hands may send, a hand\'s send to Worker 2 went and brought no report: ONE carry word to a free chat\'s model, kept in the record, never a second', { timeout: 240_000 }, async t => {
-  const answerWord = { id: 'answer000000005', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
-  const { claim, words, record, state, launches } = await boardWith(t, { refused: false, lines: [answerWord], attempts: [SILENT], byModel: true, launchable: true })
+  const answerWord = { id: 'answer000000005', at: Date.now() - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
+  const { claim, words, record, state, launches } = await boardWith(t, { refused: false, lines: [answerWord], attempts: [silentSend()], byModel: true, launchable: true })
   // The board may launch Worker 2 here (its lane's ways): the carry word still goes first.
   await until(async () => (await state()).chats.find(lane => lane.name === 'Worker 2')?.wake?.need === true, "Worker 2's wake needed")
   let carried = []
@@ -440,7 +443,7 @@ test('B1304 (X205) on the board: the hands may send, a hand\'s send to Worker 2 
   await until(async () => (await record()).wakes['Worker 2'].at(-1).attempts.length === 2, 'the carry attempt saved')
   const attempts = (await record()).wakes['Worker 2'].at(-1).attempts
   assert.deepEqual(attempts.map(one => [one.path, one.by, one.verdict, one.carry ?? null]), [['message', 'Main', 'failed', null], ['message', carried[0].to, null, 'model']], 'the hand\'s try kept with its why, then the carry: no launch between')
-  assert.equal(attempts[0].why, SILENT.why)
+  assert.equal(attempts[0].why, SILENT_WHY)
   assert.deepEqual((await claim()).filter(job => job.chat === 'Worker 2'), [], 'no hand job beside it')
   await new Promise(done => setTimeout(done, 3000))
   assert.equal((await words()).filter(one => one.command === 'wake-carry' && one.about === 'Worker 2').length, 1, 'never a second word for the spell')
@@ -448,8 +451,8 @@ test('B1304 (X205) on the board: the hands may send, a hand\'s send to Worker 2 
 })
 
 test('B1304: the same silent hand send with no free carrier: the courier\'s word once it calls', { timeout: 240_000 }, async t => {
-  const answerWord = { id: 'answer000000006', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
-  const { json, words } = await boardWith(t, { refused: false, lines: [answerWord], attempts: [SILENT] })
+  const answerWord = { id: 'answer000000006', at: Date.now() - MIN, to: 'Worker 2', ask: 'chat:Worker 2', step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }
+  const { json, words } = await boardWith(t, { refused: false, lines: [answerWord], attempts: [silentSend()] })
   await json('/api/bridge/wakes-due', {})
   let carried = []
   await until(async () => {
