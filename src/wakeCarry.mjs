@@ -24,6 +24,7 @@
 //
 // PURE: the server wires it (server.mjs `wakePass`, the take, the report, the hands route, the two bridge routes, Send again).
 
+import { heardTimeOf } from './chatReport.mjs'
 import { isAppId } from './hands.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { PROBE_MS } from './work/effort.mjs'
@@ -68,7 +69,9 @@ export const plainWhy = why => (isSendRefusal(why) ? SEND_REFUSED_WHY : why)
 export function sendsRefusedOf(record, outbox = []) {
   // B1271 (X203): once a probe lifted the refusal, the record's own fact is the only truth: a later refusal is one hand's (`noteHandRefused`
   // decides whether it is the whole board's), never revived from an attempt or an outbox line.
-  if (isTime(record?.sendsLiftedAt)) return isTime(record?.sendsRefusedSince) && record.sendsRefusedSince > record.sendsLiftedAt ? { since: record.sendsRefusedSince } : null
+  // B1279 (X205): and never the board's when a hand's own send went since the lift (`handWentAt`): a fact written before B1271 kept
+  // no `handSentAt`, and one auto-mode hand's refusal at 20:29 stopped every hand's start and wake for a day.
+  if (isTime(record?.sendsLiftedAt)) return isTime(record?.sendsRefusedSince) && record.sendsRefusedSince > record.sendsLiftedAt && !handWentSinceLift(record) ? { since: record.sendsRefusedSince } : null
   const attempts = [...(record?.wakes?.values?.() ?? [])].flatMap(entries => entries.flatMap(entry => entry.attempts ?? [])).filter(one => one.path === 'message')
   const refusedAt = [
     record?.sendsRefusedSince,
@@ -115,8 +118,42 @@ export function noteHandRefused(record, hand, at) {
       changed = true
     }
   }
-  const otherWent = isTime(record.sendsLiftedAt) && isTime(record.handSentAt) && record.handSentAt >= record.sendsLiftedAt
-  return (!otherWent && noteSendRefused(record, at)) || changed
+  return (!handWentSinceLift(record) && noteSendRefused(record, at)) || changed
+}
+
+/**
+ * B1279 (X205): when a hand's own code send last went, or null: the record's `handSentAt`, or else the newest message attempt a hand sent
+ * (`sentAt` set: its hand said ok; never a carried one, whose `sentAt` is its carrier's turn, nor a refused one). The live record of
+ * 2026-11-19 had Main's sends of 20:17 and 20:20 as attempts only: B1271, which writes `handSentAt`, landed at 22:41.
+ */
+export function handWentAt(record) {
+  let newest = isTime(record?.handSentAt) ? record.handSentAt : null
+  for (const entries of record?.wakes?.values?.() ?? []) {
+    for (const entry of entries ?? []) {
+      for (const one of entry.attempts ?? []) {
+        if (one.path !== 'message' || one.carry != null || one.refused === true || !isTime(one.sentAt)) continue
+        if (newest === null || one.sentAt > newest) newest = one.sentAt
+      }
+    }
+  }
+  return newest
+}
+
+/**
+ * B1279 (chat 1's review, minor): the proof `handWentAt` reads from the attempts is kept as the record's own fact (`handSentAt`), as the
+ * record prunes the attempts (6 spells a chat), so the board-wide refusal never comes back once they are gone. True when it changed.
+ */
+export function keepHandWent(record) {
+  const went = handWentAt(record)
+  if (went === null || (isTime(record?.handSentAt) && record.handSentAt >= went)) return false
+  record.handSentAt = went
+  return true
+}
+
+/** B1279: whether a hand's own send went since the last lift: then a refusal after it is that hand's alone (B1271), never the board's. */
+const handWentSinceLift = record => {
+  const went = handWentAt(record)
+  return isTime(record?.sendsLiftedAt) && went !== null && went >= record.sendsLiftedAt
 }
 
 /** B1271: a hand's send went (`hand`, at `at`): its own refusal is lifted, and the record knows a hand may send. True when it changed. */
@@ -165,9 +202,10 @@ export const CARRIER_REPORT_MS = 60_000
  * A chat that can carry now: on the board, running, joined (the board follows its session), not being removed or suspended, with its app
  * id; its mod reported within CARRIER_REPORT_MS, and that report is idle (review 1, 2: the take types a word into a busy chat's queue);
  * free (review 14: never interrupted, waiting on an ask, or working); no stop holds its words (review 9: its take hands out nothing).
+ * F38 (B1300): "reported" by the report's own time (`heardTimeOf`): a kept report moved to the board's start is no proof its mod lives.
  */
 export const canCarry = (lane, target, now, outbox = []) => lane !== null && lane !== undefined && lane.name !== target && lane.isLeftover !== true && lane.isRunning === true
-  && isTime(now) && isTime(lane.report?.at) && now - lane.report.at <= CARRIER_REPORT_MS && lane.report.state === 'idle' && lane.report.background !== true
+  && isTime(now) && isTime(heardTimeOf(lane.report)) && now - heardTimeOf(lane.report) <= CARRIER_REPORT_MS && lane.report.state === 'idle' && lane.report.background !== true
   && lane.state === 'free' && (lane.unjoined ?? null) === null && !isTime(lane.removedAt) && lane.removal?.isOpen !== true && (lane.suspended ?? null) === null
   && isAppId(lane.appSession) && stoppedOf(outbox, lane) === null
 

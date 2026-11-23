@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 import { loadConfig, transcriptsOf, workFolder } from '../src/config.mjs'
 import { boardsFile, readBoards, readOwnPort, whoseBoard } from '../src/ports.mjs'
 import { LIST_SCRIPT, keepersOf, parseProcessList, powershell } from '../src/keeperStart.mjs'
-import { lockHolder } from '../src/landing.mjs'
+import { landingRestarts, lockHolder } from '../src/landing.mjs'
 import { userCodexHome } from '../src/codex.mjs'
 import { readKey } from '../src/providers/elevenlabs-key.mjs'
 import { gitRunner, line } from '../src/carry/git.mjs'
@@ -66,7 +66,8 @@ export async function rootsOf({ boardDir = HERE, flags = {}, env = process.env, 
   if (!remote) throw new Error(`no data remote: ${gameRepo} has no origin; say --remote <url>`)
   const recordFile = recordFileFor({ boardDir, dataDir, isExplicit: isExplicitData })
   const record = await readRecord(recordFile, fs)
-  const picturesFolder = flags.pictures ? resolve(flags.pictures) : record.picturesHome
+  // T5.2 A7: the pictures home config.json names for this PC (setup's pictures question), else the record's.
+  const picturesFolder = flags.pictures ? resolve(flags.pictures) : typeof config.picturesHome === 'string' && config.picturesHome !== '' ? config.picturesHome : record.picturesHome
   const keepSetFile = flags['keep-set'] ? resolve(flags['keep-set']) : record.keepSet
   const memoryDir = join(transcriptsOf(project, env), 'memory')
   const userSettingsFile = join(homedir(), '.claude', 'settings.json')
@@ -173,7 +174,8 @@ export async function main(argv) {
     git, set, pictures, fs, recordFile: roots.recordFile,
     boardAnswers: () => boardsAnswering({ project: roots.project, boardDir: roots.boardDir }),
     keepers: () => keepersHere(roots.boardDir),
-    lockAgeMs: async () => lockHolder(join(roots.boardDir, 'data', 'landing.lock'))?.ageMs ?? null,
+    // F39, review 7: only a landing in its 'land' phase whose process runs.
+    lockAgeMs: async () => { const held = lockHolder(join(roots.boardDir, 'data', 'landing.lock')); return landingRestarts(held, { staleMs: Infinity }) ? held.ageMs : null },
     secrets: () => secretsOf({ project: roots.project }),
     driveFree: freeBytes,
     lacks: () => lacksOf({ gameRepo: roots.gameRepo, git }),

@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
-import { chatFile, chatHomeOf, resolveStored } from './projectPaths.mjs'
+import { backlogViewOf, chatFile, chatHomeOf, resolveStored } from './projectPaths.mjs'
 import { allWords, closedForYou, minutesOf, sizeMinutes, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
@@ -50,7 +50,7 @@ import { refineAsk, removalAsk } from './work/askOpen.mjs'
 export { refineAsk } from './work/askOpen.mjs'
 import { recapsOf } from './work/recap.mjs'
 import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
-import { AWAY_LINE, TAKE_LABEL } from './appAccount.mjs'
+import { AWAY_LINE } from './appAccount.mjs'
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
 import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, backgroundNoNewsOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
@@ -64,7 +64,7 @@ import { firstLook, refineQueue, refineStop } from './refineGate.mjs'
 import { contextOfStep, flowOfStep, itemOfStep, itemsOf, reviewWaitOfStep, storeBacklog } from './work/read.mjs'
 import { withLinks } from './work/links.mjs'
 import { clearOwed, clearedStageOf, modAtLeast } from './clearOwed.mjs'
-import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, nothingWaitsFor, owedChatsOf, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords } from './wake.mjs'
+import { cannotWakeWhy, newestSpells, noticeOf, nobodyRunsSpell, nothingWaitsFor, owedChatsOf, pathsOf, spellOf, failedAtOf, ranSince, statusOf as wakeStatusOf, wakeNeeds, wakeOf, wakeWords, wakeableOf } from './wake.mjs'
 import { ACCEPT_VIA, chainWaitOf, checkedOf, fixesOf, fixOutcomeOf, recapPartOf, reviewWaitOf } from './work/resultCheck.mjs'
 import { recapVerdictsOf, recapWaitsOf } from './recaps.mjs'
 import { askedStepsOf, openChecksOf, recapCardOf, recapMakingOf, recapWaitingOf, standingAsksOf } from './recapCard.mjs'
@@ -81,7 +81,7 @@ import { rethinkFocusOf } from './work/rethinkFocus.mjs'
 import { countsOf, sinceClock, statusOf } from './chatStatus.mjs'
 import { factsOf, offMsOf } from './work/handoverBoard.mjs'
 import { stoppedOf } from './stopped.mjs'
-import { backgroundOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
+import { backgroundOf, heardTimeOf, laneFromReport, laneWithoutReport, modReports } from './chatReport.mjs'
 import { MOD_GONE_WHY, modGoneOf, modUnloadedAt } from './modGone.mjs'
 /** F9's review: a board-call popup counts for the asking spell it was filed in; filed this long before the spell began it is an old one. */
 const BOARD_CALL_SLACK_MS = 2 * 60_000
@@ -913,9 +913,9 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
       ...(Number.isFinite(reported.entry.heardAt) ? { heardAt: reported.entry.heardAt } : {}) },
     // The review of chat-reports: why a reporting chat is not running, in words; null for any other.
     offWhy: state !== 'off' || reported === null ? null : reported.why === 'unreported' ? reported.words : reported.why === 'ended' ? `its session ended at ${hourMinute(reported.entry.since)}`
-      : reported.why === 'silent' ? `silent since ${sinceClock(reported.entry.at, now)}`
+      : reported.why === 'silent' ? `silent since ${sinceClock(heardTimeOf(reported.entry), now)}`
         // T13 part 3: a wake that did not take.
-        : reported.why === 'woken' ? `woken at ${hourMinute(reported.wokenAt)}, it did not start` : 'the app started again after its last report',
+        : reported.why === 'woken' ? `woken at ${sinceClock(reported.wokenAt, now)}, it did not start` : 'the app started again after its last report',
     // T13 part 3: its process ended while its last report stands (chatReport.mjs `asleepLane`): asleep since when, or null.
     // F9's review: a chat whose Workers mod was unloaded is never asleep for the board (a wake would reach no mod).
     asleep: modGone === null && reported?.asleep === true,
@@ -1873,7 +1873,8 @@ function focusRun(node, items, prefix, partner) {
  */
 const spellReportOf = (lane, kept = null) => {
   const report = Number.isFinite(lane?.report?.at) ? lane.report : Number.isFinite(kept?.at) ? kept : null
-  return report === null ? lane?.ownReport ?? null : { state: report.state, since: report.since ?? null, at: report.at, run: report.run ?? null }
+  // F38 (B1300): the report's own time rides along (`heardAt`), so the spell is never the board's start a kept report was moved to.
+  return report === null ? lane?.ownReport ?? null : { state: report.state, since: report.since ?? null, at: report.at, run: report.run ?? null, ...(Number.isFinite(report.heardAt) ? { heardAt: report.heardAt } : {}) }
 }
 
 export function buildState(raw, options) {
@@ -1948,7 +1949,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // B296, B301: the backlog from the work store, the one source of the work. `store` is the line about it on the Backlog
   // tab and, when it cannot be read, on top of the page; `raw.work` is missing where the board has no store. Nothing is
   // drawn from the backlog file instead.
-  const shown = storeBacklog(raw.work, { prefix, names }, { backlog: config.project === '' ? null : resolveStored(config, config.backlog) })
+  const shown = storeBacklog(raw.work, { prefix, names }, { backlog: config.project === '' ? null : backlogViewOf(config) })
   const backlog = shown.backlog
   const workOk = shown.store?.ok === true
   // The asset wait (2026-11-11, the B1124 case): the asset requests as the server read them (src/assets.mjs, `raw.assets`): an open one
@@ -2035,6 +2036,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     const isAppAfter = saved !== null && Number.isFinite(raw.appStartedAt) && raw.appStartedAt > saved.at
     // F26b: the time it was really heard rides along (`heardAt`): the timers count no work the board did not hear (holderTimers.mjs).
     // F9's review: `heardAt` keeps the report's own time, which the unloaded-mod check (src/modGone.mjs) compares with the unload.
+    // F38 (B1300): the wake code reads it too (chatReport.mjs `heardTimeOf`): the lane's reading follows the moved `at` (the person's
+    // word above), but the chat's sleep, its wake spell and "it ran since the failed wake" keep the report's own time.
     const entry = isOld && !isAppAfter ? { ...saved, at: board.startedAt, heardAt: saved.at } : saved
     // Gap 1: no report from this session while its card says a mod that reports: unknown, then off, never guessed.
     if (entry === null || entry.session !== chat.cliSessionId) {
@@ -2578,7 +2581,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // main chat (its title from the list, the app's id for it, whether it runs) for the link that opens it, and when the
   // board typed "resume" into it since the resume.
   // B1273: while the Claude app is on another account the pause is the board's own hold: one calm line, no pause facts.
-  const pause = pauseRecord === null ? null : pauseRecord.state === 'away' ? { state: 'away', since: pauseRecord.since ?? null, line: AWAY_LINE, take: TAKE_LABEL } : {
+  const pause = pauseRecord === null ? null : pauseRecord.state === 'away' ? { state: 'away', since: pauseRecord.since ?? null, line: AWAY_LINE, ask: pauseRecord.ask ?? null } : {
     // The review of Pause 2: a line handed to a chat and not typed yet starts a turn: no Safe while one is on its way.
     ...pauseFacts({
       assets: assetRecords,
@@ -2621,6 +2624,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     focus: goalMap?.focus ?? null, focusGoals: goalsUnder(goalMap, goalMap?.focus ?? null), routingHeld, sent,
     settings: { maxWorkers: config.maxWorkers, followUpMinutes: config.followUpMinutes, handOutBeyondFocus: config.handOutBeyondFocus === true, offAfterMinutes: config.offAfterMinutes, handover: config.handover ?? 'sequence' },
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
+    // B1279 (X205): with the wake record, the hand-out starts a worker through the one wake procedure, and only one it can wake.
+    wakeable: (wakes?.record ?? null) === null ? null : wakeableOf(chats, wakes),
   })
   // B468: what each worker runs at for its step, and the words that have the main chat set it (none without the Workers
   // mod). Model per step: its model too, by the settings' model ids, and the usual setting between steps from the settings.
@@ -2860,7 +2865,10 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       ...(typeof config.modelsProblem === 'string' ? [`Settings: ${config.modelsProblem}.`] : [])],
     // B1160: whether the app refuses the board's set calls, and when the board next checks (the row and the health line say it).
     setsRefused: efforts === null || !setsRefused ? null : { nextCheckAt: probe.dueAt },
-    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true },
+    reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true,
+      // B1279 (X205): the outbox sweep closes a waiting start word of the hand-out once the wake procedure starts workers; the notice
+      // keeps "could not wake ...; open its chat" for a worker the hand-out passed over while ready work waits.
+      startsByWake: reconciled.startsByWake === true, passedOver: reconciled.passedOver ?? [] },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
@@ -3231,10 +3239,14 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   // The review of 2026-11-02 (3): the wake of every chat that does not run, from its own spell and paths, need or not, so
   // "could not wake X" stands for the whole spell (a take-back ends the need; a cut-off chat turns off "woken"). A chat
   // without a need and without a try in its spell has nothing to say.
+  // B1279 (X205): a worker the hand-out passed over (it cannot be woken now) while ready work waits: the wake is needed, so its
+  // "could not wake ...; open its chat" stays the attention line, also with no try in its spell (no id: the board cannot reach it).
+  const passedOver = new Set(built.reconciled?.passedOver ?? [])
   const targetOf = lane => {
     const need = byChat.get(lane.name)
     if (need !== undefined) return { ...need, need: true }
     if (lane.isRunning !== false) return null
+    if (passedOver.has(lane.name)) return { chat: lane.name, spell: spellOf(lane), paths: pathsOf(lane, wakes.canLaunch === true), cannot: cannotWakeWhy(lane), need: true }
     const target = { chat: lane.name, spell: spellOf(lane), paths: pathsOf(lane, wakes.canLaunch === true), cannot: cannotWakeWhy(lane), need: false }
     const kept = wakeStatusOf(record, lane.name, target.spell)
     return kept.spell === target.spell && kept.attempts.length > 0 ? target : null
@@ -3267,7 +3279,7 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   return {
     ...built, chats, ...roles,
     // P5: the kept reports the lanes read (the same `lane.report` the hasRunSince above reads), so the notice itself leaves out a chat that ran since its failed wake.
-    wakeNotice: noticeOf(record, targets, now, hourMinute, { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
+    wakeNotice: noticeOf(record, targets, now, ms => sinceClock(ms, now), { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
     wakes: newestSpells(record),
     // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
     wakeBoardSince: nobody?.since ?? null,

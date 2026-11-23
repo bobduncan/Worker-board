@@ -763,6 +763,22 @@ function homeFilesNote(files) {
 }
 // homeFiles:end
 
+// settingsIgnored:start
+/**
+ * T5.2 A7: the note on top while the project's settings file is in use (`state.settingsIgnored`: `{ file, keys }`) and config.json
+ * still holds project keys: the board ignores them there. Null: none (no settings file, or nothing left in config.json).
+ */
+function settingsIgnoredNote(ignored) {
+  const keys = Array.isArray(ignored?.keys) ? ignored.keys.filter(key => typeof key === 'string' && key !== '') : []
+  if (keys.length === 0) return null
+  const file = typeof ignored.file === 'string' && ignored.file !== '' ? ignored.file : 'the project\'s settings file'
+  const named = keys.map(key => `"${key}"`)
+  const listed = named.length < 2 ? named.join('') : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`
+  const one = keys.length === 1
+  return `config.json still holds ${listed}: the board ignores ${one ? 'it' : 'them'} there and reads the project's settings from ${file}. Move ${one ? 'it' : 'them'} into ${file} (or delete ${one ? 'it' : 'them'} from config.json).`
+}
+// settingsIgnored:end
+
 // setAside:start
 /**
  * B406: the note on top when the board set data files aside at its start (`state.setAside`: `{ file, aside }`): each
@@ -989,7 +1005,8 @@ function drawCodeJobs(state) {
   $('code-jobs-about').textContent = problem ?? (open ? `What the board does not do by itself yet, the main chat does.${steps.length === 0 ? '' : ` ${steps.join('; ')}.`} ${checked}` : checked)
 }
 
-$('code-jobs-open').addEventListener('click', () => { $('settings').open = true })
+// 2026-11-22: the click stops here, or the page's "a click elsewhere folds it" listener folds the panel again at once.
+$('code-jobs-open').addEventListener('click', event => { event.stopPropagation(); $('settings').open = true })
 
 $('code-jobs-allow').addEventListener('click', async () => {
   if (board === null || sending.has('code-jobs')) return
@@ -1833,6 +1850,14 @@ for (const [id, action] of [['home-files-write', 'write'], ['home-files-adopt', 
   })
 }
 
+/** T5.2 A7: the note on top about project keys left in config.json (see `settingsIgnoredNote`). */
+function drawSettingsIgnoredNote(state) {
+  const text = settingsIgnoredNote(state.settingsIgnored)
+  const note = $('settings-ignored-note')
+  note.hidden = text === null
+  if (text !== null) note.textContent = text
+}
+
 /** B406: the note on top about the data files set aside at the start (see `setAsideNote`). */
 function drawSetAsideNote(state) {
   const text = setAsideNote(state.setAside)
@@ -2587,8 +2612,11 @@ function pauseRing(pause) {
 function pauseLines(pause) {
   if (pause === null || pause === undefined || pause.state === 'pausing') return []
   // B1273: the Claude app is on another account: one calm line, nothing for the person but switching back.
-  // The review: with one button, for a deliberate move of the board to this account (the app's account becomes the board's).
-  if (pause.state === 'away') return [{ tone: 'muted', text: pause.line ?? 'The Claude app is on another account: the board\'s chats wait; switch back and they go on.', button: { label: pause.take ?? 'Run the board on this account', action: 'take-account' } }]
+  // B1283 (F37): the decision is an ask in Needs your attention (run the board here, or keep waiting); the line links to it.
+  if (pause.state === 'away') {
+    const text = pause.line ?? 'The Claude app is on another account: the board\'s chats wait; switch back and they go on.'
+    return [typeof pause.ask === 'string' ? { tone: 'muted', text, link: { label: `Decide (${pause.ask})`, href: `#details=${pause.ask}` } } : { tone: 'muted', text }]
+  }
   if (pause.state === 'running') return (pause.notStarted ?? []).map(one => ({ tone: 'muted', text: `${one.chat} did not start after the resume: ${one.ids.join(', ')}.` }))
   const until = Number.isFinite(pause.until) ? ` The board goes on without waiting at ${clock(pause.until)}.` : ''
   const lines = [{ tone: '', text: pause.waiting.length === 0 ? `Resuming since ${clock(pause.since)}: every chat that holds a step has started again.` : `Resuming since ${clock(pause.since)}: not started yet: ${pause.waiting.map(one => `${one.chat} (${one.ids.join(', ')})`).join(', ')}.${until}` }]
@@ -2674,13 +2702,6 @@ function drawRestart(state) {
   }
   // Pause and resume: the pause's own lines, with Resume all while pausing.
   for (const one of pauseLines(pause)) {
-    // B1273: a line with a button of its own (the away line's "Run the board on this account").
-    if (one.button !== undefined) {
-      const row = el('div', 'restart-ask')
-      row.append(line(one.tone, one.text), button(one.button.label, 'is-quiet', one.button.action))
-      parts.push(row)
-      continue
-    }
     if (one.link === undefined) {
       parts.push(line(one.tone, one.text))
       continue
@@ -3984,9 +4005,11 @@ function workersView(workers, now, mod = null) {
   const ask = workers.ask ?? null
   const main = `the main chat, ${workers.mainTitle},`
   const lines = (() => {
-    const done = ask === null || (ask.state === 'delivered' && !ask.isOpen && ask.arrived >= ask.count)
+    const isLost = ask !== null && (ask.state === 'expired' || ask.state === 'failed')
+    // 2026-11-22: with workers on the board, a lost ask is old news after an hour, as a lost remove ask's line; with none it still matters.
+    const done = ask === null || (ask.state === 'delivered' && !ask.isOpen && ask.arrived >= ask.count) || (isLost && !isAlone && now - ask.at >= 60 * MIN)
     if (done) return [{ tone: '', text: isAlone ? `The board asks ${main} for three workers as soon as its chat is open.` : `Asks ${main} to start one more worker. Any worker takes any task.` }]
-    if (ask.state === 'expired' || ask.state === 'failed') return [{ tone: 'problem', text: `The ask of ${clock(ask.at)} did not reach the main chat: open its chat, then ask again.` }]
+    if (isLost) return [{ tone: 'problem', text: `The ask of ${clock(ask.at)} did not reach the main chat: open its chat, then ask again.` }]
     const asked = `${ask.why === 'button' ? 'You asked' : 'The board asked'} ${main} for ${workersWord(ask.count)} at ${clock(ask.at)}`
     if (!ask.isOpen) return [{ tone: '', text: `${asked}; ${ask.arrived === 0 ? 'none has come' : `${ask.arrived} of ${ask.count} came`}.` }]
     const first = { tone: 'asked', text: ask.arrived > 0 ? `${asked}: ${ask.arrived} of ${ask.count} ${ask.arrived === 1 ? 'has' : 'have'} come.` : `${asked}.` }
@@ -7296,8 +7319,6 @@ $('restart').addEventListener('click', event => {
   if (button.dataset.restart === 'pause-all') return sendWork({ action: 'pause-all' }, 'restart')
   if (button.dataset.restart === 'resume') return sendWork({ action: 'resume-all' }, 'restart')
   if (button.dataset.restart === 'end-resume') return sendWork({ action: 'end-resume' }, 'restart')
-  // B1273: the away line's button: the board runs on the app's account from now on.
-  if (button.dataset.restart === 'take-account') return sendWork({ action: 'take-account' }, 'restart')
   send({ to: board.restart.main, command: button.dataset.restart }, 'restart')
 })
 // "Ask the main chat to start it", wherever it stands: on a card, in the details, on the advisor's tab.
@@ -23466,6 +23487,7 @@ function draw(state) {
   drawStoreNote(state)
   drawSetAsideNote(state)
   drawHomeFilesNote(state)
+  drawSettingsIgnoredNote(state)
   drawLoopsNote(state)
   drawCpu(state)
   drawMainGame(state)

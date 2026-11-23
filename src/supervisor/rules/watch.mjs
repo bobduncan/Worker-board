@@ -36,6 +36,7 @@ import { isSleep, stallWords } from '../../stallWords.mjs'
 import { STOP_HANDS_MS, isHandTaken, isTaskStopWord } from '../../hands.mjs'
 import { triedWords } from '../../wake.mjs'
 import { isRethinkHold, rethinkWords } from '../../work/rethink.mjs'
+import { focusGoalsOf } from '../../stepStatus.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -748,6 +749,25 @@ function personHold(view, held) {
   return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps))
 }
 
+/** B1295: a held why that is a hold in words (guards.mjs `readyHold`: "waits for: <words>", set by work block, cleared by the partner or Main). */
+const WORDS_HOLD = /^waits for: /
+/** B1295 (chat 1's review): how long a hold in words on a fix of the focus goal is a wait on purpose (X209 lasted ~10 h). */
+export const FOCUS_WORDS_HOLD_MS = 12 * 60 * MIN
+
+/**
+ * B1295 (X209: B1159 in review behind its fix B1288, held in words by the partner on purpose, read as stuck every hour): whether a
+ * held fix waits on purpose: a hold in words (not the rethink, which `personHold` reads) on a fix whose Goal is the focus goal or
+ * a goal under it, for FOCUS_WORDS_HOLD_MS. The rule none-ready (stepStatus.mjs `noneReadyOf`) takes such a hold to the partner and
+ * Main, but only when the ready list is empty and a worker is free: on a busy board a forgotten hold would stay silent for days, so
+ * past the cap review-held judges it again (chat 1's review, 2026-11-21). Outside the focus nothing else follows it up, so
+ * review-held judges it there as before.
+ */
+function focusWordsHold(view, fixId, held) {
+  if (!WORDS_HOLD.test(held ?? '') || isRethinkHold(held) || typeof view.focus !== 'string') return false
+  const goal = valueOf(view.items.get(fixId), 'Goal')
+  return typeof goal === 'string' && focusGoalsOf(view.focus, view.goals).has(goal)
+}
+
 /** B1021: the states in which a step is with a worker that was given it or took it. */
 const MOVING = ['queued', 'taken', 'in progress']
 /** F5 verifier 3, 6: the states of the step a Touches overlap hold waits for in which the hold is a wait. */
@@ -802,6 +822,8 @@ export function holdMoves(view, held, visited = new Set()) {
  * ending in a refined fix not held) is a wait, no case; nothing is said while a limit is full (the rule does not run, so the
  * watch forgets the key and the hold counts again from the first run after it, and from the limit's reset at the earliest,
  * `limitEndOf`). A chain that stands still after the reset fires as before.
+ * B1295 (X209): nor is a hold in words ("waits for: <words>", not the rethink) on a fix of the focus goal or a goal under it, for its
+ * first 12 h (`focusWordsHold`, FOCUS_WORDS_HOLD_MS): none-ready follows it up; past the cap, or outside the focus, it is a case.
  */
 function reviewHeld(view, ctx) {
   const found = []
@@ -833,7 +855,8 @@ function reviewHeld(view, ctx) {
  * late a step in review is by what it waits for (`wait`, resultCheck.mjs `reviewWaitOf`), one judgement for the rules
  * review-stuck, dropped-fix and review-held and the health summary (health.mjs). `seenOf(key)`: since when the watch
  * first saw the key (the rules' own watch; the health summary reads the supervisor's memory), undefined for not yet. Not
- * late: the person's answer, a hold that is their open ask or a block by steps that all wait for them alone (B916), a check whose QA task a worker is at work on or that is ready or
+ * late: the person's answer, a hold that is their open ask or a block by steps that all wait for them alone (B916), a hold in words on
+ * a fix of the focus goal for its first 12 h (B1295), a check whose QA task a worker is at work on or that is ready or
  * given and not taken yet (the hand-over's to move, and the rules ready-while-free and handover-unanswered watch it), a
  * report whose check failed (the hand-over tells its worker), anything while the person pauses. Any other hold counts from when the watch first saw it, a check from when its QA task was made (T9.1.1;
  * from when it was asked, with none), a dropped fix from the drop, each from the end of the last pause at the earliest.
@@ -894,6 +917,9 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56), and from the end of a full limit.
     const key = `review-held ${wait.end} ${wait.held.slice(0, 80)}`
     const ms = spanOf(view, seenOf, key, null, { floor: limitEndOf(view) })
+    // B1295 (X209): a hold in words on a fix of the focus goal is a wait on purpose for 12 h (none-ready follows it up while a worker is
+    // free and nothing else is ready); the key stays with the watch, so the hold's time counts on and past the cap it is a case again.
+    if (focusWordsHold(view, wait.end, wait.held) && ms <= FOCUS_WORDS_HOLD_MS) return { ...not, key, ms }
     return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms }
   }
   return null
@@ -1063,20 +1089,25 @@ export function switchOf(lane, item, view) {
   const isModelSet = typeof own?.model === 'string'
   const mismatch = effort !== null && (effort !== want.level || (isModelSet && family !== null && family !== want.family))
   // B1160 review 8: a run the app's refusal left unset (`refused`, effort.mjs) is known and quiet: the board decided it runs on.
-  const state = own?.isSet === true ? 'switched' : own?.refused === true ? 'refused' : own?.asked != null ? 'asked' : 'none'
+  // B1282 (X207): a setting read back and lost since (`lost`, effort.mjs): its own state, counted from the loss.
+  const lost = own?.isSet !== true && Number.isFinite(own?.lost?.at) && Number.isFinite(own?.lost?.setAt) ? own.lost : null
+  const state = own?.isSet === true ? 'switched' : lost !== null ? 'lost' : own?.refused === true ? 'refused' : own?.asked != null ? 'asked' : 'none'
   const takenAt = takenAtOf(item)
   // B1207 (X26 back: B1196 changed to high at 16:12, 22 min after its take, and the rule fired 1 min later): a step whose setting
   // changed after its hand-over (`changed`, effort.mjs) counts its minutes from that change, never from the take.
   const changed = Number.isFinite(own?.changed?.at) ? own.changed : null
-  const began = changed === null || !Number.isFinite(takenAt) ? takenAt : Math.max(takenAt, changed.at)
+  const began = lost !== null ? lost.at : changed === null || !Number.isFinite(takenAt) ? takenAt : Math.max(takenAt, changed.at)
   const from = afterPause(view, began)
   const since = view.now - from - boardOffMs(view, from)
-  const late = mismatch && state !== 'switched' && state !== 'refused' && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
+  // B1282: quiet while the loss's set word is being written or is open (waiting, taken).
+  const isLostAsking = lost !== null && (lost.asking === true || ['waiting', 'taken'].includes(lost.word?.state))
+  const late = mismatch && state !== 'switched' && state !== 'refused' && !isLostAsking && !isPaused(view) && !isFull(view) && Number.isFinite(since) && since > view.settings.switchMinutes * MIN
   return {
     runs: `${family ?? 'a model not known'} · ${effort ?? 'effort not known'}`, wants: `${want.family} · ${want.level}`, mismatch, state,
     askedAt: own?.asked?.at ?? null, askState: own?.asked?.state ?? null, takenAt, since, late,
-    changedAt: changed === null || !Number.isFinite(began) ? null : began, handedAs: changed?.fromWords ?? null,
+    changedAt: changed === null || lost !== null || !Number.isFinite(began) ? null : began, handedAs: changed?.fromWords ?? null,
     thenAs: changed?.then ?? null, thenAt: changed?.thenAt ?? null,
+    setAt: lost?.setAt ?? null, lostAt: lost?.at ?? null, lostWord: lost?.word ?? null,
   }
 }
 
@@ -1095,9 +1126,12 @@ function effortMismatch(view) {
     found.push({
       // Signals change 6 (Addendum 2; X110 'effort-mismatch Worker 4 B810'): the key is the rule and the chat only; the step is in the text.
       rule: 'effort-mismatch', key: `effort-mismatch ${lane.name}`, subject: lane.name,
-      text: at.changedAt === null ? `${lane.name} runs ${at.runs} ${minutes(at.since)} min after it took ${id}, which wants ${at.wants}`
+      // B1282 (X207): a setting lost after its read-back says so, with the minutes since the loss.
+      text: at.state === 'lost' ? `${lane.name} runs ${at.runs} again since ${clockOf(at.lostAt)} (${minutes(at.since)} min): ${id} was switched to ${at.wants} at ${clockOf(at.setAt)} (read back)`
+        : at.changedAt === null ? `${lane.name} runs ${at.runs} ${minutes(at.since)} min after it took ${id}, which wants ${at.wants}`
         : `${lane.name} runs ${at.runs} ${minutes(at.since)} min after ${id} changed to ${at.wants} at ${clockOf(at.changedAt)} (its hand-over asked ${at.handedAs ?? 'another setting'}${at.thenAs === null ? '' : `, then ${at.thenAs} at ${clockOf(at.thenAt)}`})`,
-      evidence: `took ${id} at ${clockOf(at.takenAt)}${at.changedAt === null ? '' : `; its setting changed at ${clockOf(at.changedAt)}`}; ${at.state === 'asked' ? `switch asked ${clockOf(at.askedAt)} (${at.askState ?? 'not known'}), not read back` : 'no switch asked'}; the app's file says ${at.runs}`,
+      evidence: at.state === 'lost' ? `took ${id} at ${clockOf(at.takenAt)}; switched to ${at.wants} at ${clockOf(at.setAt)} (read back), runs ${at.runs} again since ${clockOf(at.lostAt)}; ${at.lostWord === null ? 'no set word asked for the loss (no main chat)' : `set word for the loss asked ${clockOf(at.lostWord.at)} (${at.lostWord.state ?? 'not known'})`}; the app's file says ${at.runs}`
+        : `took ${id} at ${clockOf(at.takenAt)}${at.changedAt === null ? '' : `; its setting changed at ${clockOf(at.changedAt)}`}; ${at.state === 'asked' ? `switch asked ${clockOf(at.askedAt)} (${at.askState ?? 'not known'}), not read back` : 'no switch asked'}; the app's file says ${at.runs}`,
     })
   }
   return found

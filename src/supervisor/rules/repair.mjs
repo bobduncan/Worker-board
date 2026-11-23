@@ -347,6 +347,8 @@ function helperIdle(view, { seen = new Map(), observed = [] } = {}) {
 
 /** The states in which a ready task's Touches hold it back from the hand-out: given or under way (work/handOut.mjs `match`). */
 const GIVEN_OR_UNDER_WAY = ['queued', 'taken', 'in progress', 'waiting on you']
+/** B1279: the states of a lane's wake (src/wake.mjs `statusOf`) in which it is on its way. */
+const WAKING = ['on-its-way', 'sent', 'launched']
 /** B728: a closed worker the board asked the main chat to start this long ago, still closed, with a ready task waiting. */
 export const CLOSED_WAKE_MS = AGAIN_MS
 
@@ -358,6 +360,12 @@ export const CLOSED_WAKE_MS = AGAIN_MS
  * what that path cannot: the closed worker closed longest (lanes with an off time first, then by name) was asked to
  * start CLOSED_WAKE_MS ago and still does not run: "B<n> waits; Worker <n> is closed and does not wake", for the main
  * chat, once. A worker paused for the limit (`suspended`) is `limit-back`'s, one holding a step `holder-not-running`'s.
+ * B1279 (X205): with the wake record the hand-out starts the worker through the one wake procedure (src/wake.mjs `wakeNeeds`,
+ * `byWake`) and writes no start word. So this rule reads the lane's wake: quiet while the wake procedure needs it (`wake.need`: its
+ * start is a wake need), while a wake of it is on its way (`WAKING`) or
+ * failed on every path (the board's notice "could not wake Worker 4: ...; open its chat" is the person's one line then, and
+ * the hand-out passes the worker over), and it counts only a start word of the worker's own spell (written since it went off,
+ * `wake.spell`): the outbox keeps dozens of old start words per worker, which once made it fire beside the wake's own message.
  */
 function closedWorker(view) {
   const { items = new Map(), prefix = '', now, outbox = [], ready = [] } = view
@@ -372,7 +380,10 @@ function closedWorker(view) {
     if (item === undefined || overlapIn(items, item, GIVEN_OR_UNDER_WAY) !== null) continue
     const lane = one.keptFor == null ? closed[0] : closed.find(each => plain(each.name, prefix) === plain(one.keptFor, prefix))
     if (lane === undefined) continue
-    const asked = outbox.findLast(word => word.command === 'start' && plain(word.about, prefix) === plain(lane.name, prefix) && Number.isFinite(word.at))
+    // B1279: the wake procedure has it (a wake need of it, on its way, or failed on every path: the notice says so).
+    if (lane.wake?.need === true || WAKING.includes(lane.wake?.state) || lane.wake?.final === true) return []
+    const since = Number.isFinite(lane.wake?.spell) ? lane.wake.spell : -Infinity
+    const asked = outbox.findLast(word => word.command === 'start' && plain(word.about, prefix) === plain(lane.name, prefix) && Number.isFinite(word.at) && word.at >= since)
     if (asked === undefined || now - asked.at < CLOSED_WAKE_MS) return []
     const text = `${one.id} waits; ${lane.name} is closed and does not wake`
     return [finding('closed-worker', `closed-worker ${lane.name} ${one.id}`, lane.name, text, { do: 'main', text: `${text}: start it` })]

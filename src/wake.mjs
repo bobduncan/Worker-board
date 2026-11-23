@@ -8,7 +8,8 @@
 //
 // - ONE record per chat and spell (`data/wakes.json`, persisted as data/reports.json is): every attempt, its path, when,
 //   by whom, when it was sent and its verdict. A spell is the chat's sleep: its `asleepSince` (an off chat without one:
-//   its report's since, else the report's time). The reserved key "*" holds the board-wide "nobody runs" spells.
+//   its report's since, else the report's own time, F38: never the board's start a kept report was moved to). The
+//   reserved key "*" holds the board-wide "nobody runs" spells.
 // - Message first (a hand job through any running chat's Workers mod: code, no model turn), launch only when no sender
 //   claims, or after the message failed; one attempt per path per spell (decision 8), never two pending at once.
 // - A verdict only from the woken chat's own report: a report newer than the attempt with a new `run` (the mod's
@@ -19,7 +20,8 @@
 // The functions that change the record (`claim`, `sent`, ...) change it in place, synchronously, so the server claims an
 // attempt in the same tick it makes the job (the code check's "two carriers" risk).
 
-import { ASLEEP_LINE, isAppId } from './hands.mjs'
+import { heardTimeOf } from './chatReport.mjs'
+import { ASLEEP_LINE, HAND_LINE, isAppId } from './hands.mjs'
 import { NOT_LISTED_WHY, NOT_SHOWN_WHY, OTHER_ACCOUNT_WHY, RESTART_WHY, cannotWakeWhy, isNotListedAnswer, wakeIdsOf } from './ownChat.mjs'
 import { boardLanes, isWakeWord, wakeWordOf, wakerOrder } from './say.mjs'
 import { envelopesOf } from './work/handover.mjs'
@@ -65,7 +67,7 @@ export const emptyWakes = () => ({ wakes: new Map(), heardRunAt: null })
 
 /**
  * The spell of a lane that does not run: its `asleepSince`; an off chat without one, its report's since when its
- * session ended, else its report's time; one that never reported, 0 (the review of 2026-11-02: not its last activity,
+ * session ended, else its report's own time (F38, `heardTimeOf`); one that never reported, 0 (the review of 2026-11-02: not its last activity,
  * which the wake message itself moves, so the cap of one try per path would reset). Null when the lane runs, or the board
  * does not know (principle 3: `isRunning` null is not guessed).
  */
@@ -77,7 +79,8 @@ export function spellOf(lane) {
   // B986 (the review, 7): the report kept under its name when the title's chat has none (state.mjs `ownReport`).
   const report = lane.report ?? (isTime(lane.ownReport?.at) ? lane.ownReport : null)
   if (report?.state === 'ended' && isTime(report.since)) return report.since
-  if (isTime(report?.at)) return report.at
+  // F38 (B1300): the report's own time, never the board's start a kept report was moved to (a new spell per start).
+  if (isTime(heardTimeOf(report))) return heardTimeOf(report)
   // F27: a lane known to have gone off (offLane's since): that is its sleep, never the spell 0 an old spent entry holds.
   if (isTime(lane.offSince)) return lane.offSince
   return 0
@@ -93,8 +96,11 @@ const countedOf = entry => (isTime(entry?.reopenedAt) ? (entry.attempts ?? []).f
 /**
  * A new spell entry for `chat` when its newest is of another spell (life came, or a new sleep began); the server calls it
  * from its pass with each lane's `spellOf`, and `claim` does before the first attempt. True when one was added.
+ * F38 (the core review, 3): `move` (the server's pass only) puts a kept entry the lane reads again (A, B, then A) last, with
+ * its tries kept: `heard`, `personAgain`, `turnEnded` and `inFirstTurn` read the newest entry while `claim` writes into
+ * the entry of the spell, so a wake claimed into A would never hear its report. True when it moved one.
  */
-export function newSpell(record, chat, spell, now = Date.now()) {
+export function newSpell(record, chat, spell, now = Date.now(), { move = false } = {}) {
   if (!isTime(spell) || typeof chat !== 'string' || chat === '') return false
   // F27 (the review, 2): a spent spell 0 that is not the chat's newest entry (a real spell came between) is replaced ONCE when the lane reads
   // spell 0 again: it becomes the newest with its spent tries moved aside (`revivedAt`, its own mark: never G1's `reopenedAt`, which is the
@@ -111,7 +117,12 @@ export function newSpell(record, chat, spell, now = Date.now()) {
   }
   // The review of 2026-11-02: a spell value a kept entry already has (A, B, then A again) is that entry, never a new one:
   // the cap of one try per path holds for it.
-  if (entriesOf(record, chat).some(one => one.spell === spell)) return false
+  const kept = entriesOf(record, chat).findLast(one => one.spell === spell)
+  if (kept !== undefined) {
+    if (!move || entriesOf(record, chat).at(-1) === kept) return false
+    record.wakes.set(chat, [...entriesOf(record, chat).filter(one => one !== kept), kept])
+    return true
+  }
   const entries = [...entriesOf(record, chat), { spell, attempts: [], turnEndedAt: null, told: { failed: false, nobody: false } }]
   record.wakes.set(chat, entries.slice(-WAKE_SPELLS_KEPT))
   return true
@@ -165,13 +176,15 @@ export function failedAtOf(record, chat, spell = null) {
 /**
  * Start-up check, MUST 1: whether the chat reports again after the last failed attempt of its spell. Then "could not wake" is stale: it
  * ran since (a session that started after the failure, `report.run` no later than `now`, or a report that is not an ended one, heard
- * after it). `report` the chat's kept report `{ state, at, run }`, or null.
+ * after it: its own time, `heardTimeOf`, F38). `report` the chat's kept report `{ state, at, heardAt, run }`, or null.
  */
 export function ranSince(record, chat, spell, report, now = Infinity) {
   const failedAt = failedAtOf(record, chat, spell)
   if (failedAt === null || report === null || report === undefined) return false
   if (isTime(report.run) && report.run > failedAt && report.run <= now) return true
-  return report.state !== 'ended' && isTime(report.at) && report.at > failedAt && report.at <= now
+  // F38 (B1300): heard after the failure by its own time: a board start that moved a kept report proves no life.
+  const own = heardTimeOf(report)
+  return report.state !== 'ended' && isTime(own) && own > failedAt && own <= now
 }
 
 /**
@@ -192,7 +205,7 @@ export function reopenLanesOf(lanes, canLaunch) {
  * null otherwise (one is on its way, the chat woke, or every path is spent). `paths` the ones its ids allow ('message'
  * with an app id, 'launch' with a CLI session id on a board that can launch).
  */
-export function nextPath(record, { chat, spell, senderClaims, senderSince = -Infinity, paths = ['message', 'launch'] }) {
+export function nextPath(record, { chat, spell, senderClaims, senderSince = -Infinity, paths = ['message', 'launch'], carry = false }) {
   const attempts = countedOf(entryOf(record, chat, spell))
   if (attempts.some(one => isPending(one) || one.verdict === 'woke')) return null
   // B986: the app answered that it has no such session (not found): no launch, no other try in this spell.
@@ -202,11 +215,27 @@ export function nextPath(record, { chat, spell, senderClaims, senderSince = -Inf
   const launches = attempts.filter(one => one.path === 'launch')
   const mayMessage = senderClaims === true && paths.includes('message')
   if (mayMessage && messages.length === 0) return 'message'
+  // B1279 (X205): a hand's code send that went and brought no report is followed by ONE carry word (a model's turn, or the courier),
+  // before the launch: on 2026-11-19 the hands' sends of 22:15, 22:21 and 22:49 went and started nothing, one model turn's send at once.
+  if (carry === true && mayMessage && launches.length === 0 && isSilentHandSend(messages)) return 'message'
   if (paths.includes('launch') && launches.length === 0 && (senderClaims !== true || messages.some(one => one.verdict === 'failed'))) return 'launch'
   // "then stop until life, the person, or a new sender": a chat that began to claim after the last message failed.
   const lastMessage = messages.at(-1)
   if (mayMessage && messages.length === 1 && lastMessage.verdict === 'failed' && isTime(lastMessage.verdictAt) && senderSince > lastMessage.verdictAt) return 'message'
   return null
+}
+
+/** B1279: the spell's message tries are a hand's code sends only, each went (`sentAt`) and failed for want of a report. */
+const isSilentHandSend = messages => messages.length > 0 && messages.every(one => one.carry == null && isTime(one.sentAt) && one.verdict === 'failed')
+
+/**
+ * B1279 (X205): whether this chat's spell waits for a carry word after a silent hand send (`nextPath` with `carry`), for the carry pass
+ * while the hands may send.
+ */
+export function carryAfterSilent(record, { chat, spell, paths = ['message', 'launch'] }) {
+  const attempts = countedOf(entryOf(record, chat, spell))
+  if (attempts.some(one => isPending(one) || one.verdict === 'woke' || one.unlisted === true || one.path === 'launch')) return false
+  return paths.includes('message') && isSilentHandSend(attempts.filter(one => one.path === 'message' && one.refused !== true))
 }
 
 /**
@@ -224,7 +253,7 @@ export function handTried(record, { chat, spell, hand }) {
  */
 export function claim(record, { chat, spell, path, by, jobId, now, runBefore = null, senderSince = -Infinity, paths = ['message', 'launch'], step = null, carry = null }) {
   if (!['message', 'launch'].includes(path) || !isTime(spell) || !isTime(now)) return false
-  if (nextPath(record, { chat, spell, senderClaims: path === 'message', senderSince, paths: path === 'message' ? ['message'] : ['launch'] }) !== path) return false
+  if (nextPath(record, { chat, spell, senderClaims: path === 'message', senderSince, paths: path === 'message' ? ['message'] : ['launch'], carry: path === 'message' && ['model', 'courier'].includes(carry) }) !== path) return false
   newSpell(record, chat, spell)
   const entry = entryOf(record, chat, spell)
   if (entry === null) return false
@@ -316,7 +345,8 @@ export function givenBack(record, chat, jobId) {
 /**
  * The chat's own report (`{ state, run, at }`, as the board keeps it): the verdict 'woke' for its pending attempt when the
  * report came after the attempt and from a new process (`run` other than at the attempt; or, with no `run` at all, any
- * report but "ended"). A launch alone is never a verdict. The attempt, or null.
+ * report but "ended"). A launch alone is never a verdict. The attempt, or null. F38: `at` may be the board's start a kept
+ * report was moved to; the run check holds it (a moved report keeps the run it had at the attempt, `runBefore`).
  */
 export function heard(record, chat, report, now) {
   if (report === null || report === undefined || !isTime(report.at)) return null
@@ -362,7 +392,7 @@ export function carryPlan(record, { needs = [], lanes = [], main = null, now, ne
   const open = carriedChats(outbox)
   for (const need of needs ?? []) {
     if (!(need.paths ?? []).includes('message') || !isTime(need.spell) || open.has(need.chat)) continue
-    if (nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths }) !== 'message') continue
+    if (nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: true, paths: need.paths, carry: true }) !== 'message') continue
     const carrier = carrierOf(lanes, { target: need.chat, main, now, outbox, ...(byModel === undefined ? {} : { byModel }) })
     // Review 7, 18: no carrier and no courier that called lately: the message try stays unspent; the launch goes as before.
     if (carrier === null && !courierAlive) continue
@@ -418,6 +448,7 @@ export function turnEnded(record, chat, now) {
  * waits for that turn end; its first turn end takes nothing back). The review of 2026-11-02: only a message starts a turn;
  * a chat a launch woke, or the person opened, has none, and neither has one whose own report (`report`, the board's kept
  * `{ state, at }`) says idle or ended after the verdict: else its clear would wait for ever and the net fire after "woke".
+ * F38: `at` here, not the own time: a kept report moved to a later board start only ends that wait, never starts one.
  */
 export function inFirstTurn(record, chat, report = null) {
   const entry = newestOf(record, chat)
@@ -720,7 +751,33 @@ function needOf(lane, { state, waiting, prefix, resumeList, ownerName }) {
   if (waiting.some(message => message.to === lane.name && message.command !== 'handover' && (lane.name === ownerName || isWakeWord(wakeWordOf(message), state)))) return { why: 'words', text: WORDS_LINE, step: null }
   const queued = (lane.queue ?? [])[0] ?? null
   if (queued !== null && lane.onSequence !== true && typeof queued.id === 'string') return { why: 'queue', text: takeLine(queued.id), step: queued.id }
+  // B1279 (X205): the hand-out asks for this worker (reconcile.mjs `start`, handOut.mjs `workerStart`): the one wake procedure starts it
+  // (message, carry, launch, one try per path per spell, a verdict and the one notice), in place of a start word only a hand could carry.
+  const start = state.reconciled?.start ?? null
+  if (start?.byWake === true && typeof start.start === 'string' && start.start === lane.name) return { why: 'start', text: HAND_LINE, step: null }
   return null
+}
+
+/**
+ * B1279 (X205): which off chats the hand-out may start now, out of the wake record. `unwakeable`: a chat whose wake failed on every path it
+ * could take in its spell (`wakeOf` final: the message and the launch tried and failed, or no id to reach it), until it runs again or the
+ * app's return re-opens the spell (G1); `waking`: one whose wake is on its way (a message held or sent, a launch waiting for its verdict).
+ * `lanes` the board's chats; `facts` the server's `{ record, senderClaims, canLaunch }`. Two Sets of names; empty without a record.
+ */
+export function wakeableOf(lanes, facts) {
+  const unwakeable = new Set()
+  const waking = new Set()
+  const record = facts?.record ?? null
+  if (record === null) return { unwakeable, waking }
+  for (const lane of lanes ?? []) {
+    if (lane === null || lane === undefined || lane.isLeftover === true || typeof lane.name !== 'string') continue
+    const spell = spellOf(lane)
+    if (spell === null) continue
+    const wake = wakeOf(record, { chat: lane.name, spell, paths: pathsOf(lane, facts.canLaunch === true), cannot: cannotWakeWhy(lane) }, { senderClaims: facts.senderClaims === true })
+    if (wake.final === true && !ranSince(record, lane.name, spell, lane.report ?? null)) unwakeable.add(lane.name)
+    else if (['on-its-way', 'sent', 'launched'].includes(wake.state)) waking.add(lane.name)
+  }
+  return { unwakeable, waking }
 }
 
 /**

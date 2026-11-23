@@ -341,8 +341,8 @@ const UNSTARTED = ['new', 'refined']
 /** The states of a blocker that someone has (given, at work, in review): a step it blocks is that one's, not the signal's. */
 const BLOCKER_AT_WORK = ['queued', 'taken', 'in progress', 'waiting on you', 'review']
 
-/** The goal and the goals under it in the goal map's nodes (`children`). */
-function focusGoalsOf(focus, nodes) {
+/** The goal and the goals under it in the goal map's nodes (`children`). B1295: the review-held rule reads it too (watch.mjs). */
+export function focusGoalsOf(focus, nodes) {
   const byId = new Map((nodes ?? []).map(one => [one.id, one]))
   const found = [focus]
   for (let at = 0; at < found.length && found.length < 200; at += 1) for (const child of byId.get(found[at])?.children ?? []) if (!found.includes(child)) found.push(child)
