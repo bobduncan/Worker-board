@@ -45,7 +45,7 @@ import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
-import { assetsOf, backlogViewOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, wordsPath } from './src/projectPaths.mjs'
+import { assetsOf, backlogViewOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, storedOfWholePath, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -3541,8 +3541,10 @@ async function main(args) {
       return { page: { ...found.page, feedback: { ...feedback, canSend: whyNot === null && (feedback.parts > 0 || feedback.looks > 0) && (!feedback.done || feedback.looks > 0) && feedback.making === null && feedback.toJudge > 0, whyNot } } }
     },
     demoFeedback: async body => demoFeedbackNow(body),
-    picture: async path => {
+    picture: async asked => {
       const { project } = await readState()
+      // F49: a whole path inside the project (a check's Evidence line) is read as its stored path; the checks below stay the only door.
+      const path = storedOfWholePath({ ...config, project }, asked)
       const found = await findPicture(pictureHome(project), shownRoots(config), path)
       if (found !== null) return { type: found.type, body: await readFile(found.file) }
       const size = await pictureTooBig(pictureHome(project), shownRoots(config), path)
