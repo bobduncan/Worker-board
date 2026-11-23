@@ -9006,3 +9006,21 @@ step walked every item for its held asks, and every word for its refine word, tw
 index of asks by their `Of` (work/links.mjs, which falls back to a scan when the store changes size), and the newest refine word
 per step from one map per list per build (`newestRefines`). The output is the same on a copy of the real store (backlog and whole
 state hashed before and after); a build there went from 2106 ms to 662 ms.
+
+## F55: one claim for the loops (2026-11-23, chat 3, chat 1's finding)
+
+test/oneLoopProcess.test.mjs ("two board processes on one project") failed in 4 of 5 landing gates and once alone: in the failing runs
+the process the lock did NOT name had done owner-only work (a chat log given up, the start check), so both processes held the loops for a
+moment. The cause was B488's claim: write the lock, wait 80 ms, read it back. On a busy PC the other process's write landed after that
+read-back, both answered yes, and the loser learnt it only at its next check. Now (src/supervisor/loop.mjs `loopOwner`):
+- **The claim file** `<lock>.claim` beside `sync-loop.json`, made with the file system's exclusive create (`wx`, server.mjs `claim.create`):
+  of two processes that claim at once, one has it and the other meets EEXIST at once. A new claim (no lock, a dead owner's, a lapsed one)
+  is made under it: the lock is read AGAIN under the claim (the other claimant may have written it meanwhile: then no, without writing),
+  then written, and the claim is removed whatever happened (`finally`). No settle, no read-back.
+- **A claim left behind** (a board gone between claim and write, or hanging there) is abandoned once its process is dead, or after
+  CLAIM_STALE_MS (30 s: a pid Windows gave again), or when it is torn; it is taken away and the claim made once more (one retry).
+  A live young claim is the other's: no, and the gate asks again in a second. The exit handler takes an own claim away with the lock.
+- **The heartbeat** (the holder's own lock written again, B934 unflushed) takes no claim and is unchanged.
+- Tests: test/supervisor/selfCheck.test.mjs (the two interleavings B488 could not see, 40 racing rounds with one owner each, dead owner,
+  lapsed lock, dead or old or torn claim, a live young claim kept, a vanished claim, a failed write lets go, the heartbeat makes no claim);
+  component.test.mjs pins the server's wiring (`wx`, the unflushed lock, no settle); oneLoopProcess ran 10 times through the queue.

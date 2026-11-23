@@ -118,6 +118,7 @@ export async function startBoard(prepare) {
     const holder = loopOwner({
       read: () => readFile(lock, 'utf8'),
       write: text => writeAtomic(lock, text),
+      claim: { create: text => writeFile(`${lock}.claim`, text, { flag: 'wx' }), read: () => readFile(`${lock}.claim`, 'utf8'), remove: () => rm(`${lock}.claim`, { force: true }) },
       alive: () => true,
       pid: process.pid,
       port: 1,

@@ -18,10 +18,17 @@ import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 import { AGAIN_MS, CHECKS, OWNER_GONE_MS, REPAIR_RULES, RETIRED_RULES, findStuck, leftoverFindings } from '../../src/supervisor/rules/repair.mjs'
 import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
-import { LOOP_LOCK_MS, SYNC_SHOWN_MS, applySync, loopGate, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/supervisor/loop.mjs'
+import { CLAIM_STALE_MS, LOOP_LOCK_MS, SYNC_SHOWN_MS, applySync, loopGate, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/supervisor/loop.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 21, 2, 0).getTime()
+/** F55: the claim file in memory, as the file system gives it: an exclusive create (EEXIST when it is there), its text, its removal. */
+const memoryClaim = (store = { text: null, creates: 0 }) => ({
+  store,
+  create: async text => { store.creates += 1; if (store.text !== null) throw Object.assign(new Error('EEXIST: file already exists'), { code: 'EEXIST' }); store.text = text },
+  read: async () => { if (store.text === null) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return store.text },
+  remove: async () => { store.text = null },
+})
 const ago = minutes => NOW - minutes * MIN
 
 const item = (head, sections = {}) => ({ head: new Map(Object.entries(head)), sections: new Map(Object.entries(sections)) })
@@ -452,7 +459,8 @@ test('B489: with a torn lock file two board processes run the list once between 
     noted: { load: async () => JSON.parse(JSON.stringify(stored)), save: async state => { stored = JSON.parse(JSON.stringify(state)) } },
     now: () => clock,
   })
-  const board = (pid, port) => loopOwner({ read: async () => file, write: async text => { file = text }, alive: () => true, pid, port, now: () => clock })
+  const claim = memoryClaim()
+  const board = (pid, port) => loopOwner({ read: async () => file, write: async text => { file = text }, claim, alive: () => true, pid, port, now: () => clock })
   const first = board(7, 4310)
   const second = board(8, 4311)
   const tick = async () => {
@@ -692,21 +700,112 @@ test('leaked headless browsers, guard 3 end to end: three closes of one tool\'s 
   assert.deepEqual(Object.keys(memory.browsers ?? {}), [])
 })
 
-test('B488: of two processes that claim an empty lock at once, the write that stands wins and the other finds out', async () => {
-  let file = ''
+test('F55 (B488): of two processes that read an empty lock at once, exactly one owns the loops: the claim file decides, the loser learns it now, and no claim is left behind', async () => {
   const clock = NOW
-  // each writes, then the other writes before the first reads the lock back
-  const board = (pid, port) => loopOwner({
-    read: async () => file, write: async text => { file = text }, alive: () => true, pid, port, now: () => clock, settleMs: 50,
-    wait: async () => { if (pid === 7 && file.includes('"pid":7')) file = JSON.stringify({ pid: 8, port: 4311, at: clock }) },
+  // 1. A holds the claim while B's claim comes: B meets EEXIST, reads a live young claim, answers no; A writes and lets go of the claim.
+  let file = ''
+  const log = []
+  let bDone
+  const bFinished = new Promise(done => { bDone = done })
+  let aClaimed
+  const aHasClaim = new Promise(done => { aClaimed = done })
+  const store = { text: null, creates: 0 }
+  const base = memoryClaim(store)
+  const a = loopOwner({
+    read: async () => file, write: async text => { await bFinished; file = text; log.push('A wrote') },
+    claim: { ...base, create: async text => { await base.create(text); log.push('A claimed'); aClaimed() } }, alive: () => true, pid: 7, port: 4310, now: () => clock,
   })
-  assert.equal(await board(7, 4310)(), false, 'the first claim was written over before it settled')
-  assert.equal(JSON.parse(file).pid, 8)
-  assert.equal(await board(8, 4311)(), true, 'the claim that stands is the second\'s; it needs no second settle to keep the loops')
-  const refresh = []
-  const owner = loopOwner({ read: async () => file, write: async text => { file = text }, alive: () => true, pid: 8, port: 4311, now: () => clock, settleMs: 50, wait: async ms => refresh.push(ms) })
-  assert.equal(await owner(), true)
-  assert.deepEqual(refresh, [], 'a lock that is already its own is refreshed without waiting')
+  const b = loopOwner({
+    read: async () => file, write: async text => { file = text; log.push('B wrote') },
+    claim: { ...base, create: async text => { await aHasClaim; await base.create(text) } }, alive: () => true, pid: 8, port: 4311, now: () => clock,
+  })
+  const bRun = b().then(owns => { log.push(`B ${owns}`); bDone(); return owns })
+  const [ownsA, ownsB] = await Promise.all([a(), bRun])
+  assert.deepEqual([ownsA, ownsB], [true, false], 'one owner')
+  assert.deepEqual(log, ['A claimed', 'B false', 'A wrote'], 'B learnt it before A had even written: no settle, no second check')
+  assert.equal(JSON.parse(file).pid, 7)
+  assert.equal(store.text, null, 'the claim is let go of')
+  // 2. The interleaving B488 could not see: B read the lock empty BEFORE A wrote it, and claims after A let go. B wins the claim, reads the
+  //    lock again under it, finds A's fresh one, and answers no without writing; the claim is let go of.
+  let stale = true
+  const late = loopOwner({
+    read: async () => { if (stale) { stale = false; return '' } return file }, write: async text => { file = text; log.push('late wrote') },
+    claim: base, alive: () => true, pid: 8, port: 4311, now: () => clock,
+  })
+  assert.equal(await late(), false, 'the lock read again under the claim is a live one: no')
+  assert.equal(JSON.parse(file).pid, 7, 'A\'s lock stands')
+  assert.deepEqual([store.text, log.includes('late wrote')], [null, false])
+  // 3. The holder's heartbeat takes no claim: its own lock is written again, and nothing else happens.
+  const before = store.creates
+  assert.equal(await a(), true)
+  assert.equal(store.creates, before, 'no claim for a lock that is already its own')
+  // 4. Many rounds of both at once over the event loop: one owner every time, and the lock never changes hands while the owner is live.
+  const yielding = async () => { await new Promise(done => setImmediate(done)) }
+  for (let round = 0; round < 40; round++) {
+    file = ''
+    const racing = memoryClaim()
+    const runner = (pid, port) => loopOwner({ read: async () => { await yielding(); return file }, write: async text => { await yielding(); file = text }, claim: { ...racing, create: async text => { await yielding(); return racing.create(text) } }, alive: () => true, pid, port, now: () => clock })
+    const owners = (await Promise.all([runner(7, 4310)(), runner(8, 4311)()])).filter(Boolean)
+    assert.equal(owners.length, 1, `round ${round}: one owner`)
+    assert.equal(racing.store.text, null, `round ${round}: no claim left`)
+  }
+})
+
+test('F55: a dead owner\'s lock, a lapsed lock and a claim left behind (a process gone between claim and write) are all recovered; a live young claim and a live young lock are not taken', async () => {
+  let clock = NOW
+  let file = JSON.stringify({ pid: 9, port: 4312, at: clock - MIN })
+  const dead = new Set()
+  const claim = memoryClaim()
+  const me = loopOwner({ read: async () => file, write: async text => { file = text }, claim, alive: pid => !dead.has(pid), pid: 7, port: 4310, now: () => clock })
+  // a live young lock of another: no, and no claim is even made
+  assert.equal(await me(), false)
+  assert.equal(claim.store.creates, 0, 'no claim against a live holder')
+  // the owner is gone: taken over at once
+  dead.add(9)
+  assert.equal(await me(), true, 'a dead owner\'s lock is taken over')
+  assert.deepEqual([JSON.parse(file).pid, claim.store.text], [7, null])
+  // a lapsed lock of a live process (a board that hangs): taken over
+  dead.clear()
+  file = JSON.stringify({ pid: 9, port: 4312, at: clock - LOOP_LOCK_MS - 1 })
+  assert.equal(await me(), true, 'a lapsed lock is taken over')
+  assert.equal(JSON.parse(file).pid, 7)
+  // a claim left behind by a process that is gone: taken away, the claim made, the lock written
+  file = ''
+  claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock })
+  dead.add(9)
+  assert.equal(await me(), true, 'a dead process\'s claim is taken away first')
+  assert.deepEqual([JSON.parse(file).pid, claim.store.text], [7, null])
+  // a claim of a live process that is too old (hangs there, or its pid was given again): abandoned
+  dead.clear()
+  file = ''
+  claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock - CLAIM_STALE_MS - 1 })
+  assert.equal(await me(), true, 'a claim past CLAIM_STALE_MS is abandoned')
+  assert.equal(JSON.parse(file).pid, 7)
+  // a torn claim (cut off mid-write): abandoned too
+  file = ''
+  claim.store.text = '{"pid":9,"po'
+  assert.equal(await me(), true, 'a torn claim is abandoned')
+  // a live young claim of another: theirs; nothing is taken away or written
+  file = ''
+  claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock })
+  assert.equal(await me(), false, 'a live young claim is the other\'s')
+  assert.deepEqual([file, JSON.parse(claim.store.text).pid], ['', 9], 'nothing written, the claim untouched')
+  // the claim vanishes between the EEXIST and the look at it (the other finished): the second attempt wins
+  claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock })
+  const vanishing = loopOwner({ read: async () => file, write: async text => { file = text }, claim: { ...claim, read: async () => { claim.store.text = null; throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) } }, alive: () => true, pid: 7, port: 4310, now: () => clock })
+  assert.equal(await vanishing(), true)
+  // a write that fails under the claim: the claim is let go of and the failure is the gate\'s (a no)
+  file = ''
+  const failing = loopOwner({ read: async () => file, write: async () => { throw new Error('disk full') }, claim, alive: () => true, pid: 7, port: 4310, now: () => clock })
+  await assert.rejects(failing(), /disk full/)
+  assert.equal(claim.store.text, null, 'no claim left behind by a failed write')
+  // a lock that lapses while this process holds it is written again by its heartbeat, without a claim
+  file = JSON.stringify({ pid: 7, port: 4310, at: clock })
+  clock += LOOP_LOCK_MS + 1
+  const creates = claim.store.creates
+  assert.equal(await me(), true)
+  assert.deepEqual([JSON.parse(file).at, claim.store.creates], [clock, creates])
+  assert.throws(() => loopOwner({ read: async () => file, write: async () => {}, alive: () => true, pid: 7, port: 4310, now: () => clock }), /claim ports/)
 })
 
 test('B488: the loop gate answers from the lock at most once a second, says no when the check fails, and reads the files again when it gains the loops', async () => {

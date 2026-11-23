@@ -36,6 +36,7 @@ function board({ lock = null, fail = null } = {}) {
   const done = { applied: [], failed: [], lockWrites: [], ran: 0 }
   let saved = { noted: [], seen: {} }
   let held = lock
+  let claimed = null
   const ports = {
     state: async () => {
       done.ran += 1
@@ -54,6 +55,7 @@ function board({ lock = null, fail = null } = {}) {
       owner: loopOwner({
         read: async () => (held === null ? Promise.reject(Object.assign(new Error('none'), { code: 'ENOENT' })) : JSON.stringify(held)),
         write: async text => { held = JSON.parse(text); done.lockWrites.push(held) },
+        claim: { create: async text => { if (claimed !== null) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' }); claimed = text }, read: async () => claimed ?? '', remove: async () => { claimed = null } },
         alive: () => true,
         pid: 7,
         port: 4310,
@@ -278,6 +280,12 @@ test('the review: the list runs where the board\'s loops run: the server gives i
   const index = await readFile(new URL('../../src/supervisor/index.mjs', import.meta.url), 'utf8')
   assert.match(server, /const ownsLoops = LOOP_LOCK === null \? async \(\) => true : loopGate\(\{\n\s+owner: loopOwner\(\{/)
   assert.match(server, /\n\s+owns: ownsLoops,\n/)
+  // F55: the claim file beside the lock is made exclusively; the lock itself keeps its unflushed heartbeat (B934); no settle.
+  assert.match(server, /const LOOP_CLAIM = LOOP_LOCK === null \? null : `\$\{LOOP_LOCK\}\.claim`/)
+  assert.match(server, /claim: \{\n\s+create: async text => \{\n\s+await mkdir\(dirname\(LOOP_CLAIM\), \{ recursive: true \}\)\n\s+await writeFile\(LOOP_CLAIM, text, \{ flag: 'wx' \}\)/)
+  assert.match(server, /remove: \(\) => rm\(LOOP_CLAIM, \{ force: true \}\)/)
+  assert.match(server, /await writeUnflushed\(LOOP_LOCK, text\)/)
+  assert.doesNotMatch(server, /settleMs: 80/)
   assert.doesNotMatch(index, /loopOwner\(/, 'no loopOwner of the supervisor\'s own')
   // A gate that says no: neither the loop nor "Check now" runs the list in this process.
   const { ports, done } = board()

@@ -482,24 +482,59 @@ function lookLive(ports) {
   return { landing: typeof ports.landing === 'function' ? ask('landing', true) : false, startedAt: ask('startedAt', null), checking: ask('checking', []) }
 }
 
+/** F55: how long the claim file may stand (the step between taking it and writing the lock) before it counts as abandoned. */
+export const CLAIM_STALE_MS = 30_000
+
 /**
  * B489: the loop's own check, as the server runs it before every list: `read` and `write` (the lock file's text, in and
  * out), `alive(pid)`. Gives true when this process (`pid`) holds the lock after it, with the lock written then.
- * B488: a claim that is new (no lock, a dead owner's, one left to lapse) is written and then read back after `settleMs`:
- * of two processes that claim at once, the one whose write stands is the owner, and the other finds that out.
+ * F55 (2026-11-23; B488's read-back after a settle let two processes own the loops for a moment on a busy PC: the other's
+ * write landed after the read-back, and the loser only learnt at its next check): a claim that is new (no lock, a dead
+ * owner's, one left to lapse) is won through `claim`, the claim file beside the lock: `create(text)` makes it exclusively
+ * (the file system's `wx`: EEXIST when it is there), `read()` gives its text, `remove()` takes it away (nothing there is fine).
+ * One process at a time holds the claim; under it the lock is read again (the other claimant may have written it meanwhile)
+ * and then written, and the claim is removed, whatever happened. A claim left behind (a process gone between claim and write)
+ * is abandoned once its process is dead, or after CLAIM_STALE_MS (a process that hangs there, or a pid Windows gave again),
+ * and is taken away before the claim is made once more. The holder's heartbeat (its own lock written again) takes no claim.
  */
-export function loopOwner({ read, write, alive, pid, port, now, settleMs = 0, wait = ms => new Promise(done => setTimeout(done, ms)) }) {
+export function loopOwner({ read, write, claim, alive, pid, port, now }) {
+  if (claim === undefined || claim === null) throw new Error('loopOwner needs the claim ports (create, read, remove)')
+  // a lock whose process is gone (a board killed without its exit) is taken over at once
+  const seen = held => (held !== null && Number.isInteger(held.pid) && held.pid !== pid && !alive(held.pid) ? null : held)
+  const stamp = () => JSON.stringify({ pid, port, at: now() })
   return async () => {
-    const held = await readLoopLock(read)
-    // a lock whose process is gone (a board killed without its exit) is taken over at once
-    const lock = held !== null && Number.isInteger(held.pid) && held.pid !== pid && !alive(held.pid) ? null : held
+    const lock = seen(await readLoopLock(read))
     if (!mayRunLoop(lock, pid, now())) return false
-    await write(JSON.stringify({ pid, port, at: now() }))
-    if (settleMs > 0 && lock?.pid !== pid) {
-      await wait(settleMs)
-      return (await readLoopLock(read))?.pid === pid
+    if (lock?.pid === pid) {
+      await write(stamp())
+      return true
     }
-    return true
+    if (!await takeClaim()) return false
+    try {
+      const again = seen(await readLoopLock(read))
+      if (!mayRunLoop(again, pid, now())) return false
+      await write(stamp())
+      return true
+    } finally {
+      await claim.remove()
+    }
+  }
+  async function takeClaim() {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await claim.create(stamp())
+        return true
+      } catch (error) {
+        if (error?.code !== 'EEXIST') throw error
+      }
+      // Another claim stands: a live one of this moment is theirs (the gate asks again in a second); one left behind is taken away.
+      const other = await readLoopLock(claim.read)
+      const abandoned = other === null || !Number.isInteger(other.pid) || !Number.isFinite(other.at) || other.pid === pid
+        || !alive(other.pid) || now() - other.at > CLAIM_STALE_MS
+      if (!abandoned) return false
+      await claim.remove()
+    }
+    return false
   }
 }
 
