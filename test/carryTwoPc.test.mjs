@@ -14,7 +14,7 @@ import { join, relative, dirname, basename } from 'node:path'
 import { blobOf, gitRunner, line, lines } from '../src/carry/git.mjs'
 import { save, DATA_BRANCH, PRACTICE_BRANCH } from '../src/carry/save.mjs'
 import { load } from '../src/carry/load.mjs'
-import { recordFileFor, readRecord } from '../src/carry/record.mjs'
+import { recordFileFor, readRecord, writeRecord } from '../src/carry/record.mjs'
 import * as realSet from '../src/carry/set.mjs'
 import { rootsOf } from '../tools/carry.mjs'
 import * as realPictures from '../src/carry/pictures.mjs'
@@ -582,6 +582,10 @@ test('T5.2 A8, the switched-on layout for real (chat 1\'s review 1-4): a data ho
   assert.ok(inBranch.includes('data/.claude/work/B7.md') && inBranch.includes('data/.claude/goals.md') && inBranch.includes('settings/board-settings.json'), inBranch.join('\n'))
   const carriedSettings = JSON.parse(await readFile(join(rootsA.dataDir, 'settings', 'board-settings.json'), 'utf8'))
   assert.deepEqual(carriedSettings, { name: 'Moved project', weekStopAt: 90 }, 'no PC key travels in the project\'s settings')
+  // Round 3, review 5b: the record holds the blob of A's LOCAL settings file (with its PC keys), not the carried text's.
+  const recordedA = await readRecord(rootsA.recordFile, fs)
+  assert.equal(recordedA.last.blobs['settings/board-settings.json'], blobOf(await readFile(join(dataA, 'board-settings.json'))), 'the local file\'s blob')
+  assert.notEqual(recordedA.last.blobs['settings/board-settings.json'], blobOf(await readFile(join(rootsA.dataDir, 'settings', 'board-settings.json'))), 'not the carried text\'s')
 
   // B: a fresh clone, its own data home named in config.json (the file not there yet), and raw keys of its own.
   await b.ok(b.project, ['clone', '-q', remote, b.gameRepo])
@@ -614,6 +618,10 @@ test('T5.2 A8, the switched-on layout for real (chat 1\'s review 1-4): a data ho
   const mixedLoad = await load({ ...rootsC, config: rootsC.configGiven }, { log: () => {} }, { ...depsOf(c), recordFile: rootsC.recordFile })
   assert.deepEqual([mixedLoad.ok, mixedLoad.refusals.map(one => one.code)], [false, ['layout']])
   assert.match(mixedLoad.refusals[0].text, /made with a data home .* this PC is without one/)
+  // Round 3, review 4: --pictures-only is refused by the layout check too (it ran before it); C has loaded once (else the never-loaded guard speaks first).
+  await writeRecord(rootsC.recordFile, { ...(await readRecord(rootsC.recordFile, fs)), last: { kind: 'final', command: 'load', at: 1794829000000, branch: DATA_BRANCH, commit: 'x', blobs: {} } }, fs)
+  const mixedPictures = await load({ ...rootsC, config: rootsC.configGiven }, { log: () => {}, picturesOnly: true }, { ...depsOf(c), recordFile: rootsC.recordFile })
+  assert.deepEqual([mixedPictures.ok, mixedPictures.refusals.map(one => one.code)], [false, ['layout']])
   assert.equal(existsSync(join(c.project, '.claude', 'work', 'B7.md')), false, 'nothing of the store was misplaced into the project')
   await mkdir(join(c.project, '.claude', 'work'), { recursive: true })
   await writeFile(join(c.project, '.claude', 'work', 'pause.json'), JSON.stringify({ state: 'pausing', since: 1794820000000, by: 'you' }))
@@ -626,4 +634,35 @@ test('T5.2 A8, the switched-on layout for real (chat 1\'s review 1-4): a data ho
   assert.equal(done.ok, true, JSON.stringify(done.refusals))
   assert.equal(lines(await a.git(rootsA.dataDir, ['ls-files', '--', 'settings'])).includes('settings/board-settings.json'), false, 'the stale settings file is pruned')
   assert.equal(JSON.parse(await readFile(join(rootsA.dataDir, 'saved.json'), 'utf8')).layout, 'data', 'saved.json names the layout')
+  // Round 3, review 5a: C switches its layout on. Its record is from the project layout (home/ keys): the store file C changed here since its
+  // last sync is found under the other root, and the load is refused as changed-here (not silently replaced).
+  const dataC = join(c.project, 'data-home')
+  await mkdir(join(dataC, '.claude', 'work'), { recursive: true })
+  await writeFile(join(dataC, '.claude', 'work', 'B7.md'), 'Id: B7\nKind: step\nTitle: Changed on C\nState: ready\nOwner: -\nSince: 2026-11-21 10:00\nBranch: none\n')
+  await writeFile(join(c.boardDir, 'config.json'), JSON.stringify({ project: c.project, gameRepo: c.gameRepo, data: dataC, port: 4397 }))
+  const rootsC2 = await rootsOf({ boardDir: c.boardDir, flags: { remote }, env: { ...c.env }, git: c.git })
+  const recordC = await readRecord(rootsC2.recordFile, fs)
+  await writeRecord(rootsC2.recordFile, { ...recordC, last: { kind: 'final', command: 'load', at: 1794830000000, branch: DATA_BRANCH, commit: 'x', blobs: { 'home/.claude/work/B7.md': blobOf(Buffer.from('what C had at its last sync\n')) } } }, fs)
+  const switched = await load({ ...rootsC2, config: rootsC2.configGiven }, { log: () => {} }, { ...depsOf(c), recordFile: rootsC2.recordFile })
+  assert.deepEqual([switched.ok, switched.refusals.map(one => one.code)], [false, ['changed-here']], JSON.stringify(switched.refusals))
+  assert.match(switched.refusals[0].text, /data\/\.claude\/work\/B7\.md/)
+  assert.match(await readFile(join(dataC, '.claude', 'work', 'B7.md'), 'utf8'), /Changed on C/, 'nothing replaced')
+  // Round 3, review 6: a file held for a moment stops the load (no backup, nothing written) and the save (nothing pruned).
+  const heldError = Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })
+  const holding = file => ({ ...fs, readFile: async (path, ...rest) => { if (slashes(path).toLowerCase() === slashes(file).toLowerCase()) throw heldError; return readFile(path, ...rest) } })
+  await rm(rootsC2.recordFile, { force: true })
+  await assert.rejects(load({ ...rootsC2, config: rootsC2.configGiven }, { log: () => {} }, { ...depsOf(c), fs: holding(join(dataC, '.claude', 'work', 'B7.md')), recordFile: rootsC2.recordFile }), /EBUSY/)
+  assert.match(await readFile(join(dataC, '.claude', 'work', 'B7.md'), 'utf8'), /Changed on C/, 'the held file was not replaced')
+  assert.equal(existsSync(join(c.boardDir, 'data', 'carry-backup')), false, 'no backup was begun')
+  await writeFile(join(dataA, 'board-settings.json'), JSON.stringify({ name: 'Moved project', weekStopAt: 91 }))
+  await assert.rejects(save({ ...rootsA, config: rootsA.configGiven }, { log: () => {}, now: 1794835000000 }, { ...depsOf(a), fs: holding(join(dataA, 'board-settings.json')), recordFile: rootsA.recordFile }), /EBUSY/)
+  done = await save({ ...rootsA, config: rootsA.configGiven }, { log: () => {}, now: 1794835000000 }, { ...depsOf(a), recordFile: rootsA.recordFile })
+  assert.equal(done.ok, true, JSON.stringify(done.refusals))
+  assert.ok(lines(await a.git(rootsA.dataDir, ['ls-files', '--', 'settings'])).includes('settings/board-settings.json'), 'released, the settings file travels again')
+  // Round 3 (minor): a dry-run save from a PC without a data home, its folder on the other kind's branch, still sees this branch's data/.
+  await writeFile(join(c.boardDir, 'config.json'), JSON.stringify({ project: c.project, gameRepo: c.gameRepo, port: 4397 }))
+  const rootsC3 = await rootsOf({ boardDir: c.boardDir, flags: { remote }, env: { ...c.env }, git: c.git })
+  await c.ok(rootsC3.dataDir, ['checkout', '-q', '--orphan', PRACTICE_BRANCH])
+  const dryMixed = await save({ ...rootsC3, config: rootsC3.configGiven }, { log: () => {}, dryRun: true, now: 1794836000000 }, { ...depsOf(c), recordFile: rootsC3.recordFile })
+  assert.deepEqual([dryMixed.ok, dryMixed.refusals.map(one => one.code)], [false, ['layout']], 'the dry run looks at the branch\'s tree')
 })

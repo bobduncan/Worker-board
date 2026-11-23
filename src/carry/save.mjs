@@ -10,7 +10,7 @@ import { readStore } from '../work/store.mjs'
 import { assetsOf, dataOf, picturesOf } from '../projectPaths.mjs'
 import { parsePause, checkpointOf } from '../work/pause.mjs'
 import { valueOf } from '../work/item.mjs'
-import { aheadOf, blobOf, commitAndPush, ensureDataClone, isAnonymouslyReadable, lines, localBranches, peekDataClone, pushBranch, pushIsFastForward, remoteBranch, trackedChanges, commitsNotOnOrigin } from './git.mjs'
+import { aheadOf, blobOf, commitAndPush, ensureDataClone, isAnonymouslyReadable, lines, localBranches, peekDataClone, pushBranch, pushIsFastForward, readIfThere, remoteBranch, trackedChanges, commitsNotOnOrigin } from './git.mjs'
 import { boardStepsOf, heldStepsOf, heldWordsOf, reviewStepsOf, saveGuards, secretsIn, TEXT_MOST_BYTES } from './guards.mjs'
 import { timesOf } from './times.mjs'
 import { readRecord, writeRecord } from './record.mjs'
@@ -28,6 +28,10 @@ export const samePath = (a, b) => resolve(String(a)).replace(/[\\/]+$/, '').toLo
 /** The moved layout (the data home IS the data folder): neither save nor load copies a folder onto itself; Round C makes the save a commit. */
 export const IN_PLACE_TEXT = 'the data lives in the data folder already: saving is a commit (Round C), not a copy'
 export const isInPlace = roots => typeof roots.dataHome === 'string' && roots.dataHome !== '' && samePath(roots.dataHome, roots.dataDir)
+/** Round 3, review 2: a chat home that is not the project with no data home: the store is in neither home (nothing of it would travel). */
+export const HALF_LAYOUT_TEXT = 'config.json names a chat home but no data home: the store is in neither home and would not travel; Round B sets both together'
+export const isHalfMoved = roots => !(typeof roots.dataHome === 'string' && roots.dataHome !== '') && typeof roots.chatHome === 'string' && roots.chatHome !== '' && !samePath(roots.chatHome, roots.project)
+export const halfLayoutRefusal = () => ({ code: 'layout', text: HALF_LAYOUT_TEXT, who: 'Round B' })
 /** The layout a save was made in, kept in saved.json: 'data' (a data home) or 'project' (the store in the project, today's). */
 export const layoutOf = roots => (typeof roots.dataHome === 'string' && roots.dataHome !== '' ? 'data' : 'project')
 /** Review b: the two layouts never mix: a save of one onto a PC of the other would skip or misplace the store, silently. */
@@ -57,6 +61,10 @@ export async function save(roots, options = {}, deps) {
     log(`Refused: ${IN_PLACE_TEXT}`)
     return { ok: false, refusals: [{ code: 'in-place', text: IN_PLACE_TEXT, who: 'Round C' }], warnings, dryRun }
   }
+  if (isHalfMoved(roots)) {
+    log(`Refused: ${HALF_LAYOUT_TEXT}`)
+    return { ok: false, refusals: [halfLayoutRefusal()], warnings, dryRun }
+  }
   const record = await readRecord(deps.recordFile, fs)
 
   // ---- what is here
@@ -70,8 +78,11 @@ export async function save(roots, options = {}, deps) {
 
   // ---- the data clone (made now, written later). A dry run makes and switches nothing: it looks. Origin is asked by its URL.
   const clone = dryRun ? await peekDataClone({ git, dir: roots.dataDir, branch, fs }) : await ensureDataClone({ git, dir: roots.dataDir, remote: roots.remote, branch, fs })
-  // Review b: a branch that holds a data home (data/) is never saved onto from a PC without one: this save would prune it.
-  if ((!dryRun || clone.onBranch === true) && layoutOf(roots) === 'project' && lines(await git(roots.dataDir, ['ls-files', '--', 'data'])).length > 0) {
+  // Review b: a branch that holds a data home (data/) is never saved onto from a PC without one: this save would prune it. Round 3 (minor): a
+  // dry run with the folder on the other kind's branch looks at this branch's own tree when the folder has it (no fetch: a dry run touches nothing).
+  const dataInBranch = async () => (!dryRun || clone.onBranch === true ? lines(await git(roots.dataDir, ['ls-files', '--', 'data']))
+    : clone.exists ? lines(await git(roots.dataDir, ['ls-tree', '-r', '--name-only', branch, '--', 'data'])) : [])
+  if (layoutOf(roots) === 'project' && (await dataInBranch()).length > 0) {
     const refusal = layoutRefusal('data', 'project')
     log(`Refused: ${refusal.text}`)
     return { ok: false, refusals: [refusal], warnings, dryRun }
@@ -131,7 +142,9 @@ export async function save(roots, options = {}, deps) {
   // the other PC's `data` says. Without it, config.json's own keys are the project's, as before. The file is named by the roots (config.json's
   // own `data`, review 2), else by the parsed config.
   const projectSettingsFile = roots.projectSettingsFile ?? set.projectSettingsFileOf?.(roots.config) ?? null
-  const projectSettingsText = projectSettingsFile === null ? null : await fs.readFile(projectSettingsFile, 'utf8').catch(() => null)
+  // Review 6: only a file that is not there is absent; one held for a moment stops the save (it would be pruned from the branch otherwise).
+  const projectSettingsBytes = projectSettingsFile === null ? null : await readIfThere(fs, projectSettingsFile)
+  const projectSettingsText = projectSettingsBytes === null ? null : projectSettingsBytes.toString('utf8')
   const projectSettings = projectSettingsText === null ? null : set.carriedProjectSettings?.(projectSettingsText) ?? null
   if (projectSettings !== null) settings[SETTINGS_TO] = projectSettings
   // Review 3: the settings texts are scanned for secrets with the files.
@@ -197,6 +210,9 @@ export async function save(roots, options = {}, deps) {
     }
     written.push(one.to)
   }
+  // Review 5b: the record holds the blob of the LOCAL settings file (PC keys and all), never the carried text's: the next load's changed-here
+  // check compares it with the file here.
+  if (projectSettings !== null && projectSettingsBytes !== null) keptBlobs[SETTINGS_TO] = blobOf(projectSettingsBytes)
   // A dry run on a folder not on this branch (none yet, or the other kind's) counts nothing as gone, and says so.
   const dataOnBranch = !dryRun || clone.onBranch === true
   if (!dataOnBranch) warnings.push(`the data folder ${clone.exists ? 'is on the other kind\'s branch' : 'does not exist yet'}: what left the set is not counted in this dry run`)

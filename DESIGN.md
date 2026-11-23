@@ -8896,6 +8896,15 @@ JSON. Now (nothing changes with `data` and `chatHome` empty; the tests pin today
   backup, and a created file is in the manifest so `--undo` removes it); save prunes a stale `settings/board-settings.json` when it is not
   carried this time. settingsFromCarry drops every PC key of the carried config.json before this PC's own come in (a save from before the
   rule). Load refuses the moved layout as save does. config.json's BOM is stripped and a non-object file falls back to the parsed config.
+- **Chat 1's re-check (2026-11-23, round 3)**: the roots refuse a config.json without `project` before any git call (an empty one resolved to
+  the board folder); `data` and `chatHome` are trimmed and %VAR%-filled as settingsFileOf does and an unset %VAR% is refused; an explicit relative
+  `transcripts` or `picturesHome` is the board folder's. A chat home that is not the project with no data home (the store in neither home) is
+  refused by save and load alike (Round B sets both together). The running-board check asks by the chat home (the board registers in boards.json,
+  answers /api/board and writes board.json by its chat home). The layout check stands before `--pictures-only`. The changed-here check finds a
+  store file under the other root of the record after a layout switch (home/ became data/, or back), and save records the blob of the LOCAL
+  settings file, never the carried text's. Only ENOENT (or ENOTDIR) means absent (`readIfThere`, `blobOfFile`): a file held for a moment throws
+  and stops the load or save instead of counting as gone. The settings file is written atomically. A dry-run save with the folder on the other
+  kind's branch looks at this branch's own tree for `data/`.
 
 ## One restart per landing (2026-11-21, chat 3, chat 1's fix A)
 

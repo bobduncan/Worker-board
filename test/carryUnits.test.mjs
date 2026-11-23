@@ -17,7 +17,7 @@ import { load } from '../src/carry/load.mjs'
 import { carriedProjectSettings } from '../src/carry/set.mjs'
 import { PC_KEYS } from '../src/config.mjs'
 import { readFileSync } from 'node:fs'
-import { blobOf } from '../src/carry/git.mjs'
+import { blobOf, blobOfFile, readIfThere } from '../src/carry/git.mjs'
 import { boardStepsOf, heldStepsOf, heldWordsOf, loadGuards, reviewStepsOf, saveGuards, secretValuesOf, secretsIn, LOCK_FRESH_MS } from '../src/carry/guards.mjs'
 import { parseTimes, restoreTimes, timesOf } from '../src/carry/times.mjs'
 import { parseRecord, readRecord, recordFileFor, writeRecord } from '../src/carry/record.mjs'
@@ -253,5 +253,50 @@ test('T5.2 A8: the roots know the chat home and the data home: the memory and th
     assert.deepEqual(carried, { name: 'Moved', weekStopAt: 90 })
     assert.equal(carriedProjectSettings('{ broken'), null)
     assert.equal(carriedProjectSettings('[1]'), null)
+    // Round 3, review 1: no project in config.json is refused before any git call (it would resolve to the board folder).
+    const gitCalls = []
+    const countingGit = async (...args) => { gitCalls.push(args); return { out: '', err: '', code: 1 } }
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ gameRepo: game }))
+    await assert.rejects(rootsOf({ boardDir: board, flags, env, git: countingGit }), /names no project/)
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: '  ', gameRepo: game }))
+    await assert.rejects(rootsOf({ boardDir: board, flags, env, git: countingGit }), /names no project/)
+    assert.equal(gitCalls.length, 0, 'refused before git is asked anything')
+    // Round 3, review 8: data and chatHome trimmed and %VAR%-filled as settingsFileOf does; an unset %VAR% is refused; an explicit relative
+    // transcripts or picturesHome is the board folder's.
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, data: ' %A8_NOT_SET%/data ' }))
+    await assert.rejects(rootsOf({ boardDir: board, flags, env, git: countingGit }), /data names %A8_NOT_SET%, which is not set/)
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: '%A8_HOME%\\\\x' }))
+    await assert.rejects(rootsOf({ boardDir: board, flags, env, git: countingGit }), /chatHome names %A8_HOME%, which is not set/)
+    assert.equal(gitCalls.length, 0)
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: ' %A8_HOME%\\\\wrap ', data: ' %a8_home%/wrap/game/.workerboard-rel ', transcripts: 'tx', picturesHome: ' pics ' }))
+    const filled = await rootsOf({ boardDir: board, flags, env: { ...env, A8_HOME: root }, git })
+    assert.deepEqual([filled.chatHome, filled.dataHome, filled.config.transcripts, filled.memoryDir, filled.picturesFolder],
+      [wrap, join(game, '.workerboard-rel'), join(board, 'tx'), join(board, 'tx', 'memory'), join(board, 'pics')])
+    // Round 3, review 2: a chat home that is not the project with no data home: save and load refuse (the store is in neither home).
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: wrap }))
+    const half = await rootsOf({ boardDir: board, flags, env, git })
+    const unread = { readFile: async () => { throw new Error('not read') } }
+    const halfSave = await save({ ...half, config: half.configGiven }, { log: () => {} }, { fs: unread, recordFile: join(board, 'data', 'carry.json') })
+    const halfLoad = await load({ ...half, config: half.configGiven }, { log: () => {} }, { fs: unread, recordFile: join(board, 'data', 'carry.json'), boardAnswers: async () => [], keepers: async () => [], lockAgeMs: async () => null })
+    assert.deepEqual([halfSave.ok, halfSave.refusals.map(one => one.code), halfLoad.ok, halfLoad.refusals.map(one => one.code)], [false, ['layout'], false, ['layout']])
+    assert.match(halfSave.refusals[0].text, /chat home but no data home/)
+    assert.equal(halfLoad.refusals[0].text, halfSave.refusals[0].text)
+    // Round 3, review 3 and 7 (the wiring): the running-board check asks by the chat home; the settings file is written atomically.
+    const toolCode = readFileSync(new URL('../tools/carry.mjs', import.meta.url), 'utf8')
+    assert.match(toolCode, /boardAnswers: \(\) => boardsAnswering\(\{ project: roots\.chatHome, boardDir: roots\.boardDir \}\)/)
+    assert.match(loadCode, /if \(one\.to === settingsTo\) await writeAtomic\(one\.target, one\.bytes\)/)
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('round 3, review 6: only ENOENT (or ENOTDIR) means absent: blobOfFile and readIfThere answer null for a file that is not there and throw for one that is held', async () => {
+  const held = Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })
+  const gone = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
+  const noDir = Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' })
+  const fsOf = error => ({ readFile: async () => { throw error } })
+  assert.equal(await blobOfFile('x', fsOf(gone)), null)
+  assert.equal(await blobOfFile('x', fsOf(noDir)), null)
+  await assert.rejects(blobOfFile('x', fsOf(held)), /EBUSY/)
+  assert.equal(await readIfThere(fsOf(gone), 'x'), null)
+  await assert.rejects(readIfThere(fsOf(held), 'x', 'utf8'), /EBUSY/)
+  assert.equal(await blobOfFile('x', { readFile: async () => Buffer.from('a\n') }), blobOf(Buffer.from('a\n')))
 })

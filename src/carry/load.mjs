@@ -7,11 +7,11 @@ import { join, dirname } from 'node:path'
 
 import { writeAtomic } from '../write.mjs'
 import { FOCUS_LINE } from '../goals.mjs'
-import { blobOf, blobOfFile, ensureDataClone, fastForward, hasIdentity, lines, remoteBranch } from './git.mjs'
+import { blobOf, blobOfFile, ensureDataClone, fastForward, hasIdentity, lines, readIfThere, remoteBranch } from './git.mjs'
 import { loadGuards } from './guards.mjs'
 import { parseTimes, restoreTimes } from './times.mjs'
 import { readRecord, writeRecord } from './record.mjs'
-import { IN_PLACE_TEXT, branchFor, clockOf, isInPlace, layoutOf, layoutRefusal } from './save.mjs'
+import { HALF_LAYOUT_TEXT, IN_PLACE_TEXT, branchFor, clockOf, halfLayoutRefusal, isHalfMoved, isInPlace, layoutOf, layoutRefusal } from './save.mjs'
 import { dataOf, picturesOf } from '../projectPaths.mjs'
 
 const slashes = path => String(path).replace(/\\/g, '/')
@@ -38,6 +38,8 @@ export async function load(roots, options = {}, deps) {
   if (early.refusals.length > 0) return refused(early, log)
   // Review f: the moved layout (the data home IS the data folder) is loaded onto by nothing until Round C.
   if (isInPlace(roots)) { log(`Refused: ${IN_PLACE_TEXT}`); return { ok: false, refusals: [{ code: 'in-place', text: IN_PLACE_TEXT, who: 'Round C' }], warnings } }
+  // Round 3, review 2: a chat home without a data home would misplace the store (data/ lands nowhere, home/ holds none): refused as save does.
+  if (isHalfMoved(roots)) { log(`Refused: ${HALF_LAYOUT_TEXT}`); return { ok: false, refusals: [halfLayoutRefusal()], warnings } }
   if (options.undo) return undo({ roots, stamp: options.undo, fs, log, journal, backupRoot })
 
   // ---- fetch. The rehearsal of 2026-11-17: a load whose branch origin lacks (no save of this kind from another PC yet) touches
@@ -56,19 +58,19 @@ export async function load(roots, options = {}, deps) {
   // T5.2 A8: `home/` goes back to the chat home, `data/` to the data home (the project today; `data/` is not placed without one).
   const targetsOf = { project: roots.project, boardDir: roots.boardDir, memoryDir: roots.memoryDir, chatHome: roots.chatHome ?? null, dataHome: roots.dataHome ?? null }
 
+  // Review b (round 3, review 4: before --pictures-only too): the save's layout must be this PC's (a save made before the rule is the project layout).
+  if ((saved.layout ?? 'project') !== layoutOf(roots)) {
+    const refusal = layoutRefusal(saved.layout ?? 'project', layoutOf(roots))
+    log(`Refused: ${refusal.text}`)
+    return { ok: false, refusals: [refusal], warnings }
+  }
+
   // ---- --pictures-only: the pictures step again, after a full load (the record keeps the Drive folder given)
   if (options.picturesOnly) {
     const got = await fromDrive({ roots, pictures, fs, dryRun, log, journal })
     if (!dryRun && roots.picturesFolder !== null && roots.picturesFolder !== record.picturesHome) { await writeRecord(deps.recordFile, { ...record, picturesHome: roots.picturesFolder }, fs); journal(deps.recordFile) }
     log(`${dryRun ? 'Dry run' : 'Pictures'} ${clockOf(now)}: ${got.copied} pictures copied (${got.kept} kept, ${got.missing.length} missing)`)
     return { ok: true, refusals: [], warnings, pictures: got }
-  }
-
-  // Review b: the save's layout must be this PC's (a save made before the rule is the project layout).
-  if ((saved.layout ?? 'project') !== layoutOf(roots)) {
-    const refusal = layoutRefusal(saved.layout ?? 'project', layoutOf(roots))
-    log(`Refused: ${refusal.text}`)
-    return { ok: false, refusals: [refusal], warnings }
   }
 
   // ---- the set and what this PC changed since its last sync
@@ -85,7 +87,7 @@ export async function load(roots, options = {}, deps) {
   // Review c: the project's settings file (settings/board-settings.json, A8) is an item of the plan: the changed-here check, the backup
   // and --undo hold for it as for the rest; it goes where this PC's own `data` says (the roots), and a PC without one is told.
   const settingsTo = 'settings/board-settings.json'
-  const settingsBytes = await fs.readFile(join(roots.dataDir, ...settingsTo.split('/'))).catch(() => null)
+  const settingsBytes = await readIfThere(fs, join(roots.dataDir, ...settingsTo.split('/')))
   const settingsTarget = roots.projectSettingsFile ?? set.projectSettingsFileOf?.(roots.config) ?? null
   if (settingsBytes !== null) {
     if (settingsTarget === null) warnings.push('settings/board-settings.json was carried, but this PC has no data home (config.json `data`): it stays in the data folder')
@@ -95,7 +97,11 @@ export async function load(roots, options = {}, deps) {
     }
   }
   const lastBlobs = record.last?.blobs ?? {}
-  facts.changed = plan.filter(one => one.here !== null && !one.same && lastBlobs[one.to] !== undefined && lastBlobs[one.to] !== one.here).map(one => ({ path: one.to, target: one.target }))
+  // Round 3, review 5a: the first load after a layout switch finds the store's files under the other root in the record (home/ became data/, or
+  // back): the same file under the other home is the one to compare with, else the switch would hide every change made here.
+  const otherRoot = to => (to.startsWith('data/') ? `home/${to.slice('data/'.length)}` : to.startsWith('home/') ? `data/${to.slice('home/'.length)}` : to)
+  const lastBlobOf = to => lastBlobs[to] ?? lastBlobs[otherRoot(to)]
+  facts.changed = plan.filter(one => one.here !== null && !one.same && lastBlobOf(one.to) !== undefined && lastBlobOf(one.to) !== one.here).map(one => ({ path: one.to, target: one.target }))
   facts.fromPractice = record.last?.command === 'load' && record.last.kind === 'practice' && !practice
   const guarded = loadGuards(facts, { park })
   warnings.push(...guarded.warnings)
@@ -118,7 +124,7 @@ export async function load(roots, options = {}, deps) {
       manifest.push({ to: one.to, target: one.target })
     }
     if (createdSettings !== null) manifest.push({ to: createdSettings.to, target: createdSettings.target, created: true })
-    const config = roots.config === null ? null : await fs.readFile(join(roots.boardDir, 'config.json'), 'utf8').catch(() => null)
+    const config = roots.config === null ? null : await readIfThere(fs, join(roots.boardDir, 'config.json'), 'utf8')
     if (config !== null) { await fs.writeFile(join(backupDir, 'config.json'), config); manifest.push({ to: 'config.json', target: join(roots.boardDir, 'config.json') }) }
     await fs.writeFile(join(backupDir, 'backup.json'), JSON.stringify({ at: now, files: manifest }, null, 2) + '\n')
     journal(backupDir)
@@ -132,7 +138,9 @@ export async function load(roots, options = {}, deps) {
     if (one.same) continue
     if (!dryRun) {
       await fs.mkdir(dirname(one.target), { recursive: true })
-      await fs.writeFile(one.target, one.bytes)
+      // Round 3, review 7: the board reads its settings file at any moment (P4): never a torn one.
+      if (one.to === settingsTo) await writeAtomic(one.target, one.bytes)
+      else await fs.writeFile(one.target, one.bytes)
       journal(one.target)
     }
     written.push(one.to)
