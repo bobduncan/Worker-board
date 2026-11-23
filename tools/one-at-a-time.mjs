@@ -37,7 +37,7 @@
 //   helper: the command runs without HEAVY_RUN_FIRST, so the runs the command starts in turn (a test of this helper under
 //   the gate) are ordinary ones (chat 1's check, 2026-11-14: with the word passed on, every gate after F14 refused itself).
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, openSync, closeSync, readFileSync, readdirSync, unlinkSync, writeSync } from 'node:fs'
+import { appendFileSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, unlinkSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -53,6 +53,23 @@ const UNREADABLE_LOOK_MS = 250
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP']
 // After a signal the command gets this long to end before we give the lock back anyway.
 const STOP_WAIT_MS = 5000
+
+/**
+ * The run log (the person, 2026-11-23: "log every wait"): one JSON line per heavy run that queued here, PC-wide, beside the
+ * lock (`<lock>.runs.jsonl`), so the waits and the run times of every chat in both repositories can be counted
+ * (`node tools/run-stats.mjs` in the game). A run started under another one (HEAVY_RUN_HELD) is part of it and not logged.
+ * A log that cannot be written never stops a run. The same lines in both repositories' copies of this helper.
+ */
+export function runLogPath(env = process.env) {
+  return `${lockPath(env)}.runs.jsonl`
+}
+export function logRun(env, record) {
+  try {
+    appendFileSync(runLogPath(env), `${JSON.stringify(record)}\n`)
+  } catch {
+    // no log today
+  }
+}
 
 /** The lock file of this PC. */
 export function lockPath(env = process.env) {
@@ -318,6 +335,9 @@ export async function runOneAtATime({
   let signalled = null
   let forceExit = () => {}
   let giveLockBack = null
+  const came = Date.now()
+  let began = null
+  let code = null
 
   const onSignal = (name) => {
     const again = signalled !== null
@@ -337,6 +357,7 @@ export async function runOneAtATime({
     if (env.HEAVY_RUN_HELD !== '1') {
       const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS) }
       giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1' })
+      began = Date.now()
       if (!giveLockBack || signalled) return signalExit(signalled)
     }
     const exited = new Promise((resolve) => {
@@ -349,8 +370,18 @@ export async function runOneAtATime({
       })
       child.on('exit', (code, signal) => resolve(signalled ? signalExit(signalled) : (code ?? signalExit(signal))))
     })
-    return await exited
+    code = await exited
+    return code
   } finally {
+    if (env.HEAVY_RUN_HELD !== '1') {
+      const now = Date.now()
+      const waited = (began ?? now) - came
+      logRun(env, {
+        at: new Date(came).toISOString(), label, cwd, first: env.HEAVY_RUN_FIRST === '1', slots: slotsOf(env),
+        waitedS: Math.round(waited / 1000), ranS: began === null ? 0 : Math.round((now - began) / 1000),
+        exit: code, stopped: signalled ?? (began === null ? 'before its turn' : null),
+      })
+    }
     giveLockBack?.()
     process.off('exit', onExit)
     for (const [name, listener] of listeners) signals.off(name, listener)
