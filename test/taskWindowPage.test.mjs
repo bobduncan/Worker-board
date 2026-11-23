@@ -3,7 +3,7 @@
 // judged by eye, and came back failed twice. This opens the demo board's step B40 in a headless browser (tools/task-probe.mjs,
 // the probe that shoots the window beside the mockup) and reads what is drawn. Skipped where no Edge or Chrome is.
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -27,7 +27,9 @@ const freePort = () => new Promise((done, fail) => {
 /** The demo board on a port of its own, for the run of `use`; stopped after it. */
 async function withDemoBoard(use) {
   const port = await freePort()
-  const board = spawn(process.execPath, [join(ROOT, 'server.mjs'), '--demo', '--port', String(port)], { cwd: ROOT, stdio: 'ignore' })
+  // F39 (2026-11-21): the board alone, no keeper (WORKER_BOARD_CHILD): a keeper killed here left its child running inside the
+  // gate worktree for an hour. And the whole tree is ended after, whatever happened.
+  const board = spawn(process.execPath, [join(ROOT, 'server.mjs'), '--demo', '--port', String(port)], { cwd: ROOT, stdio: 'ignore', env: { ...process.env, WORKER_BOARD_CHILD: '1' }, windowsHide: true })
   const dir = await mkdtemp(join(tmpdir(), 'task-window-page-'))
   try {
     for (let i = 0; i < 60; i++) {
@@ -36,6 +38,7 @@ async function withDemoBoard(use) {
     }
     return await use({ address: `http://127.0.0.1:${port}`, dir })
   } finally {
+    if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(board.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
     board.kill()
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {})
   }
