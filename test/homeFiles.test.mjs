@@ -3,7 +3,7 @@
 // person's click only. With `data` unset nothing changes. A made-up wrapper folder (the chat home) holding the game repo (the project).
 
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -110,7 +110,7 @@ test('the page\'s amber line names the first file that differs, with its two but
   assert.deepEqual({ ...page.note([{ name: 'CLAUDE.md', kind: 'pointer', state: 'differs' }, { name: 'AGENTS.md', kind: 'copy', state: 'differs' }]) },
     { name: 'CLAUDE.md', text: 'CLAUDE.md in the chat home differs from its template: it should only point at its copy with the board\'s data (and 1 more after it).' })
   assert.match(html, /id="home-files-note" role="status" hidden><span id="home-files-note-text"><\/span> <button[^>]*id="home-files-write">Write again<\/button> <button[^>]*id="home-files-adopt">Copy this PC's into the template<\/button>/)
-  assert.match(script, /drawSetAsideNote\(state\)\n {2}drawHomeFilesNote\(state\)/)
+  assert.match(script, /drawSettingsIgnoredNote\(state\)\n {2}drawHomeFilesNote\(state\)/)
 })
 
 const freePort = () => new Promise(done => {
@@ -130,13 +130,18 @@ test('a real board: a CLAUDE.md that differs is in the state, the person\'s Writ
   for (const dir of [empty, join(board, 'data'), join(one.game, '.claude')]) await mkdir(dir, { recursive: true })
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'kiwi', ...one.config, port: await freePort(), gamePort: 7300, appSessions: empty, transcripts: empty, usageHistory: join(empty, 'none.json') }))
   const child = spawn(process.execPath, [join(board, 'server.mjs')], { cwd: board, env: { ...process.env, WORKER_BOARD_HOME: join(one.dir, 'pc'), WORKER_BOARD_CHILD: '1' }, windowsHide: true })
-  t.after(async () => {
+  // Ended here, before the test's folder is removed (an after hook would come behind the removal, which fails on a running board).
+  const stop = async () => {
     if (child.exitCode === null && child.signalCode === null) {
       const gone = new Promise(done => child.once('exit', done))
-      child.kill('SIGKILL')
+      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+      else child.kill('SIGKILL')
       await gone
     }
-  })
+    child.stdout.destroy()
+    child.stderr.destroy()
+  }
+  try {
   const port = await new Promise((done, fail) => {
     let out = ''
     const late = setTimeout(() => fail(new Error(`The board did not start: ${out}`)), 90_000)
@@ -152,11 +157,15 @@ test('a real board: a CLAUDE.md that differs is in the state, the person\'s Writ
     child.once('exit', code => { clearTimeout(late); fail(new Error(`The board ended (${code}): ${out}`)) })
   })
   const token = (await (await fetch(`http://127.0.0.1:${port}/`)).text()).match(/<meta name="board-token" content="([0-9a-f]+)">/)[1]
-  const headers = { 'X-Board-Token': token, 'Content-Type': 'application/json' }
+  const headers = { 'X-Board-Token': token, 'Content-Type': 'application/json', Origin: `http://127.0.0.1:${port}` }
   const state = async () => (await fetch(`http://127.0.0.1:${port}/api/state`, { headers })).json()
   assert.deepEqual((await state()).homeFiles, [{ name: 'CLAUDE.md', kind: 'pointer', state: 'differs' }])
   const fixed = await fetch(`http://127.0.0.1:${port}/api/home-file`, { method: 'POST', headers, body: JSON.stringify({ name: 'CLAUDE.md', action: 'write' }) })
-  assert.equal(fixed.status, 200, await fixed.clone().text())
+  const said = await fixed.text()
+  assert.equal(fixed.status, 200, said)
   assert.equal(await readFile(join(one.wrapper, 'CLAUDE.md'), 'utf8'), '@kiwi/.workerboard/home/CLAUDE.md\n')
   assert.deepEqual((await state()).homeFiles, [])
+  } finally {
+    await stop()
+  }
 })

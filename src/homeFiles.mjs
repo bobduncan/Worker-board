@@ -7,20 +7,23 @@
 // board never writes either way by itself. With `data` unset there are no home files: today's files, untouched.
 
 import { access, mkdir, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 
 import { loadConfig } from './config.mjs'
-import { chatHomeOf, dataOf, wordsPath } from './projectPaths.mjs'
+import { chatFile, chatHomeOf, dataOf, wordsPath } from './projectPaths.mjs'
 import { writeAtomic } from './write.mjs'
 
-/** The pointer files: the chat home's path (forward slashes) and the words that point a chat at its copy in `<data>/home`. */
+/**
+ * The pointer files: where each lies in the chat home (`top` at its top, `chat` in its chats' settings folder, through chatFile) and
+ * the words that point a chat at its copy in `<data>/home`.
+ */
 const POINTERS = Object.freeze([
-  { name: 'CLAUDE.md', words: to => `@${to}\n` },
-  { name: '.claude/main-briefing.md', words: to => `Your briefing as the main chat is in ${to}: read it there.\n` },
-  { name: '.claude/worker-briefing.md', words: to => `Your briefing as a worker is in ${to}: read it there.\n` },
+  { top: 'CLAUDE.md', words: to => `@${to}\n` },
+  { chat: ['main-briefing.md'], words: to => `Your briefing as the main chat is in ${to}: read it there.\n` },
+  { chat: ['worker-briefing.md'], words: to => `Your briefing as a worker is in ${to}: read it there.\n` },
 ])
-/** The one-way copies: the chat home's file is `<data>/home/<name>` as it is (the person and Main may edit the chat home's). */
-export const COPIES = Object.freeze(['AGENTS.md', '.claude/chats/list.json', '.claude/start.json'])
+/** The one-way copies: the chat home's file is the same path under `<data>/home` as it is (the person and Main may edit the chat home's). */
+const COPIES = Object.freeze([{ top: 'AGENTS.md' }, { chat: ['chats', 'list.json'] }, { chat: ['start.json'] }])
 
 const slashes = path => String(path).replace(/\\/g, '/')
 const same = (a, b) => String(a).replace(/\r\n/g, '\n').replace(/\s+$/, '') === String(b).replace(/\r\n/g, '\n').replace(/\s+$/, '')
@@ -33,16 +36,17 @@ export function homeFilesOf(config) {
   const data = dataOf(config)
   const home = chatHomeOf(config)
   if (data === null || home === '') return []
-  const at = name => join(...name.split('/'))
-  return [
-    ...POINTERS.map(one => ({ name: one.name, kind: 'pointer', file: join(home, at(one.name)), template: join(data, 'home', at(one.name)) })),
-    ...COPIES.map(name => ({ name, kind: 'copy', file: join(home, at(name)), template: join(data, 'home', at(name)) })),
-  ]
+  const placed = (one, kind) => {
+    const file = one.top === undefined ? chatFile(config, ...one.chat) : join(home, one.top)
+    const path = relative(home, file)
+    return { name: slashes(path), kind, file, template: join(data, 'home', path), words: one.words ?? null }
+  }
+  return [...POINTERS.map(one => placed(one, 'pointer')), ...COPIES.map(one => placed(one, 'copy'))]
 }
 
 /** What the chat home's file should hold: the pointer's line, or the template's text (null: no template). PURE. */
 export function wanted(entry, home, templateText) {
-  if (entry.kind === 'pointer') return POINTERS.find(one => one.name === entry.name).words(wordsPath({ chatHome: home }, entry.template))
+  if (entry.kind === 'pointer') return entry.words(wordsPath({ chatHome: home }, entry.template))
   return templateText
 }
 

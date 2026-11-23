@@ -8934,3 +8934,17 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
   stops the gate and refuses. The sweep of a cut landing's gate first ends what it left running there.
 - **tools/test.mjs**: the sweep names a folder only on a path boundary, never in a folder that is or holds a board's (boards.json;
   an unreadable list: no sweep), never its own powershell. A run the helper stopped at its cap is refused like a stall. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.
+
+## T5.2 A6b: the chat home's rules files (2026-11-23, chat 4)
+
+Only with `data` set; with it unset there are no home files and nothing is read, written or shown (src/homeFiles.mjs).
+
+- **Pointers.** The chats keep running in the chat home, so the files they read there point at the copies with the data, in
+  `<data>/home`: CLAUDE.md is one @import line, the main and worker briefings one line each. The Workers mod names the briefings
+  by their old place, so they stay there and the mod does not change.
+- **One-way copies.** AGENTS.md, the chat list and start.json are the template's text as it is.
+- **The amber line.** A file that differs from what it should be gets one line on top with two buttons: "Write again" (what it
+  should be, into the chat home) and "Copy this PC's into the template" (the chat home's text into `<data>/home`; a pointer file
+  then gets its pointer back). Only on the person's click; the board never writes either way by itself.
+- **Setup** writes a pointer only when `data` is set, its template is there and the chat home has no such file. It never
+  overwrites and never makes config.json.
