@@ -264,9 +264,12 @@ and the briefings for the main chat and the workers.
   `check` in `/api/state` and `data/check.json`. The account in use is a guess (the folder with the newest chat) and can flip
   right after a switch. DESIGN.md, "The start-up check".
 - "CPU for Claude" in the head (B311, B735, Windows only): two choices you pick, no game detection. Full: everything
-  the project started runs at normal priority on all cores. Low: the chats and what they started, the board itself and
-  its keeper, the vite servers, codex and a headless browser run at the lowest priority on the last two cores, in
-  efficiency mode where Windows has it, so a game or any other program never slows (tests and builds run slower). The
+  the project started runs at normal priority on all cores. Low: what the chats and the board start, the vite servers,
+  codex and a headless browser run at the lowest priority on the last two cores, in efficiency mode where Windows has
+  it, so a game or any other program stays smooth (tests and builds run slower). The chats' own processes, the board and
+  its keeper stay at normal priority on all cores: a chat starved at the lowest priority loses its Workers mod (F44). What
+  a chat starts runs at normal priority until the board's next refresh. Going back to Full also gives back what Low left
+  behind with its parent gone. The
   board keeps applying it at every refresh, also to what starts later, and a restart of the board keeps it limited;
   it remembers the choice in `data\cpu.json`. Never the Claude app itself, your own Edge or another program. Under
   Full the board gives itself normal priority and all cores back at its start. The last two cores count all of the

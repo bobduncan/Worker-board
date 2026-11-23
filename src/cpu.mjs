@@ -5,6 +5,9 @@
 // never slows. Never the desktop app, never a program the project did not start. The board's own processes (its server
 // and its keeper) stay at Normal on all cores in Low too (the person, 2026-10-30, the board blank for minutes at Idle
 // while a game ran: "it should not slow the board itself").
+// F44 (2026-11-23): so does each chat's own claude.exe. At Idle on two crowded cores its hooks thread starved (hooks took up to 287 s)
+// and the CLI's watchdog, which reads 5 s without an answer as a crash, unloaded the Workers mod until the process restarted: "Link
+// gone". Under Low only what the chats START is limited: a child is born at Normal on all cores and is limited on the next pass.
 //
 // Windows only: the processes are read with one PowerShell call per refresh, and set with a second one only when a
 // process needs it. Elsewhere the control says "not available here" and nothing runs.
@@ -102,6 +105,9 @@ export function sessionOf(commandLine) {
   return commandLine.match(/(?:^|\s)--(?:resume|session-id)(?:=|\s+)"?([\w-]{8,80})"?(?=\s|$)/)?.[1] ?? null
 }
 
+/** F44: a chat's own CLI process: a `claude.exe` whose command line names a session (the desktop app's names none). */
+export const isChatProcess = one => String(one.name).toLowerCase() === 'claude.exe' && sessionOf(one.commandLine) !== null
+
 /**
  * A process the project's tools start on their own, outside any chat: codex, a vite server, a headless or remote-driven
  * browser (the person's own Edge has neither flag).
@@ -169,6 +175,59 @@ export function changesFor(chosen, level, applied, cores, { all = false } = {}) 
   return { changes }
 }
 
+/** F44: what `applied` holds for a chat's own process the board set to Normal on all cores under Low. */
+const CHAT_KEPT = 'chat'
+
+/**
+ * F44: what to set so the chats' own processes run at Normal on all cores under Low: each once (its cores and efficiency mode are not in
+ * the listing), and again whenever Windows reports it below Normal.
+ */
+export function chatChanges(chats, applied, cores) {
+  const affinity = affinityMask(cores, 'full')
+  return chats.filter(one => one.priority !== BASE_PRIORITY.Normal || applied.get(one.key) !== CHAT_KEPT)
+    .map(one => ({ pid: one.pid, key: one.key, priority: 'Normal', affinity, eco: false }))
+}
+
+/**
+ * F44: the programs a chat's tools run that can outlive what started them. Only these are ever given back as stranded: never a game,
+ * never the desktop app, never a browser (a test browser is a project tool, `isProjectTool`, whatever became of its parent).
+ */
+const STRANDED_NAMES = new Set(['node.exe', 'bash.exe', 'sh.exe', 'git.exe', 'python.exe', 'python3.exe', 'cmd.exe', 'conhost.exe', 'powershell.exe', 'pwsh.exe', 'ffmpeg.exe'])
+
+/** F44: the processes worth asking Windows for their cores: at Idle, of a program above, not among those already chosen. */
+export function strandedCandidates(list, chosen) {
+  const picked = new Set(chosen.map(one => one.pid))
+  return list.filter(one => !picked.has(one.pid) && one.priority === BASE_PRIORITY.Idle && STRANDED_NAMES.has(String(one.name).toLowerCase()))
+}
+
+/**
+ * F44 (a test run started under Low stayed at Idle on two cores after Full, its parent gone, so no tree led to it): the candidates that
+ * carry Low's own mark, Idle on exactly the cores Low leaves (`masks`: pid to the mask as a decimal string), whose parent is gone, and what
+ * they started that carries the mark too. A parent number given out again is no parent. On a PC where Low leaves every core there is no
+ * mark to go by: none.
+ */
+export function strandedProcesses(list, masks, cores, { chosen = [] } = {}) {
+  const lowMask = affinityMask(cores, 'low')
+  if (lowMask === affinityMask(cores, 'full')) return []
+  const marked = new Set(strandedCandidates(list, chosen).filter(one => masks.get(one.pid) === lowMask).map(one => one.pid))
+  const byPid = new Map(list.map(one => [one.pid, one]))
+  const parentOf = one => {
+    const parent = byPid.get(one.parent)
+    if (parent === undefined || parent.pid === one.pid) return null
+    return Number.isFinite(parent.created) && Number.isFinite(one.created) && parent.created > one.created ? null : parent
+  }
+  const found = new Set(list.filter(one => marked.has(one.pid) && parentOf(one) === null).map(one => one.pid))
+  for (let grew = true; grew;) {
+    grew = false
+    for (const one of list) {
+      if (found.has(one.pid) || !marked.has(one.pid) || !found.has(parentOf(one)?.pid)) continue
+      found.add(one.pid)
+      grew = true
+    }
+  }
+  return list.filter(one => found.has(one.pid))
+}
+
 // The PowerShell calls. Both lower their own priority first: the board's look must not be what makes the game lag.
 const COMMAND_LINES = "('claude.exe','node.exe','codex.exe','msedge.exe') -contains $_.Name.ToLower()"
 export const LIST_SCRIPT = [
@@ -188,6 +247,14 @@ const SET_SCRIPT = [
   '$done = @()',
   "foreach ($c in @($changes)) { try { $p = Get-Process -Id ([int]$c.pid) -ErrorAction Stop; $p.PriorityClass = [string]$c.priority; $p.ProcessorAffinity = [IntPtr][long]$c.affinity; $done += [int]$c.pid; try { $s = New-Object Cpu.Eco+S; $s.V = 1; $s.C = 1; $s.M = [uint32]$(if ($c.eco) { 1 } else { 0 }); [void][Cpu.Eco]::SetProcessInformation($p.Handle, 4, [ref]$s, 12) } catch {} } catch {} }",
   'ConvertTo-Json -Compress @($done)',
+].join('; ')
+// F44: reads the cores of the processes named on its input; it sets nothing.
+export const MASK_SCRIPT = [
+  "try { (Get-Process -Id $PID).PriorityClass = 'BelowNormal' } catch {}",
+  '$ids = [Console]::In.ReadToEnd() | ConvertFrom-Json',
+  '$out = @()',
+  'foreach ($id in @($ids)) { try { $p = Get-Process -Id ([int]$id) -ErrorAction Stop; $out += [pscustomobject]@{ pid = [int]$p.Id; mask = [string]$p.ProcessorAffinity.ToInt64() } } catch {} }',
+  'ConvertTo-Json -Compress @($out)',
 ].join('; ')
 
 /** Runs a PowerShell script, with `input` on its standard input; answers its output. */
@@ -238,9 +305,17 @@ export function parseListing(text) {
   }))
 }
 
+/** F44: the mask script's JSON as a Map of pid to mask; one process comes back as an object, none as nothing. */
+export function parseMasks(text) {
+  const parsed = JSON.parse(text.trim() === '' ? '[]' : text)
+  const list = Array.isArray(parsed) ? parsed : [parsed]
+  return new Map(list.filter(one => Number.isInteger(one?.pid) && typeof one.mask === 'string').map(one => [one.pid, one.mask]))
+}
+
 /** The one function that talks to Windows; tests give their own. */
 export const windowsProcesses = {
   list: async () => parseListing(await powershell(LIST_SCRIPT)),
+  masks: async pids => parseMasks(await powershell(MASK_SCRIPT, JSON.stringify(pids))),
   set: async changes => {
     const out = await powershell(SET_SCRIPT, JSON.stringify(changes.map(({ pid, priority, affinity, eco }) => ({ pid, priority, affinity, eco: eco === true }))))
     const done = JSON.parse(out.trim() === '' ? '[]' : out)
@@ -313,20 +388,38 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
     fault = null
     // The board's own processes are roots of what is chosen (their children are limited), never limited themselves.
     const own = new Set(spare.filter(Number.isInteger))
-    const chosen = chosenProcesses(list, await sessions(), { boardPids: spare }).filter(one => !own.has(one.pid))
+    const found = chosenProcesses(list, await sessions(), { boardPids: spare }).filter(one => !own.has(one.pid))
+    // F44: under Low a chat's own process is kept at Normal on all cores; what it starts is limited.
+    const chats = current === 'low' ? found.filter(isChatProcess) : []
+    const chosen = current === 'low' ? found.filter(one => !isChatProcess(one)) : found
     const { changes } = changesFor(chosen, current, applied, cores, { all: current === 'full' })
     const slowed = list.filter(one => own.has(one.pid) && one.priority !== BASE_PRIORITY.Normal).map(one => one.pid)
     if (current === 'low' && slowed.length > 0) changes.push(...boardChanges(slowed, cores))
-    if (changes.length > 0) {
-      try {
-        await processes.set(changes)
-      } catch {
-        // Each process is tried once per level; the next level, or a new process, tries again.
+    const kept = chatChanges(chats, applied, cores)
+    // F44: back at Full, what Low left behind with its parent gone. Without a reading of its cores nothing is touched.
+    let stranded = []
+    if (current === 'full' && typeof processes.masks === 'function') {
+      const candidates = strandedCandidates(list, found)
+      if (candidates.length > 0) {
+        const masks = await processes.masks(candidates.map(one => one.pid)).catch(() => new Map())
+        stranded = strandedProcesses(list, masks, cores, { chosen: found }).map(one => ({ pid: one.pid, key: keyOf(one), priority: 'Normal', affinity: affinityMask(cores, 'full'), eco: false }))
       }
     }
-    const living = new Set(chosen.map(one => one.key))
+    // The chats first: a pass cut short must not leave them starved.
+    const sets = [...kept, ...changes, ...stranded]
+    let done = []
+    if (sets.length > 0) {
+      try {
+        done = await processes.set(sets)
+      } catch {
+        // Each process is tried once per level; the next level, or a new process, tries again. A chat's own process is tried each pass.
+      }
+    }
+    if (stranded.length > 0) tell(`CPU for Claude: ${stranded.length} process${stranded.length === 1 ? '' : 'es'} Low left behind ${stranded.length === 1 ? 'is' : 'are'} back at Normal on all cores.`)
+    const living = new Set([...chosen, ...chats].map(one => one.key))
     applied = new Map([...applied].filter(([key]) => living.has(key)))
     for (const change of changes) applied.set(change.key, current)
+    for (const change of kept) if (Array.isArray(done) && done.includes(change.pid)) applied.set(change.key, CHAT_KEPT)
     count = current === 'full' ? 0 : chosen.length
     if (current === 'full') {
       restore -= 1
