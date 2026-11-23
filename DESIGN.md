@@ -8998,3 +8998,11 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
   stops the gate and refuses. The sweep of a cut landing's gate first ends what it left running there.
 - **tools/test.mjs**: the sweep names a folder only on a path boundary, never in a folder that is or holds a board's (boards.json;
   an unreadable list: no sweep), never its own powershell. A run the helper stopped at its cap is refused like a stall. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.
+
+## F46: a build of the state walks the store once (2026-11-23, chat 4)
+
+Since the laptop import (about 1,450 steps, 4,850 items, 21,000 words) a build took about 2 s, and the live board a full core. Each
+step walked every item for its held asks, and every word for its refine word, twice. The held asks now come from the rebuild's
+index of asks by their `Of` (work/links.mjs, which falls back to a scan when the store changes size), and the newest refine word
+per step from one map per list per build (`newestRefines`). The output is the same on a copy of the real store (backlog and whole
+state hashed before and after); a build there went from 2106 ms to 662 ms.
