@@ -2,7 +2,7 @@
 // choices the person picks, no game detection. Full: everything the project started runs at Normal priority on all
 // cores. Low: what the chats and the board's own processes started, the vite servers, codex and a headless browser
 // run at Idle priority on the last two cores, in efficiency mode where Windows has it, so a game or any other program
-// never slows. Never the desktop app, never a program the project did not start. The board's own processes (its server
+// keeps the rest of the PC. Never the desktop app, never a program the project did not start. The board's own processes (its server
 // and its keeper) stay at Normal on all cores in Low too (the person, 2026-10-30, the board blank for minutes at Idle
 // while a game ran: "it should not slow the board itself").
 // F44 (2026-11-23): a chat's own claude.exe no longer runs at Idle either. There, on two crowded cores, its hooks thread starved (hooks
@@ -50,6 +50,16 @@ export async function readLevel(file, fallback = 'full') {
     // Not there, or broken: the default stands.
   }
   return parseLevel(fallback) ?? 'full'
+}
+
+/** F44: when the level saved in data/cpu.json was set (ms), or null. */
+export async function readLevelAt(file) {
+  try {
+    const at = JSON.parse(await readFile(file, 'utf8')).at
+    return Number.isFinite(at) ? at : null
+  } catch {
+    return null
+  }
 }
 
 /** Keeps the level in data/cpu.json, so it survives a restart. */
@@ -100,14 +110,83 @@ export function sessionsOfCards(names) {
   return names.filter(name => name.endsWith('.json')).map(name => name.slice(0, -5)).filter(name => SESSION.test(name) && name !== 'list')
 }
 
-/** The session a Claude Code CLI's command line resumes or starts (`--resume=<id>`, `--resume <id>`, `--session-id`). */
-export function sessionOf(commandLine) {
-  if (typeof commandLine !== 'string') return null
-  return commandLine.match(/(?:^|\s)--(?:resume|session-id)(?:=|\s+)"?([\w-]{8,80})"?(?=\s|$)/)?.[1] ?? null
+/**
+ * F44: a command line's arguments as Windows splits them (quotes group, `\"` is a quote, backslashes count only before one), the program
+ * first: `{ text, quoted }`, `quoted` when the argument opens with a quote, as a prompt does.
+ */
+export function commandArgs(line) {
+  const args = []
+  let text = ''
+  let isOpen = false
+  let quoted = false
+  let inQuotes = false
+  let slashes = 0
+  const open = isQuote => {
+    if (isOpen) return
+    isOpen = true
+    quoted = isQuote
+  }
+  const flush = () => {
+    if (slashes > 0) open(false)
+    text += '\\'.repeat(slashes)
+    slashes = 0
+  }
+  for (const char of String(line)) {
+    if (char === '\\') {
+      slashes += 1
+    } else if (char === '"') {
+      const isLiteral = slashes % 2 === 1
+      slashes = Math.floor(slashes / 2)
+      if (slashes > 0) flush()
+      if (isLiteral) {
+        open(false)
+        text += '"'
+      } else {
+        open(true)
+        inQuotes = !inQuotes
+      }
+    } else if (/\s/.test(char) && !inQuotes) {
+      flush()
+      if (isOpen) args.push({ text, quoted })
+      text = ''
+      isOpen = false
+      quoted = false
+    } else {
+      flush()
+      open(false)
+      text += char
+    }
+  }
+  flush()
+  if (isOpen) args.push({ text, quoted })
+  return args
 }
 
-/** F44: a chat's own CLI process: a `claude.exe` whose command line names a session (the desktop app's names none). */
-export const isChatProcess = one => String(one.name).toLowerCase() === 'claude.exe' && sessionOf(one.commandLine) !== null
+/**
+ * The session a Claude Code CLI's command line resumes or starts (`--resume=<id>`, `--resume <id>`, `--session-id`). F44: only as an
+ * argument of its own, never words inside a quoted prompt.
+ */
+export function sessionOf(commandLine) {
+  if (typeof commandLine !== 'string') return null
+  const args = commandArgs(commandLine).slice(1)
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i].quoted) continue
+    const flag = args[i].text.match(/^--(?:resume|session-id)(?:=(.*))?$/)
+    if (flag === null) continue
+    const id = flag[1] ?? args[i + 1]?.text ?? ''
+    return SESSION.test(id) ? id : null
+  }
+  return null
+}
+
+/**
+ * F44: a chat's own CLI process: a `claude.exe` whose command line names a session (the desktop app's names none), and no one-off: a
+ * `claude -p --resume <id>` a tool started answers once and ends, so it is limited with the tree that started it.
+ */
+export function isChatProcess(one) {
+  if (String(one.name).toLowerCase() !== 'claude.exe' || sessionOf(one.commandLine) === null) return false
+  return !commandArgs(one.commandLine).slice(1).some(arg => !arg.quoted && (arg.text === '-p' || arg.text === '--print'))
+}
 
 /**
  * A process the project's tools start on their own, outside any chat: codex, a vite server, a headless or remote-driven
@@ -194,8 +273,8 @@ export function chatChanges(chats, applied, cores) {
 }
 
 /**
- * F44: the programs a chat's tools run that can outlive what started them. Only these are ever given back as stranded: never a game,
- * never the desktop app, never a browser (a test browser is a project tool, `isProjectTool`, whatever became of its parent).
+ * F44: the programs a chat's tools run that can outlive what started them. Only these are ever limited or given back outside a tree: never
+ * a game, never the desktop app, never a browser (a test browser is a project tool, `isProjectTool`, whatever became of its parent).
  */
 const STRANDED_NAMES = new Set(['node.exe', 'bash.exe', 'sh.exe', 'git.exe', 'python.exe', 'python3.exe', 'cmd.exe', 'conhost.exe', 'powershell.exe', 'pwsh.exe', 'ffmpeg.exe'])
 
@@ -214,7 +293,11 @@ export function strandedCandidates(list, chosen) {
 export function strandedProcesses(list, masks, cores, { chosen = [] } = {}) {
   const lowMask = affinityMask(cores, 'low')
   if (lowMask === affinityMask(cores, 'full')) return []
-  const marked = new Set(strandedCandidates(list, chosen).filter(one => masks.get(one.pid) === lowMask).map(one => one.pid))
+  return withMarkedChildren(list, new Set(strandedCandidates(list, chosen).filter(one => masks.get(one.pid) === lowMask).map(one => one.pid)))
+}
+
+/** F44: the `marked` processes whose parent is gone, with what they started that is marked too. A parent number given out again is no parent. */
+function withMarkedChildren(list, marked) {
   const byPid = new Map(list.map(one => [one.pid, one]))
   const parentOf = one => {
     const parent = byPid.get(one.parent)
@@ -231,6 +314,22 @@ export function strandedProcesses(list, masks, cores, { chosen = [] } = {}) {
     }
   }
   return list.filter(one => found.has(one.pid))
+}
+
+/** F44: a time in ms as Windows dates a process (FILETIME: 100 ns since 1601), as the listing's `created`. */
+export const fileTimeOf = ms => (ms + 11_644_473_600_000) * 10_000
+
+/**
+ * F44: what a chat started under Low whose starter ended before the next pass: in no tree, at the BelowNormal the chat handed it, on all
+ * cores for life. Told from anything else by all of: a tool's program (`STRANDED_NAMES`), exactly BelowNormal (a program of the person's
+ * starts at Normal), its parent gone, and born since Low was switched on (`since`, FILETIME). With what it started that is marked too.
+ */
+export function orphansOf(list, found, { since = null, skip = [] } = {}) {
+  if (!Number.isFinite(since)) return []
+  const picked = new Set([...found.map(one => one.pid), ...skip])
+  const isMarked = one => !picked.has(one.pid) && one.priority === BASE_PRIORITY[CHAT_PRIORITY] && STRANDED_NAMES.has(String(one.name).toLowerCase())
+    && Number.isFinite(one.created) && one.created >= since
+  return withMarkedChildren(list, new Set(list.filter(isMarked).map(one => one.pid)))
 }
 
 // The PowerShell calls. Both lower their own priority first: the board's look must not be what makes the game lag.
@@ -343,6 +442,10 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
   let level = null
   let restore = 0
   let applied = new Map()
+  // F44: since when Low is on (ms), kept through Full's passes, and the processes outside any tree the board limited or gave back
+  // (`pid@created`): Low limits them again after a Full.
+  let lowSince = null
+  let loose = new Set()
   let count = 0
   let fault = null
   let running = null
@@ -359,7 +462,10 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
   }
 
   const load = async () => {
-    if (level === null) level = await readLevel(file, fallback)
+    if (level === null) {
+      level = await readLevel(file, fallback)
+      if (level === 'low') lowSince = await readLevelAt(file) ?? now()
+    }
     return level
   }
 
@@ -396,19 +502,26 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
     const found = chosenProcesses(list, await sessions(), { boardPids: spare }).filter(one => !own.has(one.pid))
     // F44: under Low a chat's own process is kept at BelowNormal on all cores; what it starts is limited. Full's `found` gives it Normal back.
     const chats = current === 'low' ? found.filter(isChatProcess) : []
-    const chosen = current === 'low' ? found.filter(one => !isChatProcess(one)) : found
+    // F44: outside any tree: what a chat started whose starter is gone, and what the board limited or gave back before.
+    const inTree = new Set(found.map(one => one.pid))
+    const orphans = orphansOf(list, found, { since: Number.isFinite(lowSince) ? fileTimeOf(lowSince) : null, skip: [...own] })
+    const remembered = list.filter(one => loose.has(keyOf(one)) && !inTree.has(one.pid) && !own.has(one.pid))
+    const outside = [...new Map([...remembered, ...orphans].map(one => [one.pid, { ...one, key: keyOf(one), parentKey: null }])).values()]
+    const chosen = current === 'low' ? [...found.filter(one => !isChatProcess(one)), ...outside] : found
     const { changes } = changesFor(chosen, current, applied, cores, { all: current === 'full' })
     const slowed = list.filter(one => own.has(one.pid) && one.priority !== BASE_PRIORITY.Normal).map(one => one.pid)
     if (current === 'low' && slowed.length > 0) changes.push(...boardChanges(slowed, cores))
     const kept = chatChanges(chats, applied, cores)
-    // F44: back at Full, what Low left behind with its parent gone. Without a reading of its cores nothing is touched.
+    // F44: back at Full, what Low left behind with its parent gone: what the board knows, and at Idle only with Low's cores read.
     let stranded = []
-    if (current === 'full' && typeof processes.masks === 'function') {
-      const candidates = strandedCandidates(list, found)
-      if (candidates.length > 0) {
+    if (current === 'full') {
+      const given = new Map(outside.map(one => [one.pid, one]))
+      const candidates = strandedCandidates(list, found).filter(one => !given.has(one.pid))
+      if (candidates.length > 0 && typeof processes.masks === 'function') {
         const masks = await processes.masks(candidates.map(one => one.pid)).catch(() => new Map())
-        stranded = strandedProcesses(list, masks, cores, { chosen: found }).map(one => ({ pid: one.pid, key: keyOf(one), priority: 'Normal', affinity: affinityMask(cores, 'full'), eco: false }))
+        for (const one of strandedProcesses(list, masks, cores, { chosen: found })) if (!given.has(one.pid)) given.set(one.pid, one)
       }
+      stranded = [...given.values()].map(one => ({ pid: one.pid, key: keyOf(one), priority: 'Normal', affinity: affinityMask(cores, 'full'), eco: false }))
     }
     // The chats first: a pass cut short must not leave them starved.
     const sets = [...kept, ...changes, ...stranded]
@@ -421,6 +534,8 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
       }
     }
     if (stranded.length > 0) tell(`CPU for Claude: ${stranded.length} process${stranded.length === 1 ? '' : 'es'} Low left behind ${stranded.length === 1 ? 'is' : 'are'} back at Normal on all cores.`)
+    const alive = new Set(list.map(keyOf))
+    loose = new Set([...loose, ...(current === 'low' ? outside.map(one => one.key) : stranded.map(one => one.key))].filter(key => alive.has(key)))
     const living = new Set([...chosen, ...chats].map(one => one.key))
     applied = new Map([...applied].filter(([key]) => living.has(key)))
     for (const change of changes) applied.set(change.key, current)
@@ -451,6 +566,7 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
       if (!available) return { ok: false, status: 409, why: 'Not available here: the board sets the CPU on Windows only.' }
       const before = await load()
       level = next
+      if (next === 'low' && before !== 'low') lowSince = now()
       if (next === 'full' && before !== 'full') {
         restore = RESTORE_PASSES
         isFreed = false

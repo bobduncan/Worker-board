@@ -2274,7 +2274,8 @@ iterfere with dota ... dont make the mode specific to dota": Strong (Idle on hal
 lagged the game (78% CPU: the board's own server and the vite servers ran at Normal).
 
 - **Two choices** the person picks, one click each, no game detection: **Full** (Normal priority, all cores, efficiency
-  mode off) and **Low** (Idle priority on the last two logical cores, efficiency mode on). Kept in `data/cpu.json`, so
+  mode off) and **Low** (what the chats and the board start: Idle priority on the last two logical cores, efficiency mode on;
+  the chats themselves at BelowNormal on all cores, F44). Kept in `data/cpu.json`, so
   it survives a restart; `cpuLimit` in config.json gives the level until one is clicked ("full" unless set). A level
   saved before reads on (`parseLevel`): "strong" is Low, "off" and "gentle" are Full. A copy of the board beside the
   person's starts at Full whatever config.json says, and applies only what was clicked on it.
@@ -2297,23 +2298,34 @@ lagged the game (78% CPU: the board's own server and the vite servers ran at Nor
   once from outside (`setPriority`): a board at Idle starts its helper at Idle, which a busy PC starved for minutes. Full
   lists nothing at all, apart from three passes (`RESTORE_PASSES`) right after Low was switched off, which give every
   chosen process Normal, all cores and efficiency mode off back (a process born while Low was on inherited it). A process that
-  cannot be set (gone, access denied) is passed over quietly and not tried again at that level; a listing that fails is
+  cannot be set (gone, access denied) is passed over quietly and not tried again at that level, except a chat's own process,
+  which is tried each pass until it took (F44); a listing that fails is
   one red line on top, gone at the next listing that works.
 - **The board under Low** is limited like the rest and stays so across its own restart (B735). Under Full its first
   pass gives the board and its keeper Normal and all cores (`boardChanges`), since a chat that started the board
   handed its own Idle priority on (B440); that pass is tried again each pass until Windows took both.
 - **The chats under Low (F44, 2026-11-23).** Five chats lost their Workers mod ("Link gone"), all under Low: at Idle on two crowded cores
   a chat's hooks thread starved (hooks took up to 287 s) and the CLI's watchdog, which reads 5 s without an answer as a crash, unloaded the
-  mod until the process restarted. So a chat's own `claude.exe` (`isChatProcess`: a command line that names a session) runs at BelowNormal
+  mod until the process restarted. So a chat's own `claude.exe` (`isChatProcess`: a session named by an argument of its own, never words in
+  a quoted prompt, and no one-off `claude -p`, which is limited with its tree) runs at BelowNormal
   on all cores with efficiency mode off (`CHAT_PRIORITY`, `chatChanges`), first in each pass: set once, and again only when Windows reports
   another priority. Above all Idle work, below a game. Windows hands BelowNormal and all cores to what the chat starts, so a child is born
   below the game and the next pass (`refreshSeconds`) limits it to Idle on the last two cores; a limited child's own children inherit
-  Idle. Full gives the chats Normal back. **The risk left:** a game that loads all logical cores for 5 s can still starve a chat's hooks
-  thread, and the watchdog then unloads its mod.
+  Idle. Full gives the chats Normal back. **What Low no longer promises:** it keeps the project below a game, not off it.
+  - A game that loads all logical cores for 5 s can still starve a chat's hooks thread, and the watchdog then unloads its mod.
+  - Until the next pass a new child runs at BelowNormal on all cores: below the game's threads, beside whatever else is below them.
+  - A test run started in that window counts 24 cores, starts its 12 vitest workers, and is then squeezed onto 2 cores: it runs slowly
+    until it ends. Accepted: Low is for playing, and a run started under it is expected to be slow.
 - **What Low left behind (F44).** A process whose parent is gone is in no tree, so Full's restore missed it (a test run stayed at Idle on
   two cores). The restore passes also give back `strandedProcesses`: Idle, on exactly Low's cores (read by `MASK_SCRIPT`, which sets
   nothing), a tool's program (`STRANDED_NAMES`: never a game, a browser or the desktop app), its parent gone, and what it started with the
   same mark. Without a reading of the cores none is touched.
+- **What a chat started whose starter ended before the next pass (F44).** It is in no tree and would stay at BelowNormal on all cores for
+  life. `orphansOf` limits it under Low and Full gives it back. It is told apart by all of: a tool's program, exactly BelowNormal (a program
+  of the person's starts at Normal), its parent gone, and born since Low was switched on. The command line is no test: on the live PC 0 of
+  24 `node.exe` under the chats named the project's folder. **What this can get wrong:** a program of the person's with a tool's name that
+  a launcher started at BelowNormal during Low and then left. It runs at Idle until Full gives it back.
+  The board remembers what it limited or gave back outside a tree (`pid@created`, in memory), so Low, Full, Low limits it again.
 - **Windows only.** Elsewhere the control says "not available here" and nothing runs; `POST /api/cpu` answers 409.
 - **The head** shows the level lit and what applies: "full power", or "15 processes on 2 cores, lowest priority: tests
   and builds run slower". `POST /api/cpu {level}` takes the click, from the board's own page only (token, origin, JSON,
