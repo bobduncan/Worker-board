@@ -280,10 +280,10 @@ test('the review: the list runs where the board\'s loops run: the server gives i
   const index = await readFile(new URL('../../src/supervisor/index.mjs', import.meta.url), 'utf8')
   assert.match(server, /const ownsLoops = LOOP_LOCK === null \? async \(\) => true : loopGate\(\{\n\s+owner: loopOwner\(\{/)
   assert.match(server, /\n\s+owns: ownsLoops,\n/)
-  // F55: the claim file beside the lock is made exclusively; the lock itself keeps its unflushed heartbeat (B934); no settle.
-  assert.match(server, /const LOOP_CLAIM = LOOP_LOCK === null \? null : `\$\{LOOP_LOCK\}\.claim`/)
-  assert.match(server, /claim: \{\n\s+create: async text => \{\n\s+await mkdir\(dirname\(LOOP_CLAIM\), \{ recursive: true \}\)\n\s+await writeFile\(LOOP_CLAIM, text, \{ flag: 'wx' \}\)/)
-  assert.match(server, /remove: \(\) => rm\(LOOP_CLAIM, \{ force: true \}\)/)
+  // F55: the claim file beside the lock comes from claimFile.mjs (a hard link, the retrying removal); the lock itself keeps its unflushed
+  // heartbeat (B934); no settle.
+  assert.match(server, /const LOOP_CLAIM = LOOP_LOCK === null \? null : claimFileOf\(LOOP_LOCK\)/)
+  assert.match(server, /\n\s+claim: claimPorts\(LOOP_CLAIM\),\n/)
   assert.match(server, /await writeUnflushed\(LOOP_LOCK, text\)/)
   assert.doesNotMatch(server, /settleMs: 80/)
   assert.doesNotMatch(index, /loopOwner\(/, 'no loopOwner of the supervisor\'s own')

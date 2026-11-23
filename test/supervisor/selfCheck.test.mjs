@@ -18,7 +18,7 @@ import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 import { AGAIN_MS, CHECKS, OWNER_GONE_MS, REPAIR_RULES, RETIRED_RULES, findStuck, leftoverFindings } from '../../src/supervisor/rules/repair.mjs'
 import { WATCH_RULES } from '../../src/supervisor/rules/watch.mjs'
-import { CLAIM_STALE_MS, LOOP_LOCK_MS, SYNC_SHOWN_MS, applySync, loopGate, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/supervisor/loop.mjs'
+import { CLAIM_STALE_MS, FRESH_OWN_MS, LOOP_LOCK_MS, SYNC_SHOWN_MS, applySync, loopGate, loopOwner, mayRunLoop, readLoopLock, syncRunner } from '../../src/supervisor/loop.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 21, 2, 0).getTime()
@@ -769,42 +769,84 @@ test('F55: a dead owner\'s lock, a lapsed lock and a claim left behind (a proces
   file = JSON.stringify({ pid: 9, port: 4312, at: clock - LOOP_LOCK_MS - 1 })
   assert.equal(await me(), true, 'a lapsed lock is taken over')
   assert.equal(JSON.parse(file).pid, 7)
-  // a claim left behind by a process that is gone: taken away, the claim made, the lock written
+  // a claim left behind by a process that is gone: taken away, and this round is a no (review 2: two processes that both take it away
+  // do not both claim now); the next ask makes the claim and writes the lock
   file = ''
   claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock })
   dead.add(9)
-  assert.equal(await me(), true, 'a dead process\'s claim is taken away first')
+  assert.equal(await me(), false, 'a dead process\'s claim is taken away, and that is this round')
+  assert.deepEqual([file, claim.store.text], ['', null], 'nothing written yet; the claim is gone')
+  assert.equal(await me(), true, 'the next ask claims and writes')
   assert.deepEqual([JSON.parse(file).pid, claim.store.text], [7, null])
   // a claim of a live process that is too old (hangs there, or its pid was given again): abandoned
   dead.clear()
   file = ''
   claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock - CLAIM_STALE_MS - 1 })
-  assert.equal(await me(), true, 'a claim past CLAIM_STALE_MS is abandoned')
+  assert.deepEqual([await me(), claim.store.text], [false, null], 'a claim past CLAIM_STALE_MS is abandoned')
+  assert.equal(await me(), true)
   assert.equal(JSON.parse(file).pid, 7)
   // a torn claim (cut off mid-write): abandoned too
   file = ''
   claim.store.text = '{"pid":9,"po'
-  assert.equal(await me(), true, 'a torn claim is abandoned')
+  assert.deepEqual([await me(), claim.store.text], [false, null], 'a torn claim is abandoned')
+  assert.equal(await me(), true)
   // a live young claim of another: theirs; nothing is taken away or written
   file = ''
   claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock })
   assert.equal(await me(), false, 'a live young claim is the other\'s')
   assert.deepEqual([file, JSON.parse(claim.store.text).pid], ['', 9], 'nothing written, the claim untouched')
-  // the claim vanishes between the EEXIST and the look at it (the other finished): the second attempt wins
+  // the claim vanishes between the EEXIST and the look at it (the other finished): none stands, this round is a no, the next claims
+  file = ''
   claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock })
   const vanishing = loopOwner({ read: async () => file, write: async text => { file = text }, claim: { ...claim, read: async () => { claim.store.text = null; throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }) } }, alive: () => true, pid: 7, port: 4310, now: () => clock })
-  assert.equal(await vanishing(), true)
+  assert.deepEqual([await vanishing(), file], [false, ''])
+  assert.equal(await me(), true)
   // a write that fails under the claim: the claim is let go of and the failure is the gate\'s (a no)
   file = ''
   const failing = loopOwner({ read: async () => file, write: async () => { throw new Error('disk full') }, claim, alive: () => true, pid: 7, port: 4310, now: () => clock })
   await assert.rejects(failing(), /disk full/)
   assert.equal(claim.store.text, null, 'no claim left behind by a failed write')
-  // a lock that lapses while this process holds it is written again by its heartbeat, without a claim
+  // Review 2: another took this process's claim away (as abandoned) and holds the claim now: before the write, no and nothing written;
+  // after the write, no as well (the other's lock follows), and the other's claim is left alone.
+  const theirs = JSON.stringify({ pid: 9, port: 4312, at: clock })
+  const taken = at => loopOwner({
+    read: async () => file, write: async text => { file = text },
+    claim: { ...claim, create: async text => { await claim.create(text); if (at === 'before') claim.store.text = theirs }, read: async () => { if (at === 'after' && file !== '') claim.store.text = theirs; return claim.read() } },
+    alive: () => true, pid: 7, port: 4310, now: () => clock,
+  })
+  file = ''
+  assert.deepEqual([await taken('before')(), file, claim.store.text], [false, '', theirs], 'the claim is not this process\'s before the write: no, nothing written, theirs stays')
+  claim.store.text = null
+  file = ''
+  assert.deepEqual([await taken('after')(), JSON.parse(file).pid, claim.store.text], [false, 7, theirs], 'the claim is not this process\'s after the write: no; theirs stays')
+  claim.store.text = null
+  // a claim Windows holds for the moment (another's removal under way, EPERM): the other's this round, nothing taken away
+  claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock })
+  const heldClaim = loopOwner({ read: async () => file, write: async text => { file = text }, claim: { ...claim, read: async () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }) } }, alive: () => true, pid: 7, port: 4310, now: () => clock })
+  file = ''
+  assert.deepEqual([await heldClaim(), file, JSON.parse(claim.store.text).pid], [false, '', 9])
+  claim.store.text = null
+  // Review 4: a removal that fails changes no answer (the claim stays; it is abandoned at the next claim of another)
+  file = ''
+  const sticky = loopOwner({ read: async () => file, write: async text => { file = text }, claim: { ...claim, remove: async () => { throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }) } }, alive: () => true, pid: 7, port: 4310, now: () => clock })
+  assert.equal(await sticky(), true, 'a won lock stays a yes')
+  assert.equal(JSON.parse(claim.store.text).pid, 7, 'the claim stayed')
+  claim.store.text = null
+  // Review 3: an own lock that is fresh is written again without a claim; an own lock older than FRESH_OWN_MS (a PC asleep) claims
+  // like a new one, so a takeover under way is seen
   file = JSON.stringify({ pid: 7, port: 4310, at: clock })
-  clock += LOOP_LOCK_MS + 1
-  const creates = claim.store.creates
+  clock += FRESH_OWN_MS
+  let creates = claim.store.creates
   assert.equal(await me(), true)
-  assert.deepEqual([JSON.parse(file).at, claim.store.creates], [clock, creates])
+  assert.deepEqual([JSON.parse(file).at, claim.store.creates], [clock, creates], 'fresh: the heartbeat, no claim')
+  clock += FRESH_OWN_MS + 1
+  creates = claim.store.creates
+  assert.equal(await me(), true)
+  assert.deepEqual([JSON.parse(file).at, claim.store.creates, claim.store.text], [clock, creates + 1, null], 'aged: through the claim')
+  file = JSON.stringify({ pid: 7, port: 4310, at: clock - FRESH_OWN_MS - 1 })
+  claim.store.text = JSON.stringify({ pid: 9, port: 4312, at: clock })
+  assert.equal(await me(), false, 'aged, and another claims this moment: no; the other\'s claim decides')
+  claim.store.text = null
   assert.throws(() => loopOwner({ read: async () => file, write: async () => {}, alive: () => true, pid: 7, port: 4310, now: () => clock }), /claim ports/)
 })
 

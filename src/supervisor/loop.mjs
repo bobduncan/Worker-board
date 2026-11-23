@@ -10,6 +10,7 @@
 // it to the supervisor as its port `owns`. The runner reads the view, runs the rules over it, and acts only through the
 // ports it is given.
 
+import { BUSY } from '../write.mjs'
 import { browserMemory, watchBrowsers } from './browsers.mjs'
 import { CHECKS, REPAIR_RULES } from './rules/repair.mjs'
 import { buildView } from './view.mjs'
@@ -484,6 +485,8 @@ function lookLive(ports) {
 
 /** F55: how long the claim file may stand (the step between taking it and writing the lock) before it counts as abandoned. */
 export const CLAIM_STALE_MS = 30_000
+/** F55, review 3: an own lock this fresh is written again without a claim (the heartbeat); an older own one (a PC asleep) claims like a new one. */
+export const FRESH_OWN_MS = LOOP_LOCK_MS / 2
 
 /**
  * B489: the loop's own check, as the server runs it before every list: `read` and `write` (the lock file's text, in and
@@ -495,46 +498,68 @@ export const CLAIM_STALE_MS = 30_000
  * One process at a time holds the claim; under it the lock is read again (the other claimant may have written it meanwhile)
  * and then written, and the claim is removed, whatever happened. A claim left behind (a process gone between claim and write)
  * is abandoned once its process is dead, or after CLAIM_STALE_MS (a process that hangs there, or a pid Windows gave again),
- * and is taken away before the claim is made once more. The holder's heartbeat (its own lock written again) takes no claim.
+ * and is taken away; that round answers no, and the claim is made afresh at the gate's next ask (two processes that both took
+ * an abandoned claim away do not both claim now). Chat 1's review: holding the claim is checked, never assumed: `takeClaim`
+ * keeps the exact text it created, and the claim is this process's only while it reads that text (another may have taken it
+ * away as abandoned and claimed): checked before the lock is written and after it, and only an own claim is removed. The
+ * removal changes no answer (a removal that fails leaves a claim that is abandoned at the next claim). The holder's heartbeat
+ * (its own FRESH lock written again, FRESH_OWN_MS) takes no claim; an own lock older than that goes through the claim.
  */
 export function loopOwner({ read, write, claim, alive, pid, port, now }) {
   if (claim === undefined || claim === null) throw new Error('loopOwner needs the claim ports (create, read, remove)')
   // a lock whose process is gone (a board killed without its exit) is taken over at once
   const seen = held => (held !== null && Number.isInteger(held.pid) && held.pid !== pid && !alive(held.pid) ? null : held)
   const stamp = () => JSON.stringify({ pid, port, at: now() })
+  /** Review 2: the claim is this process's only while it reads the text this process put there. */
+  const stillMine = async mine => (await claim.read().catch(() => null)) === mine
   return async () => {
     const lock = seen(await readLoopLock(read))
     if (!mayRunLoop(lock, pid, now())) return false
-    if (lock?.pid === pid) {
+    // Review 3: only a fresh own lock is a heartbeat; an own lock left to age (a PC asleep) claims like a new one, so a takeover under way is seen.
+    if (lock?.pid === pid && Number.isFinite(lock.at) && now() - lock.at <= FRESH_OWN_MS) {
       await write(stamp())
       return true
     }
-    if (!await takeClaim()) return false
+    const mine = await takeClaim()
+    if (mine === null) return false
     try {
       const again = seen(await readLoopLock(read))
       if (!mayRunLoop(again, pid, now())) return false
+      if (!await stillMine(mine)) return false
       await write(stamp())
-      return true
+      // Another took the claim away meanwhile (as abandoned) and holds it: its lock follows this one; this process yields now.
+      return await stillMine(mine)
     } finally {
-      await claim.remove()
+      // Review 4: the removal changes no answer: only an own claim goes, and one that cannot go is abandoned at the next claim.
+      try {
+        if (await stillMine(mine)) await claim.remove()
+      } catch {
+        // left behind: taken away as abandoned by the next claimant
+      }
     }
   }
+  /** The text of the claim made, or null: another's live claim stands, or an abandoned one was taken away (this round is a no). */
   async function takeClaim() {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        await claim.create(stamp())
-        return true
-      } catch (error) {
-        if (error?.code !== 'EEXIST') throw error
-      }
-      // Another claim stands: a live one of this moment is theirs (the gate asks again in a second); one left behind is taken away.
-      const other = await readLoopLock(claim.read)
-      const abandoned = other === null || !Number.isInteger(other.pid) || !Number.isFinite(other.at) || other.pid === pid
-        || !alive(other.pid) || now() - other.at > CLAIM_STALE_MS
-      if (!abandoned) return false
-      await claim.remove()
+    const mine = stamp()
+    try {
+      await claim.create(mine)
+      return mine
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error
     }
-    return false
+    // Another claim stands: a live one of this moment is theirs (the gate asks again in a second); one left behind is taken away.
+    // A claim Windows holds for the moment (its removal under way: EPERM, not ENOENT) is theirs too, this round.
+    let other
+    try {
+      other = await readLoopLock(claim.read)
+    } catch (error) {
+      if (BUSY.includes(error?.code)) return null
+      throw error
+    }
+    const abandoned = other === null || !Number.isInteger(other.pid) || !Number.isFinite(other.at) || other.pid === pid
+      || !alive(other.pid) || now() - other.at > CLAIM_STALE_MS
+    if (abandoned) await claim.remove()
+    return null
   }
 }
 

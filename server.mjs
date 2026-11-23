@@ -23,7 +23,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
-import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { constants as osConstants, setPriority } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -135,6 +135,7 @@ import { HANDOVER_COMMAND, envelopesOf, onSequence, outcomeOf, stagesOf } from '
 import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
 import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, closeLeaked, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
+import { claimFileOf, claimPorts } from './src/supervisor/claimFile.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -929,8 +930,9 @@ async function main(args) {
   // the page and reads what the first wrote. The lock is checked at every run, so the other takes over within one run
   // when the holder ends (src/supervisor/loop.mjs loopOwner, loopGate). A copy that only shows runs its own loops, unlocked.
   const LOOP_LOCK = isDemo || isShowOnly || config.project === '' ? null : localFile(config, 'sync-loop.json')
-  // F55: the claim file beside the lock, made exclusively (`wx`): of two processes that claim at once, one has it (loopOwner).
-  const LOOP_CLAIM = LOOP_LOCK === null ? null : `${LOOP_LOCK}.claim`
+  // F55: the claim file beside the lock, made exclusively (a hard link, src/supervisor/claimFile.mjs): of two processes that claim at
+  // once, one has it (loopOwner).
+  const LOOP_CLAIM = LOOP_LOCK === null ? null : claimFileOf(LOOP_LOCK)
   /** Set below, where the stores and the bridge note are: what this process does when it gains the loops. */
   let gainedLoops = async () => {}
   const ownsLoops = LOOP_LOCK === null ? async () => true : loopGate({
@@ -941,14 +943,7 @@ async function main(args) {
         // B934: the lock's heartbeat, every second or so: no flush.
         await writeUnflushed(LOOP_LOCK, text)
       },
-      claim: {
-        create: async text => {
-          await mkdir(dirname(LOOP_CLAIM), { recursive: true })
-          await writeFile(LOOP_CLAIM, text, { flag: 'wx' })
-        },
-        read: () => readFile(LOOP_CLAIM, 'utf8'),
-        remove: () => rm(LOOP_CLAIM, { force: true }),
-      },
+      claim: claimPorts(LOOP_CLAIM),
       alive: pid => {
         try {
           process.kill(pid, 0)

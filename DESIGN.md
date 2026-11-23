@@ -9023,4 +9023,18 @@ read-back, both answered yes, and the loser learnt it only at its next check. No
 - **The heartbeat** (the holder's own lock written again, B934 unflushed) takes no claim and is unchanged.
 - Tests: test/supervisor/selfCheck.test.mjs (the two interleavings B488 could not see, 40 racing rounds with one owner each, dead owner,
   lapsed lock, dead or old or torn claim, a live young claim kept, a vanished claim, a failed write lets go, the heartbeat makes no claim);
-  component.test.mjs pins the server's wiring (`wx`, the unflushed lock, no settle); oneLoopProcess ran 10 times through the queue.
+  component.test.mjs pins the server's wiring (the claim ports from claimFile.mjs, the unflushed lock, no settle); oneLoopProcess ran 10 times
+  through the queue.
+- **Chat 1's core review (2026-11-23, two lenses and real two-process probes: main 14 double owners in 40 rounds, f1c7f508 0 in 44 under
+  long stalls, but 11 in 1500 at 20 ms bursts and 68 in 167 with a dead claim seeded)**: (1) `writeFile` with `wx` opened the claim empty
+  and filled it a step later; the other read '' and took it away as torn. The claim is now a hard link (src/supervisor/claimFile.mjs): the
+  whole text goes to a file beside, `link` gives it the claim's name in one step (EEXIST when a claim stands), the file beside goes in a
+  finally. (2) A removal by name could take another's fresh claim: `takeClaim` keeps the exact text it made and the claim is this process's
+  only while it reads that text, checked before the lock write and after it; only an own claim is removed; after an abandoned claim is
+  taken away the round answers no, so two processes that both took it away do not both claim now. (3) Only an own lock at most
+  FRESH_OWN_MS (LOOP_LOCK_MS / 2) old is a heartbeat without a claim; an older own lock (a PC asleep) claims like a new one. (4) The
+  removal changes no answer, and the port uses the retrying removeFile; a claim Windows holds for the moment (EPERM while its removal
+  is under way) is the other's this round. Proof: test/supervisor/claimFile.test.mjs (the ports; 24 creates at once on the real file
+  system, one winner, a reader never sees an empty claim), test/supervisor/loopClaimRace.test.mjs (two real processes,
+  test/fixtures/loopClaimRacer.mjs: 300 rounds on an empty lock, 300 with a dead claim seeded, 200 under the holder: never two owners,
+  no claim left behind), selfCheck.test.mjs (the claim taken away before or after the write, a failed removal, the aged own lock).
