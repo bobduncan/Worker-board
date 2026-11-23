@@ -83,3 +83,31 @@ test('the page: the plan folds under its headings with their first line, and its
   // Links in a chat's words stay words: only the plan's text gets working links.
   assert.match(script, /if \(link !== null && linker !== null\) pieces\.push\(linker\(link\[1\], link\[2\]\)\)/)
 })
+
+test('T5.2 A4: with the data home and the chat home set, a plan\'s link is found where the table puts it (a plan under <data>/docs, a chat log in the chat home, the store under <data>), inside those homes only; with the settings empty nothing new is looked at', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'game-file-a4-'))
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  const project = join(root, 'wrap', 'game')
+  const data = join(project, '.workerboard')
+  const home = join(root, 'wrap')
+  await mkdir(join(data, 'docs', 'plans'), { recursive: true })
+  await mkdir(join(data, '.claude', 'work'), { recursive: true })
+  await mkdir(join(home, '.claude', 'chat-logs', 'Main'), { recursive: true })
+  await mkdir(join(project, '.claude', 'plans'), { recursive: true })
+  await writeFile(join(data, 'docs', 'plans', 'p.md'), '# Moved plan')
+  await writeFile(join(data, '.claude', 'work', 'B1.md'), 'Id: B1')
+  await writeFile(join(home, '.claude', 'chat-logs', 'Main', 'x.txt'), 'log')
+  await writeFile(join(root, 'secret.md'), 'no')
+  const moved = { project, gameRepo: project, chatHome: home, data, work: '.claude/work', backlog: '.claude/backlog.md', pictureRoots: [] }
+  assert.equal(String((await findGameFile(moved, '.claude/plans/p.md', null)).body), '# Moved plan')
+  assert.equal(String((await findGameFile(moved, '.claude/chat-logs/Main/x.txt', null)).body), 'log')
+  assert.equal(String((await findGameFile(moved, '.claude/work/B1.md', null)).body), 'Id: B1')
+  assert.equal(await findGameFile(moved, '../../secret.md', null), null, 'never out of a home')
+  assert.equal(await findGameFile(moved, '.claude/plans/none.md', null), null)
+  // The settings empty: the game's and the project's folders only, as before.
+  const today = { project, gameRepo: project, chatHome: '', data: '', work: '.claude/work', backlog: '.claude/backlog.md', pictureRoots: [] }
+  await writeFile(join(project, '.claude', 'plans', 'q.md'), '# Here')
+  assert.equal(String((await findGameFile(today, '.claude/plans/q.md', null)).body), '# Here')
+  assert.equal(await findGameFile(today, '.claude/plans/p.md', null), null, 'the data home is not looked at while data is empty')
+  assert.equal(await findGameFile(today, '.claude/chat-logs/Main/x.txt', null), null)
+})

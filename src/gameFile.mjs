@@ -3,9 +3,10 @@
 // i want to be able to click them in the UI".
 
 import { open, readFile, realpath, stat } from 'node:fs/promises'
-import { extname, isAbsolute, join, relative } from 'node:path'
+import { extname, isAbsolute, join, relative, resolve } from 'node:path'
 
 import { PICTURE_BYTES } from './pictures.mjs'
+import { chatHomeOf, dataOf, resolveStored } from './projectPaths.mjs'
 
 const TEXT = 'text/plain; charset=utf-8'
 /** What the window shows, by the file's ending. Anything else is refused. */
@@ -44,13 +45,26 @@ export const insidePath = path => typeof path === 'string' && path.length <= 300
 /**
  * The file a link names: at `path` in the game's folder, else at `path` or `alt` in the project's folder (a plan may
  * write its links from there, and a file found there reads its own links from there): `{ type, body, where }`,
- * `where` saying which it was; null when none is one to show.
+ * `where` saying which it was; null when none is one to show. T5.2 A4 (chat 1's review, finding 12): then where the
+ * path table puts a stored path (`resolveStored`: a plan under `<data>/docs`, a chat log in the chat home, the store under
+ * `<data>`), read inside that home as inside the game's folder; with `data` and `chatHome` empty there is no such home.
  */
-export async function findGameFile({ gameRepo, project }, path, alt) {
+export async function findGameFile(config, path, alt) {
+  const { gameRepo, project } = config
   for (const [root, where] of [[gameRepo, path], [project, path], [project, alt]]) {
     if (typeof where !== 'string') continue
     const found = await readGameFile(root, where)
     if (found !== null) return { ...found, where }
+  }
+  const homes = [dataOf(config), chatHomeOf(config)].filter(home => typeof home === 'string' && home !== '' && home !== project && home !== gameRepo)
+  for (const where of [path, alt]) {
+    if (typeof where !== 'string' || !insidePath(where)) continue
+    const full = resolveStored(config, where)
+    for (const home of homes) {
+      // A path the table puts outside this home comes out with `..` or a drive, which readGameFile refuses as any other.
+      const found = await readGameFile(home, relative(resolve(home), resolve(full)).replace(/\\/g, '/'))
+      if (found !== null) return { ...found, where }
+    }
   }
   return null
 }
