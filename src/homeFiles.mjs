@@ -22,8 +22,11 @@ const POINTERS = Object.freeze([
   { chat: ['main-briefing.md'], words: to => `Your briefing as the main chat is in ${to}: read it there.\n` },
   { chat: ['worker-briefing.md'], words: to => `Your briefing as a worker is in ${to}: read it there.\n` },
 ])
-/** The one-way copies: the chat home's file is the same path under `<data>/home` as it is (the person and Main may edit the chat home's). */
-const COPIES = Object.freeze([{ top: 'AGENTS.md' }, { chat: ['chats', 'list.json'] }, { chat: ['start.json'] }])
+/**
+ * The one-way copies the amber line watches: the chat home's file is the same path under `<data>/home` as it is. Not the chat list and
+ * start.json: the board and Main change those all the time, so they would always differ; they are copied only at the move (chat 1).
+ */
+const COPIES = Object.freeze([{ top: 'AGENTS.md' }])
 
 const slashes = path => String(path).replace(/\\/g, '/')
 const same = (a, b) => String(a).replace(/\r\n/g, '\n').replace(/\s+$/, '') === String(b).replace(/\r\n/g, '\n').replace(/\s+$/, '')

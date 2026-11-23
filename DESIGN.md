@@ -8942,7 +8942,8 @@ Only with `data` set; with it unset there are no home files and nothing is read,
 - **Pointers.** The chats keep running in the chat home, so the files they read there point at the copies with the data, in
   `<data>/home`: CLAUDE.md is one @import line, the main and worker briefings one line each. The Workers mod names the briefings
   by their old place, so they stay there and the mod does not change.
-- **One-way copies.** AGENTS.md, the chat list and start.json are the template's text as it is.
+- **One-way copy.** AGENTS.md is the template's text as it is. The chat list and start.json are not watched: the board and Main
+  change them all the time, so they are copied only at the move (Round B).
 - **The amber line.** A file that differs from what it should be gets one line on top with two buttons: "Write again" (what it
   should be, into the chat home) and "Copy this PC's into the template" (the chat home's text into `<data>/home`; a pointer file
   then gets its pointer back). Only on the person's click; the board never writes either way by itself.
