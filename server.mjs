@@ -123,7 +123,7 @@ import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { listedWhere, parseList, readAccountFolders } from './src/appChats.mjs'
-import { SIDE_CHATS_FILE, SIDE_WORD, STALE_SIDE_WHY, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf, staleSideWords } from './src/work/sideWord.mjs'
+import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
 import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
@@ -3858,7 +3858,8 @@ async function main(args) {
       const setsRefusedNow = setsRefusedOf(store.outbox(), clock())
       // B1271 (chat 1's review, minor): a start or wake word a carry word carries is never a hand's too (the carry may switch on and off).
       const carried = new Set(store.outbox().filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state) && typeof one.of === 'string').map(one => one.of))
-      const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers, now: clock() })
+      // B1307 (chat 1's review 1): a side word starts a model turn, so none goes while a limit is full.
+      const isHand = message => !(message?.command === SIDE_WORD && state.limitFull === true) && !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
@@ -4452,10 +4453,10 @@ async function main(args) {
         if (stops.length > 0) readState.reset()
         // B1307 (F40): a late wait on a side chat: one word to that chat by a hand (its app id from the local side-chats.json, the one the
         // app lists under the board's account), checked against the outbox and said in one go; none found: the record of why, so the
-        // person's card comes at once. A word no hand sent within 10 min is given up (the card then comes, with why).
+        // person's card comes at once. A word whose wait ended, or that no hand sent within 10 min of running time, is closed (state.mjs).
         if (!isHolding(state.pause)) {
           let sides = 0
-          for (const id of staleSideWords(store.outbox(), now)) if (await store.close(id, 'dropped', STALE_SIDE_WHY, now)) sides += 1
+          for (const { id, why } of state.sideWordsClose ?? []) if (await store.close(id, 'dropped', why, now)) sides += 1
           const due = (state.sideWordsDue ?? []).filter(one => sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) === null)
           if (due.length > 0) {
             const chats = sideChatsOf((await readHead(localFile(config, SIDE_CHATS_FILE), 16 * 1024).catch(error => { loops.failed('side-chats', error); return null }))?.text ?? '')
@@ -4463,7 +4464,7 @@ async function main(args) {
             const whereOf = folders === null ? null : id => listedWhere(id, folders, { account: state.account?.board ?? null })
             for (const one of due) {
               if (sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) !== null) continue
-              const word = sideWordFor({ late: one, worker: one.chat, wait: one.wait, found: sideSessionOf(one.who, chats, whereOf), now })
+              const word = sideWordFor({ late: one, worker: one.chat, wait: one.wait, found: sideSessionOf(one.who, chats, whereOf), now, overdue: one.overdue === true })
               await store.say({ id: randomBytes(8).toString('hex'), ...word })
               console.log(`B1307: ${word.state === 'waiting' ? `a word to ${one.who} about ${one.chat}'s late wait on ${one.id}` : `no word to ${one.who} about ${one.id} (${word.why})`} at ${timeOf(now)}.`)
               sides += 1

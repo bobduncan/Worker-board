@@ -43,7 +43,7 @@ import { EFFORTS, MODEL_ID } from './work/effort.mjs'
 import { RESTART_COMMAND } from './work/modRollout.mjs'
 import { ownerFirst } from './talkPartner.mjs'
 import { DOUBT_MS, isInDoubt } from './store.mjs'
-import { SIDE_HAND_MS, SIDE_WORD } from './work/sideWord.mjs'
+import { SIDE_WORD } from './work/sideWord.mjs'
 
 export { DOUBT_MS, isInDoubt }
 
@@ -206,11 +206,11 @@ export function workerNames(state) {
  * unless told); (B755) for a chat that `canSet`, a set word code may set (`setOf`); (B766) for one that `canRestart`, a
  * restart for a new mod of one of the `workers`; for one that `canSpawn`, a word for a new worker.
  */
-export function isHandWord(message, { canSend = true, canSet = false, canRestart = false, canSpawn = false, workers = null, now = null } = {}) {
+export function isHandWord(message, { canSend = true, canSet = false, canRestart = false, canSpawn = false, workers = null } = {}) {
   // B1160 part 2 (chat 1's decision 4): a set word meant for Main's model (the app refuses a plugin's own set call) is never a hand's.
   if (message?.forModel === true) return false
-  // B1307 (F40): the board's one word to a side chat about a late wait on it, by its app id; only within SIDE_HAND_MS of being said.
-  if (message?.command === SIDE_WORD) return isSideJob(message, now) && canSend
+  // B1307 (F40): the board's one word to a side chat about a late wait on it, by its app id.
+  if (message?.command === SIDE_WORD) return canSend && isSideJob(message)
   if (canSpawn && message?.command === 'spawn') return true
   if (typeof message?.about !== 'string') return false
   if (canSend && HAND_COMMANDS.includes(message.command)) return true
@@ -316,7 +316,7 @@ export function handJobs({ caller, taken = [], lanes = [], now, spawn = null, us
     }
     // B1307 (F40): a side word goes to the side chat's own app id, which it carries (work/sideWord.mjs); never to the caller.
     if (message.command === SIDE_WORD) {
-      if (canSend && isSideJob(message, now) && message.session !== callerSession(lanes, caller)) jobs.push({ id: message.id, to: message.session, chat: message.about, text: message.text })
+      if (canSend && isSideJob(message) && message.session !== callerSession(lanes, caller)) jobs.push({ id: message.id, to: message.session, chat: message.about, text: message.text })
       else back.push(message.id)
       continue
     }
@@ -340,11 +340,11 @@ export function handJobs({ caller, taken = [], lanes = [], now, spawn = null, us
   return { jobs: ownerFirst(jobs, first), back }
 }
 
-/** B1307: whether a side word is a job a hand may send now: its app id and text, said less than SIDE_HAND_MS ago (`now` null: no age check). */
-function isSideJob(message, now) {
-  if (!isAppId(message?.session) || typeof message?.text !== 'string' || message.text === '' || typeof message?.about !== 'string') return false
-  return now === null || (Number.isFinite(message.at) && now - message.at < SIDE_HAND_MS)
-}
+/**
+ * B1307: whether a side word is a job a hand may send: its app id and text. Chat 1's review 2: never one given back in doubt (`doubtAt`:
+ * its call gave no answer, so it may have landed): a late answer settles it, or the board gives it up and the card comes.
+ */
+const isSideJob = message => isAppId(message?.session) && typeof message?.text === 'string' && message.text !== '' && typeof message?.about === 'string' && !Number.isFinite(message.doubtAt)
 
 /** The caller's own app id among the lanes, or null. */
 const callerSession = (lanes, caller) => lanes.find(lane => lane.name === caller)?.appSession ?? null

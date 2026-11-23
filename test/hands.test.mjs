@@ -195,7 +195,7 @@ test('B766: the server gives the restart and spawn words only by what the claimi
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   // B1160 part 2: while the app refuses the board's set calls no hand claims a set job but the probe.
-  assert.match(server, /isHandWord\(message, \{ canSend, canSet: can\.has\('set'\) && \(!setsRefusedNow \|\| message\?\.probe === true\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers, now: clock\(\) \}\)/)
+  assert.match(server, /isHandWord\(message, \{ canSend, canSet: can\.has\('set'\) && \(!setsRefusedNow \|\| message\?\.probe === true\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers \}\)/)
   // T5.2 P2: the routine's folder name is the chats' home's (routineFolderOf: the project's when chatHome is empty).
   assert.match(server, /nextSpawn\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix, routineFolderOf\(config\)\)/)
   assert.match(server, /!isForHandsYet\(message, now, workers\)/)

@@ -82,9 +82,19 @@ test('the record: the holder writes a wait on a chat with work block (the live B
   assert.equal(await field(dir, 'B1081', 'Waits on'), WAITS_ON)
   assert.match(made.result.text, /^B1081 waits on chat 1 \(its go to land\) since 11:18\. The board holds it for you: no "go on" line and no give-back for 90 min/)
   assert.match((await history(dir, 'B1081')).at(-1), /Worker 4: waits on chat 1 · its go to land$/)
-  // The same who two minutes later: the record stands, with its first since.
-  const again = await chat(dir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Chat 1', why: 'its go' }, WAIT_AT + 2 * MIN)
-  assert.deepEqual([again.ok, again.result.changed], [true, false])
+  // The same who and why two minutes later (or no why): the record stands, with its first since.
+  for (const why of ['Its go to land', undefined]) {
+    const again = await chat(dir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Chat 1', ...(why === undefined ? {} : { why }) }, WAIT_AT + 2 * MIN)
+    assert.deepEqual([again.ok, again.result.changed], [true, false])
+    assert.equal(await field(dir, 'B1081', 'Waits on'), WAITS_ON)
+  }
+  // B1307 (chat 1's review 5): a new why is a new wait with a fresh clock; the old words again put the first why back, on a new clock too.
+  const renewed = await chat(dir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Chat 1', why: 'its core review' }, WAIT_AT + 3 * MIN)
+  assert.deepEqual([renewed.ok, renewed.result.changed], [true, true])
+  assert.equal(await field(dir, 'B1081', 'Waits on'), `chat 1 · its core review · ${stamp(WAIT_AT + 3 * MIN).slice(0, 16)}`)
+  assert.match((await history(dir, 'B1081')).at(-1), /waits on chat 1 · its core review \(before: its go to land\)$/)
+  assert.equal((await chat(dir, 'Worker 4', { action: 'unblock', id: 'B1081' }, WAIT_AT + 3 * MIN)).ok, true)
+  assert.equal((await chat(dir, 'Worker 4', { action: 'block', id: 'B1081', on: 'chat 1', why: 'its go to land' }, WAIT_AT)).ok, true)
   assert.equal(await field(dir, 'B1081', 'Waits on'), WAITS_ON)
   // A board chat by name is a who too (the list's names).
   // The forgotten record: a checkpoint while it stands reminds the holder.

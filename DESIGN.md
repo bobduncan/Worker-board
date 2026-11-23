@@ -7581,7 +7581,7 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   `work block id=B<n> on="chat 1" why="its go to land"`: only the owner of a taken or in-progress step; `who` a chat of the board
   (the list's names, with or without the prefix) or a side chat "chat 0" to "chat 4"; an id (B/Q/X/I, any case), the person ("you",
   "the person", "me") and the own name are refused with "a wait on the person is a blocking ask; a wait on a fix is on=B<n>". The
-  same who again keeps the first since (the record stands, `changed: false`). `work unblock id=B<n>` (no `on`, or `on=<who>`): the
+  same who again keeps the first since (the record stands, `changed: false`), unless it names a new why: that is a new wait with a fresh clock (B1307). `work unblock id=B<n>` (no `on`, or `on=<who>`): the
   owner, the main chat or the person clear it; another worker gets 403; without a chat wait an unblock with no `on` is B306's clear
   of `Waits for`, as before. A report, a take and a give-back (the board's and a take-back of a given task) clear it too.
 - **The lane**: a stopped chat (its report idle while it holds the step: interrupted) whose step records a wait is parked on
@@ -7605,8 +7605,8 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
 - **A side chat is asked first** (B1307, F40; the person's "Yes, build F40", 2026-11-21: Worker 1 waited on chat 1 for B1300 from
   10:49, the person got the Late at 136 min and carried it to chat 1 by hand). A late wait on "chat 1" to "chat 4" first gets ONE word
   to that chat, by a hand's send (`src/work/sideWord.mjs`; hands.mjs `handJobs`, command `side-word`, the chat's own app id; start,
-  wake and the wake record untouched): "Worker 1 waits for you on B1300 since 10:49 (<what>). Give it your answer, or tell it to go
-  on without you; the person is asked at HH:MM if it still waits." The delivering board's look says it (server.mjs, from the state's
+  wake and the wake record untouched): "The worker board: Worker 1 waits for you on B1300 since 10:49 (<what>). Give it your answer,
+  or tell it to go on without you; the person is asked in 30 minutes if it still waits." The delivering board's look says it (server.mjs, from the state's
   `sideWordsDue`), checked against the outbox in one go. Its key is the step and the wait's own minute, so a renewed block is a new
   wait with a new clock, and the word is an outbox record: a board restart finds it and says none again. The Late waits while the
   word waits for a hand (`SIDE_HAND_MS`, 10 min; past it the board gives the word up) and `SIDE_ANSWER_MS` (30 min) of running time
@@ -7616,7 +7616,12 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   one id per account; the one the app lists under the board's account goes (appChats.mjs `listedWhere`). No id, only another
   account's, a send the app refused, no hand in 10 min: the record says why and the Late comes at once with it ("Then the board could
   not ask chat 1: chat 1 is not known to the board ..."). A board that says no word (a copy that only shows) holds the Late 10 min past
-  the limit at most. Waits on Main, a worker or an asset are as before; "chat 0" only reads and is never asked.
+  the limit at most, then shows it plain. Waits on Main, a worker or an asset are as before; "chat 0" only reads and is never asked. Chat 1's core review
+  (2026-11-23): no word while the 5-hour or week limit is full (it would start a model turn past the person's stop line): the Late
+  comes as before, saying so; a word given back in doubt is never a hand's job again (a late answer settles it, or the give-up);
+  a refusal that is tried again holds the Late, and the Late shows the plain words; a side word is no case for rule 8 (`undelivered`);
+  a word still to go is closed when its wait ends; the hand window is running time; a wait that was late before its word keeps its
+  card (`keepCard`) with "Then the board asked chat 1 at HH:MM"; the "no word could go" record carries text '' so the log keeps it.
 - **The forgotten record**: the answer to `work step` with a checkpoint while a wait stands says "You still wait on chat 1 since
   HH:MM (its go to land): work unblock B<n> once it gave its answer." Chat 1's go messages say "unblock first" (roles/main.md).
 - **Resume all** leaves a step with a standing wait out of its resume list (pause.mjs `isResumed`): a resume would only wake the

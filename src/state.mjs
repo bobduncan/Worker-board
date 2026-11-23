@@ -52,7 +52,7 @@ import { recapsOf } from './work/recap.mjs'
 import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
 import { AWAY_LINE } from './appAccount.mjs'
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
-import { isAskedSide, sideKeyOf, sideStateOf, sideWordOf } from './work/sideWord.mjs'
+import { isAskedSide, isLimitFull, sideClosesOf, sideKeyOf, sideStateOf, sideWordOf } from './work/sideWord.mjs'
 import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, backgroundNoNewsOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { EFFORTS, effortPlan, planWordsFor, probeOf, runSettings, setsRefusedOf } from './work/effort.mjs'
@@ -2567,8 +2567,14 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // `sideWordsDue` the late side waits with no word yet: the delivering board's look says one each (server.mjs). Read from every word,
   // also long ago (`stepWords`), so a word that went stays found and is never said twice.
   const sideRunningMs = from => { const since = afterPause(pauseRecord, from); return now - since - offMsOf(gaps, now)(since) }
-  const lateSides = lateWaits.map(late => ({ late, side: sideStateOf({ late, word: isAskedSide(late.who) ? sideWordOf(stepWords, sideKeyOf(late.id, late.wait)) : null, runningMs: sideRunningMs, now }) }))
-  const sideWordsDue = lateSides.filter(one => one.side.due && one.late.id !== null).map(({ late }) => ({ id: late.id, who: late.who, chat: late.chat, wait: late.wait, since: late.since }))
+  // Chat 1's review: no word while a limit is full; `sideWordsClose` the words still to go whose wait ended or whose time for a hand is over.
+  const limitFull = isLimitFull(limits)
+  const lateSides = lateWaits.map(late => ({ late, side: sideStateOf({ late, word: isAskedSide(late.who) ? sideWordOf(stepWords, sideKeyOf(late.id, late.wait)) : null, runningMs: sideRunningMs, isFull: limitFull }) }))
+  const sideWordsDue = lateSides.filter(one => one.side.due && one.late.id !== null).map(({ late, side }) => ({ id: late.id, who: late.who, chat: late.chat, wait: late.wait, since: late.since, overdue: side.overdue }))
+  const sideWordsClose = !workOk || isHolding(pauseRecord) ? [] : sideClosesOf({
+    words: stepWords, isFull: limitFull, runningMs: sideRunningMs,
+    liveKeys: new Set([...raw.work.items.values()].filter(item => item.head.get('Kind') === 'step' && ['taken', 'in progress'].includes(item.head.get('State')) && waitsOnOf(item) !== null).map(item => sideKeyOf(item.head.get('Id'), waitsOnOf(item)))),
+  })
   const lateCards = lateSides.filter(one => !one.side.hold).map(({ late, side }) => (side.note === null ? late : { ...late, note: side.note }))
   // The asset wait (2026-11-11): a request of a holder for its step past the provider's time limit for a job (work/assetWait.mjs
   // `lateAssetsOf`): one Late per request, "Codex has not delivered A224 since 10:43"; the step stays with its holder.
@@ -3026,6 +3032,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     account: raw.account ?? null,
     // B1307 (F40): the late side waits the board asks their side chat about (server.mjs says the word).
     sideWordsDue,
+    sideWordsClose,
+    limitFull,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many
     // workers there are, and the newest ask for workers.
     workers: (() => {

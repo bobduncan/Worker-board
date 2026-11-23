@@ -14,6 +14,7 @@
 
 import { linkGoneNames, wordLanesOf } from '../../modGone.mjs'
 import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
+import { SIDE_WORD } from '../../work/sideWord.mjs'
 import { RETIRED_WATCH_RULES, givenBackFrom } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
@@ -554,6 +555,8 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to) && !gone.has(message.to))) return false
   // F17: a wake's carry word is the wake record's: its attempt's verdict and the board's "could not wake" name it, never rule 8 too.
   if (isCarryWord(message)) return false
+  // B1307 (chat 1's review 4): a side word has its own end: the person's Waits late card says what became of it.
+  if (message.command === SIDE_WORD) return false
   // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
   // hold before its release (B285).
   const held = message.at + heldMs(message, view.now, view.pause)

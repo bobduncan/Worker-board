@@ -171,7 +171,7 @@ step therefore says what it touches ("Touches: ...").
   to land, a review), write `work block id=B<n> on="chat 1" why="its go to land"` — never only in a checkpoint. The
   board then shows you as waiting on purpose, sends no "go on" line and gives the step to nobody for 90 minutes of its running
   time; past that the board first asks a side chat ("chat 1" to "chat 4") itself with one word, and the user sees it as late only
-  when that chat has not answered in 30 minutes (B1307); a wait on a board chat is late for the user at once. The step still stays yours. Once the answer came: `work unblock B<n>`, then
+  when that chat has not answered in 30 minutes (B1307); a wait on a board chat is late for the user at once. A block with a new `why` is a new wait with a fresh clock. The step still stays yours. Once the answer came: `work unblock B<n>`, then
   go on (a checkpoint while the wait stands reminds you; your report, a take and a give-back clear it). `on` is a chat of the
   board or a side chat ("chat 1"); a wait on the user is a blocking ask, a wait on a fix is `on=B<n>`. A wait for the landing
   (its words name it: "its go to land", "its landing of <branch>") ends by itself when the step's own branch lands (F33, B1256):

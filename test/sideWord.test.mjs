@@ -9,10 +9,12 @@ import test from 'node:test'
 
 import { parseConfig } from '../src/config.mjs'
 import { handJobs, isForHandsYet, isHandWord } from '../src/hands.mjs'
+import { foldOutbox } from '../src/store.mjs'
+import { isUndelivered } from '../src/supervisor/rules/watch.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { storeFromText } from '../src/work/read.mjs'
-import { SIDE_WORD, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, staleSideWords } from '../src/work/sideWord.mjs'
+import { SIDE_WORD, sideChatsOf, sideClosesOf, sideKeyOf, sideSessionOf, sideStateOf, sideWordFor } from '../src/work/sideWord.mjs'
 import { waitsOnOf } from '../src/work/waitsOn.mjs'
 import { buildState } from './withStore.mjs'
 
@@ -46,13 +48,14 @@ function storeWith(items) {
 const app = name => JSON.stringify({ title: `${PREFIX}${name}`, sessionId: `local_${name.replace(' ', '-')}`, cliSessionId: `cli-${name}`, cwd: PROJECT, isArchived: false, createdAt: name.length, lastActivityAt: at(10, 50), lastAssistantUuid: 'u-1' })
 const report = (name, state, since, heard) => [name, { state, since, background: false, run: 1, seq: 1, at: heard, session: `cli-${name}`, mod: '0.31.0', busyAt: null }]
 /** The board at `now`: Worker 1 idle since 10:50 on B1300 waiting on `who` since `since`; `outbox` the words. */
-function build({ now, who = 'chat 1', since = WAIT_AT, outbox = [] }) {
+function build({ now, who = 'chat 1', since = WAIT_AT, outbox = [], week = 40 }) {
   const raw = {
     listText: JSON.stringify({ prefix: PREFIX, main: 'Lead' }), appChatTexts: NAMES.map(app), tails: {}, planLineTexts: {},
     work: storeWith([b1300(waitsLine(who, since))]), adviceText: null, folders: null, askTexts: [], pictureLists: {}, appStartedAt: at(9, 0),
   }
   const reports = [report('Lead', 'idle', at(10, 0), now - 5_000), report('Worker 1', 'idle', at(10, 50), now - 5_000), report('Worker 2', 'idle', at(10, 0), now - 5_000)]
-  return buildState(raw, { lines: [], outbox, words: outbox, runs: [], now, config, seen: { shown: {}, other: {} }, board: { startedAt: at(9, 0), offSince: null }, reports: new Map(reports) })
+  const keptReadings = [{ at: now - MIN, fiveHour: { used: 10, resetsAt: now + 120 * MIN }, week: { used: week, resetsAt: now + 2880 * MIN } }]
+  return buildState(raw, { lines: [], outbox, words: outbox, keptReadings, runs: [], now, config, seen: { shown: {}, other: {} }, board: { startedAt: at(9, 0), offSince: null }, reports: new Map(reports) })
 }
 const lateCards = state => state.forYou.filter(one => one.kind === 'wait late')
 const laneOf = (state, name) => state.chats.find(one => one.name === name)
@@ -67,7 +70,7 @@ test('B1300 at 12:19 (90 min): no card, one word due for chat 1; the word says w
   const wait = state.sideWordsDue[0].wait
   const said = sideWordFor({ late: state.sideWordsDue[0], worker: 'Worker 1', wait, found: sideSessionOf('chat 1', sideChatsOf(JSON.stringify({ 'chat 1': [CHAT_1] }))), now: at(12, 19) })
   assert.deepEqual([said.state, said.to, said.session, said.key, said.command], ['waiting', 'chat 1', CHAT_1, KEY, SIDE_WORD])
-  assert.equal(said.text, `Worker 1 waits for you on B1300 since 10:49 (${WHY}). Give it your answer, or tell it to go on without you; the person is asked at 12:49 if it still waits.`)
+  assert.equal(said.text, `The worker board: Worker 1 waits for you on B1300 since 10:49 (${WHY}). Give it your answer, or tell it to go on without you; the person is asked in 30 minutes if it still waits.`)
   // Under the limit: nothing due, no card.
   const before = build({ now: at(12, 18) })
   assert.deepEqual([before.sideWordsDue, lateCards(before)], [[], []])
@@ -94,11 +97,27 @@ test('while the word waits for a hand (10 min at most) no card; past it the card
   const late = lateCards(build({ now: at(12, 29), outbox: [word()] }))
   assert.equal(late.length, 1)
   assert.match(late[0].text, /Then no hand sent the board's word to chat 1 within 10 min\./)
-  assert.deepEqual([staleSideWords([word()], at(12, 28)), staleSideWords([word()], at(12, 29))], [[], ['w1']])
+  const live = new Set([KEY])
+  const running = now => from => now - from
+  assert.deepEqual(sideClosesOf({ words: [word()], liveKeys: live, runningMs: running(at(12, 28)) }), [])
+  assert.deepEqual(sideClosesOf({ words: [word()], liveKeys: live, runningMs: running(at(12, 29)) }), [{ id: 'w1', why: 'no hand sent it within 10 min' }])
+  // The window is running time: 20 wall minutes with the board off for 15 are 5.
+  assert.deepEqual(sideClosesOf({ words: [word()], liveKeys: live, runningMs: from => at(12, 39) - from - 15 * MIN }), [])
+  // Chat 1's minor: a word still to go is withdrawn when its wait ended; one that went is left alone.
+  assert.deepEqual(sideClosesOf({ words: [word()], liveKeys: new Set(), runningMs: running(at(12, 20)) }), [{ id: 'w1', why: 'its wait ended' }])
+  assert.deepEqual(sideClosesOf({ words: [word({ state: 'delivered', deliveredAt: at(12, 20) })], liveKeys: new Set(), runningMs: running(at(12, 21)) }), [])
   // Given up (the server's close): the card stays, with the why.
   assert.match(lateCards(build({ now: at(12, 30), outbox: [word({ state: 'dropped', why: 'no hand sent it within 10 min' })] }))[0].text, /Then the board could not ask chat 1: no hand sent it within 10 min\./)
-  // A send the app refused: the card at once, with the app's words.
-  assert.match(lateCards(build({ now: at(12, 21), outbox: [word({ state: 'failed', why: 'refused' })] }))[0].text, /could not ask chat 1: refused/)
+  // Chat 1's review 3: a refusal the store tries again holds the card; the card then says it in plain words, never the hook's text.
+  const HOOK = '{"deny":"PreToolUse:mcp__ccd_session_mgmt__send_message hook error: Not run: in auto mode Claude Desktop doesn\'t run this tool when a plugin\'s own code calls it. Have Claude make the call."}'
+  const refused = more => word({ state: 'failed', why: HOOK, failedAt: at(12, 20), tries: 1, ...more })
+  assert.deepEqual(lateCards(build({ now: at(12, 21), outbox: [refused()] })), [])
+  const spent = lateCards(build({ now: at(12, 25), outbox: [refused({ tries: 3 })] }))
+  assert.equal(spent.length, 1)
+  assert.match(spent[0].text, /could not ask chat 1: the app no longer lets the board's code send to a chat\./)
+  assert.doesNotMatch(spent[0].text, /hook error/)
+  // A reason that never passes: no retry, the card at once.
+  assert.match(lateCards(build({ now: at(12, 21), outbox: [word({ state: 'failed', why: 'session not found', tries: 1 })] }))[0].text, /could not ask chat 1: session not found/)
 })
 
 test('renewed at 13:06 (chat 1 began its review): the old word counts no more, a new clock: no card and nothing due until 14:36', () => {
@@ -144,15 +163,20 @@ test('a wait on a board chat (Main) is as before: the card at 90 min, no word', 
 
 test('a board that says no word (a copy that only shows) holds the card 10 min past the limit at most', () => {
   assert.deepEqual(lateCards(build({ now: at(12, 28) })), [])
-  assert.match(lateCards(build({ now: at(12, 29) }))[0].text, /Then the board could not ask chat 1\./)
+  const shown = lateCards(build({ now: at(12, 29) }))
+  assert.equal(shown.length, 1)
+  assert.doesNotMatch(shown[0].text, /Then /, 'no false reason')
 })
 
 test('the hands: a side word is a hand\'s job to its own app id, only for a hand that may send, within 10 min, never Main\'s model turn', () => {
   const waiting = word()
-  assert.equal(isHandWord(waiting, { canSend: true, now: at(12, 20) }), true)
-  assert.equal(isHandWord(waiting, { canSend: false, now: at(12, 20) }), false)
-  assert.equal(isHandWord(waiting, { canSend: true, now: at(12, 29) }), false)
-  assert.equal(isHandWord({ ...waiting, session: 'not-an-id' }, { canSend: true, now: at(12, 20) }), false)
+  assert.equal(isHandWord(waiting, { canSend: true }), true)
+  assert.equal(isHandWord(waiting, { canSend: false }), false)
+  assert.equal(isHandWord({ ...waiting, session: 'not-an-id' }, { canSend: true }), false)
+  // Chat 1's review 2: given back in doubt (its call gave no answer, it may have landed): never a hand's job again; given back plainly: yes.
+  assert.equal(isHandWord({ ...waiting, doubtAt: at(12, 20) }, { canSend: true }), false)
+  assert.equal(isHandWord({ ...waiting, doubtAt: null }, { canSend: true }), true)
+  assert.deepEqual(handJobs({ caller: 'Worker 2', taken: [{ ...waiting, doubtAt: at(12, 20) }], lanes: [], now: at(12, 30) }), { jobs: [], back: ['w1'] })
   assert.equal(isForHandsYet(waiting, at(13, 0)), true)
   const lanes = [{ name: 'Worker 2', appSession: 'local_Worker-2' }]
   assert.deepEqual(handJobs({ caller: 'Worker 2', taken: [waiting], lanes, now: at(12, 20) }), { jobs: [{ id: 'w1', to: CHAT_1, chat: 'chat 1', text: waiting.text }], back: [] })
@@ -176,4 +200,48 @@ test('chat 1\'s crossing 2: a refused side send marks that hand alone, never the
   const side = done.indexOf('one.command === SIDE_WORD')
   assert.ok(side > 0 && side < done.indexOf('const chat = wakeChatOf(id)'), 'the side word branch comes before the wake path')
   assert.match(done.slice(side, side + 500), /noteHandRefusedAlone\(wakes, checked\.chat, clock\(\)\)[\s\S]*continue/)
+})
+
+test('chat 1\'s blocker: while a limit is full no word is due and the card comes as before, saying so; after the reset one word goes and the card stays', () => {
+  const full = build({ now: at(12, 19), week: 99 })
+  assert.equal(full.limitFull, true)
+  assert.deepEqual(full.sideWordsDue, [])
+  const cards = lateCards(full)
+  assert.equal(cards.length, 1)
+  assert.match(cards[0].text, /Then the board did not ask chat 1: a limit is full\./)
+  // A word that still waited for a hand when the limit filled up: the same card.
+  assert.match(lateCards(build({ now: at(12, 21), week: 99, outbox: [word()] }))[0].text, /did not ask chat 1: a limit is full/)
+  // Back under the limit, the card has shown: one word goes, and the card stays with what the board did.
+  const after = build({ now: at(13, 0), week: 40 })
+  assert.deepEqual(after.sideWordsDue.map(one => [one.id, one.overdue]), [['B1300', true]])
+  assert.equal(lateCards(after).length, 1)
+  assert.doesNotMatch(lateCards(after)[0].text, /Then /)
+})
+
+test('chat 1\'s minor: a wait late before its word keeps its card (no false reason, nothing vanishes), then names the word', () => {
+  const late = { id: 'B1300', who: 'chat 1', since: WAIT_AT, limitMs: 90 * MIN }
+  const wait = waitsOnOf(b1300(waitsLine('chat 1', WAIT_AT)))
+  const said = sideWordFor({ late, worker: 'Worker 1', wait, found: { session: CHAT_1 }, now: at(13, 0), overdue: true })
+  assert.equal(said.keepCard, true)
+  const waiting = lateCards(build({ now: at(13, 1), outbox: [{ id: 'w2', ...said }] }))
+  assert.equal(waiting.length, 1)
+  assert.match(waiting[0].text, /Then the board is asking chat 1\./)
+  const went = lateCards(build({ now: at(13, 5), outbox: [{ id: 'w2', ...said, state: 'delivered', deliveredAt: at(13, 2) }] }))
+  assert.equal(went.length, 1)
+  assert.match(went[0].text, /Then the board asked chat 1 at 13:02\./)
+  // The word of a wait that was not overdue carries no keepCard.
+  assert.equal(sideWordFor({ late, worker: 'Worker 1', wait, found: { session: CHAT_1 }, now: at(12, 19) }).keepCard, undefined)
+  assert.equal(sideStateOf({ late, word: { ...said, keepCard: undefined }, runningMs: () => 0 }).hold, true)
+})
+
+test('chat 1\'s review 6: the record of a word that could not go has a text, so the outbox log keeps it over a restart', () => {
+  const late = { id: 'B1300', who: 'chat 3', since: WAIT_AT, limitMs: 90 * MIN }
+  const record = { id: 'w3', ...sideWordFor({ late, worker: 'Worker 1', wait: waitsOnOf(b1300(waitsLine('chat 3', WAIT_AT))), found: { why: 'chat 3 is not known' }, now: at(12, 19) }) }
+  assert.deepEqual(foldOutbox(`${JSON.stringify(record)}\n`).map(one => [one.id, one.state, one.text]), [['w3', 'dropped', '']])
+})
+
+test('chat 1\'s review 4: a failed side word is no case for rule 8', () => {
+  const failed = word({ state: 'waiting', at: at(10, 0) })
+  assert.equal(isUndelivered({ now: at(12, 0), pause: null, chats: [], items: new Map(), prefix: '' }, failed, { stillWaits: () => true, waking: new Set(), gone: new Set(), limit: MIN }), false)
+  assert.equal(isUndelivered({ now: at(12, 0), pause: null, chats: [], items: new Map(), prefix: '' }, { ...failed, command: 'line' }, { stillWaits: () => true, waking: new Set(), gone: new Set(), limit: MIN }), true, 'the control: another word that waits is one')
 })
