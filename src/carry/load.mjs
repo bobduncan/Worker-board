@@ -11,7 +11,7 @@ import { blobOf, blobOfFile, ensureDataClone, fastForward, hasIdentity, lines, r
 import { loadGuards } from './guards.mjs'
 import { parseTimes, restoreTimes } from './times.mjs'
 import { readRecord, writeRecord } from './record.mjs'
-import { branchFor, clockOf } from './save.mjs'
+import { IN_PLACE_TEXT, branchFor, clockOf, isInPlace, layoutOf, layoutRefusal } from './save.mjs'
 import { dataOf, picturesOf } from '../projectPaths.mjs'
 
 const slashes = path => String(path).replace(/\\/g, '/')
@@ -36,6 +36,8 @@ export async function load(roots, options = {}, deps) {
   const facts = { boardAnswers: await deps.boardAnswers(), keepers: await deps.keepers(), lockAgeMs: await deps.lockAgeMs(), changed: [], fromPractice: false, practiceData: false, noLoadYet: options.picturesOnly === true && record.last === null }
   const early = loadGuards(facts, { park })
   if (early.refusals.length > 0) return refused(early, log)
+  // Review f: the moved layout (the data home IS the data folder) is loaded onto by nothing until Round C.
+  if (isInPlace(roots)) { log(`Refused: ${IN_PLACE_TEXT}`); return { ok: false, refusals: [{ code: 'in-place', text: IN_PLACE_TEXT, who: 'Round C' }], warnings } }
   if (options.undo) return undo({ roots, stamp: options.undo, fs, log, journal, backupRoot })
 
   // ---- fetch. The rehearsal of 2026-11-17: a load whose branch origin lacks (no save of this kind from another PC yet) touches
@@ -62,6 +64,13 @@ export async function load(roots, options = {}, deps) {
     return { ok: true, refusals: [], warnings, pictures: got }
   }
 
+  // Review b: the save's layout must be this PC's (a save made before the rule is the project layout).
+  if ((saved.layout ?? 'project') !== layoutOf(roots)) {
+    const refusal = layoutRefusal(saved.layout ?? 'project', layoutOf(roots))
+    log(`Refused: ${refusal.text}`)
+    return { ok: false, refusals: [refusal], warnings }
+  }
+
   // ---- the set and what this PC changed since its last sync
   const paths = lines(await git(roots.dataDir, ['ls-files', '--', ...SET_ROOTS.map(root => root.replace(/\/$/, ''))])).map(slashes)
   const plan = []
@@ -72,6 +81,18 @@ export async function load(roots, options = {}, deps) {
     const blob = blobOf(bytes)
     const here = await blobOfFile(target, fs)
     plan.push({ to, target, bytes, blob, here, same: here === blob })
+  }
+  // Review c: the project's settings file (settings/board-settings.json, A8) is an item of the plan: the changed-here check, the backup
+  // and --undo hold for it as for the rest; it goes where this PC's own `data` says (the roots), and a PC without one is told.
+  const settingsTo = 'settings/board-settings.json'
+  const settingsBytes = await fs.readFile(join(roots.dataDir, ...settingsTo.split('/'))).catch(() => null)
+  const settingsTarget = roots.projectSettingsFile ?? set.projectSettingsFileOf?.(roots.config) ?? null
+  if (settingsBytes !== null) {
+    if (settingsTarget === null) warnings.push('settings/board-settings.json was carried, but this PC has no data home (config.json `data`): it stays in the data folder')
+    else {
+      const here = await blobOfFile(settingsTarget, fs)
+      plan.push({ to: settingsTo, target: settingsTarget, bytes: settingsBytes, blob: blobOf(settingsBytes), here, same: here === blobOf(settingsBytes) })
+    }
   }
   const lastBlobs = record.last?.blobs ?? {}
   facts.changed = plan.filter(one => one.here !== null && !one.same && lastBlobs[one.to] !== undefined && lastBlobs[one.to] !== one.here).map(one => ({ path: one.to, target: one.target }))
@@ -84,14 +105,19 @@ export async function load(roots, options = {}, deps) {
   const stamp = stampOf(now)
   const backupDir = join(backupRoot, stamp)
   const replaced = plan.filter(one => !one.same && one.here !== null)
+  // Review c: a settings file this load CREATES is in the manifest too, so --undo removes it (the board would run on the other PC's otherwise).
+  const createdSettings = plan.find(one => one.to === settingsTo && one.here === null) ?? null
+  const backedUp = replaced.length > 0 || createdSettings !== null
   const manifest = []
-  if (!dryRun && replaced.length > 0) {
+  if (!dryRun && backedUp) {
+    await fs.mkdir(backupDir, { recursive: true })
     for (const one of replaced) {
       const kept = join(backupDir, ...one.to.split('/'))
       await fs.mkdir(dirname(kept), { recursive: true })
       await fs.writeFile(kept, await fs.readFile(one.target))
       manifest.push({ to: one.to, target: one.target })
     }
+    if (createdSettings !== null) manifest.push({ to: createdSettings.to, target: createdSettings.target, created: true })
     const config = roots.config === null ? null : await fs.readFile(join(roots.boardDir, 'config.json'), 'utf8').catch(() => null)
     if (config !== null) { await fs.writeFile(join(backupDir, 'config.json'), config); manifest.push({ to: 'config.json', target: join(roots.boardDir, 'config.json') }) }
     await fs.writeFile(join(backupDir, 'backup.json'), JSON.stringify({ at: now, files: manifest }, null, 2) + '\n')
@@ -120,14 +146,7 @@ export async function load(roots, options = {}, deps) {
     const next = set.settingsFromCarry(JSON.parse(carriedText), { project: roots.project, boardDir: roots.boardDir, current: currentRaw })
     if (!dryRun) { await writeAtomic(join(roots.boardDir, 'config.json'), `${JSON.stringify(next, null, 2)}\n`); journal(join(roots.boardDir, 'config.json')) }
   }
-  // T5.2 A8: the project's settings file goes where this PC's `data` says (loadConfig's `settingsFile`); a PC without `data` keeps it in
-  // the data folder only and is told.
-  const projectSettingsText = await fs.readFile(join(roots.dataDir, 'settings', 'board-settings.json'), 'utf8').catch(() => null)
-  if (projectSettingsText !== null) {
-    const target = roots.projectSettingsFile ?? set.projectSettingsFileOf?.(roots.config) ?? null
-    if (target === null) warnings.push('settings/board-settings.json was carried, but this PC has no data home (config.json `data`): it stays in the data folder')
-    else if (!dryRun) { await fs.mkdir(dirname(target), { recursive: true }); await writeAtomic(target, projectSettingsText); journal(target) }
-  }
+  // (The project's settings file is an item of the plan above, review c.)
   // ---- a practice load starts paused
   if (practice && !dryRun) {
     await fs.mkdir(roots.workDir, { recursive: true })
@@ -171,14 +190,14 @@ export async function load(roots, options = {}, deps) {
   // ---- the summary
   const heldWords = await fs.readFile(join(roots.dataDir, 'held-words.json'), 'utf8').then(text => JSON.parse(text)).catch(() => [])
   const focus = focusOf(plan)
-  log(`${dryRun ? 'Dry run' : 'Loaded'} ${clockOf(now)}: ${plan.length} items (${written.length} written, ${replaced.length} backed up${replaced.length > 0 && !dryRun ? ` under data/carry-backup/${stamp}` : ''}), focus ${focus ?? 'unknown'}, ${got.copied} pictures (${got.kept} kept, ${got.missing.length} missing), times: ${timed.restored.length} restored, ${timed.kept.length} kept`)
+  log(`${dryRun ? 'Dry run' : 'Loaded'} ${clockOf(now)}: ${plan.length} items (${written.length} written, ${replaced.length} backed up${backedUp && !dryRun ? ` under data/carry-backup/${stamp}` : ''}), focus ${focus ?? 'unknown'}, ${got.copied} pictures (${got.kept} kept, ${got.missing.length} missing), times: ${timed.restored.length} restored, ${timed.kept.length} kept`)
   for (const one of warnings) log(`Warning: ${one}`)
   for (const one of saved.boardSteps ?? []) log(`Board step ${one.id} (${one.state}): ${one.why}; still held for the board PC`)
   for (const one of heldWords) log(`Held word for ${one.chat}${one.step ? ` (${one.step})` : ''}, retype it: ${String(one.words).split('\n')[0].slice(0, 160)}`)
   for (const one of added) log(`User settings: added ${one}`)
   for (const one of await deps.lacks()) log(`This PC lacks: ${one}`)
   if (!await hasIdentity(git, roots.boardDir)) log('This PC lacks: a git identity (user.name and user.email)')
-  return { ok: true, refusals: [], warnings, written, replaced: replaced.map(one => one.to), stamp: replaced.length > 0 && !dryRun ? stamp : null, timed, pictures: got, heldWords, boardSteps: saved.boardSteps ?? [], added, commit: moved.after, saved }
+  return { ok: true, refusals: [], warnings, written, replaced: replaced.map(one => one.to), stamp: backedUp && !dryRun ? stamp : null, timed, pictures: got, heldWords, boardSteps: saved.boardSteps ?? [], added, commit: moved.after, saved }
 }
 
 async function fromDrive({ roots, pictures, fs, dryRun, log, journal }) {
@@ -198,6 +217,8 @@ async function undo({ roots, stamp, fs, log, journal, backupRoot }) {
   if (manifest === null) { log(`No backup ${stamp} under ${backupRoot}`); return { ok: false, refusals: [{ code: 'no-backup', text: `no backup ${stamp}`, who: 'you' }], warnings: [] } }
   let restored = 0
   for (const one of manifest.files ?? []) {
+    // Review c: a file the load created (the project's settings file) is taken away again.
+    if (one.created === true) { await fs.rm(one.target, { force: true }); journal(one.target); restored += 1; continue }
     const kept = join(dir, ...one.to.split('/'))
     const bytes = await fs.readFile(kept).catch(() => null)
     if (bytes === null) continue

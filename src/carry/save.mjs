@@ -24,7 +24,15 @@ const SET_ROOTS = ['home/', 'data/', 'board/', 'memory/']
 
 /** T5.2 A8: the folder the picture roots stand in (the table's picturesOf once `data` is set; the project today). */
 const picturesBaseOf = roots => (roots.config && dataOf(roots.config) !== null ? picturesOf(roots.config) : roots.project)
-const samePath = (a, b) => resolve(String(a)).replace(/[\\/]+$/, '').toLowerCase() === resolve(String(b)).replace(/[\\/]+$/, '').toLowerCase()
+export const samePath = (a, b) => resolve(String(a)).replace(/[\\/]+$/, '').toLowerCase() === resolve(String(b)).replace(/[\\/]+$/, '').toLowerCase()
+/** The moved layout (the data home IS the data folder): neither save nor load copies a folder onto itself; Round C makes the save a commit. */
+export const IN_PLACE_TEXT = 'the data lives in the data folder already: saving is a commit (Round C), not a copy'
+export const isInPlace = roots => typeof roots.dataHome === 'string' && roots.dataHome !== '' && samePath(roots.dataHome, roots.dataDir)
+/** The layout a save was made in, kept in saved.json: 'data' (a data home) or 'project' (the store in the project, today's). */
+export const layoutOf = roots => (typeof roots.dataHome === 'string' && roots.dataHome !== '' ? 'data' : 'project')
+/** Review b: the two layouts never mix: a save of one onto a PC of the other would skip or misplace the store, silently. */
+export const layoutRefusal = (saved, mine) => ({ code: 'layout', who: 'you', text: `the save was made ${saved === 'data' ? 'with' : 'without'} a data home (config.json data) and this PC is ${mine === 'data' ? 'with' : 'without'} one: give both PCs the same layout first` })
+const SETTINGS_TO = 'settings/board-settings.json'
 
 const slashes = path => String(path).replace(/\\/g, '/')
 const two = n => String(n).padStart(2, '0')
@@ -45,10 +53,9 @@ export async function save(roots, options = {}, deps) {
   const warnings = []
   // T5.2 A8, the moved layout (the data home IS the data folder, the design's <game>/.workerboard): copying it onto itself is no save.
   // Round C makes the save a commit of that folder; until then it is refused in one line.
-  if (typeof roots.dataHome === 'string' && roots.dataHome !== '' && samePath(roots.dataHome, roots.dataDir)) {
-    const text = 'the data lives in the data folder already: saving is a commit (Round C), not a copy'
-    log(`Refused: ${text}`)
-    return { ok: false, refusals: [{ code: 'in-place', text, who: 'Round C' }], warnings, dryRun }
+  if (isInPlace(roots)) {
+    log(`Refused: ${IN_PLACE_TEXT}`)
+    return { ok: false, refusals: [{ code: 'in-place', text: IN_PLACE_TEXT, who: 'Round C' }], warnings, dryRun }
   }
   const record = await readRecord(deps.recordFile, fs)
 
@@ -63,6 +70,12 @@ export async function save(roots, options = {}, deps) {
 
   // ---- the data clone (made now, written later). A dry run makes and switches nothing: it looks. Origin is asked by its URL.
   const clone = dryRun ? await peekDataClone({ git, dir: roots.dataDir, branch, fs }) : await ensureDataClone({ git, dir: roots.dataDir, remote: roots.remote, branch, fs })
+  // Review b: a branch that holds a data home (data/) is never saved onto from a PC without one: this save would prune it.
+  if ((!dryRun || clone.onBranch === true) && layoutOf(roots) === 'project' && lines(await git(roots.dataDir, ['ls-files', '--', 'data'])).length > 0) {
+    const refusal = layoutRefusal('data', 'project')
+    log(`Refused: ${refusal.text}`)
+    return { ok: false, refusals: [refusal], warnings, dryRun }
+  }
   const originHead = await remoteBranch(git, roots.boardDir, roots.remote, branch)
   // What this PC last synced on this branch (null: never): origin past it means load first.
   const lastHere = record.synced[branch] ?? null
@@ -101,7 +114,15 @@ export async function save(roots, options = {}, deps) {
   // The rehearsal of 2026-11-17: config.json's OWN JSON travels, never the parsed config (its defaults, routing and weekStopAt among
   // them, landed as values on the other PC). The two folder paths are the parsed ones (%ENV% filled) for B2 to write relative.
   const configText = await fs.readFile(join(roots.boardDir, 'config.json'), 'utf8').catch(() => null)
-  const configRaw = configText === null ? null : JSON.parse(configText)
+  const configRaw = (() => {
+    if (configText === null) return null
+    try {
+      const raw = JSON.parse(configText.replace(/^\uFEFF/, ''))
+      return raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : null
+    } catch {
+      return null
+    }
+  })()
   const ownConfig = configRaw === null ? roots.config : { ...configRaw, ...(typeof configRaw.project === 'string' ? { project: roots.config.project } : {}), ...(typeof configRaw.gameRepo === 'string' ? { gameRepo: roots.config.gameRepo } : {}) }
   const settings = { 'settings/config.json': JSON.stringify(set.carriedSettings(ownConfig, { project: roots.project, boardDir: roots.boardDir }), null, 2) + '\n' }
   const userSettings = await fs.readFile(roots.userSettingsFile, 'utf8').then(text => JSON.parse(text)).catch(() => ({}))
@@ -112,7 +133,7 @@ export async function save(roots, options = {}, deps) {
   const projectSettingsFile = roots.projectSettingsFile ?? set.projectSettingsFileOf?.(roots.config) ?? null
   const projectSettingsText = projectSettingsFile === null ? null : await fs.readFile(projectSettingsFile, 'utf8').catch(() => null)
   const projectSettings = projectSettingsText === null ? null : set.carriedProjectSettings?.(projectSettingsText) ?? null
-  if (projectSettings !== null) settings['settings/board-settings.json'] = projectSettings
+  if (projectSettings !== null) settings[SETTINGS_TO] = projectSettings
   // Review 3: the settings texts are scanned for secrets with the files.
   const secrets = await deps.secrets()
   const facts = {
@@ -179,8 +200,9 @@ export async function save(roots, options = {}, deps) {
   // A dry run on a folder not on this branch (none yet, or the other kind's) counts nothing as gone, and says so.
   const dataOnBranch = !dryRun || clone.onBranch === true
   if (!dataOnBranch) warnings.push(`the data folder ${clone.exists ? 'is on the other kind\'s branch' : 'does not exist yet'}: what left the set is not counted in this dry run`)
-  const tracked = dataOnBranch ? lines(await git(roots.dataDir, ['ls-files', '--', ...SET_ROOTS.map(root => root.replace(/\/$/, ''))])).map(slashes) : []
-  const inSet = new Set(files.map(one => one.to))
+  // Review d: the project's settings file is pruned with the set when it is not carried this time (data switched off, the file gone or no JSON).
+  const tracked = dataOnBranch ? lines(await git(roots.dataDir, ['ls-files', '--', ...SET_ROOTS.map(root => root.replace(/\/$/, '')), SETTINGS_TO])).map(slashes) : []
+  const inSet = new Set([...files.map(one => one.to), ...Object.keys(settings)])
   const removed = tracked.filter(path => !inSet.has(path))
   if (!dryRun) for (const path of removed) { await fs.rm(join(roots.dataDir, ...path.split('/')), { force: true }); journal(join(roots.dataDir, ...path.split('/'))) }
   // (The settings texts stand above, before the secret scan.)
@@ -206,7 +228,7 @@ export async function save(roots, options = {}, deps) {
   const mains = {}
   for (const [name, repo] of [['game', roots.gameRepo], ['board', roots.boardDir]]) mains[name] = (await git(repo, ['rev-parse', 'HEAD'])).out.trim() || null
   const saved = {
-    pc: hostname(), at: now, kind: practice ? 'practice' : 'final', branch, mains, counts: { files: files.length, written: written.length, removed: removed.length, pictures: list.length },
+    pc: hostname(), at: now, kind: practice ? 'practice' : 'final', branch, layout: layoutOf(roots), mains, counts: { files: files.length, written: written.length, removed: removed.length, pictures: list.length },
     branchesPushed: toPush.map(one => ({ branch: one.branch, repo: basename(one.repo), step: one.step, commit: one.commit })), boardSteps, heldWords: heldWords.length, noWorktree,
   }
   const own = {

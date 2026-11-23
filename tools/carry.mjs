@@ -65,8 +65,18 @@ export async function rootsOf({ boardDir = HERE, flags = {}, env = process.env, 
   else throw new Error(`${configFile} is missing: on a first load say --project <folder> and --game <folder>`)
   // The settings file's place comes from config.json's OWN `data` (review 2: loadConfig names it only once the file exists).
   const rawConfig = hasConfig ? JSON.parse((await readFile(configFile, 'utf8')).replace(/^\uFEFF/, '')) ?? {} : null
-  const project = config.project
-  const gameRepo = config.gameRepo || project
+  // Review 5 and a: the homes are made absolute ONCE, from the board folder (config.json's), never from the working folder, and every
+  // root follows the placed config: the store, the bridge key, the pictures and assets (the table reads config), the memory (the transcripts
+  // of the chat home). A first load (no config.json) has the two flags' folders, absolute already.
+  const chatHome = resolve(boardDir, chatHomeOf(config) || config.project)
+  const dataHome = dataOf(config) === null ? null : resolve(boardDir, dataOf(config))
+  const rawHasTranscripts = typeof rawConfig?.transcripts === 'string' && rawConfig.transcripts.trim() !== ''
+  const placed = {
+    ...config, project: resolve(boardDir, config.project), gameRepo: resolve(boardDir, config.gameRepo || config.project), chatHome, data: dataHome ?? '',
+    transcripts: rawHasTranscripts ? config.transcripts : transcriptsOf(chatHome, env),
+  }
+  const project = placed.project
+  const gameRepo = placed.gameRepo
   const dataDir = flags.data ? resolve(flags.data) : join(gameRepo, '.workerboard')
   const isExplicitData = Boolean(flags.data)
   const remote = flags.remote ?? line(await git(gameRepo, ['remote', 'get-url', 'origin']))
@@ -75,15 +85,11 @@ export async function rootsOf({ boardDir = HERE, flags = {}, env = process.env, 
   const record = await readRecord(recordFile, fs)
   const picturesFolder = flags.pictures ? resolve(flags.pictures) : record.picturesHome
   const keepSetFile = flags['keep-set'] ? resolve(flags['keep-set']) : record.keepSet
-  // Review 5: a relative `data` or `chatHome` is relative to the board folder (config.json's), never to the working folder.
-  const chatHome = resolve(boardDir, chatHomeOf(config) || project)
-  const dataHome = dataOf(config) === null ? null : resolve(boardDir, dataOf(config))
   const projectSettingsFile = rawConfig === null ? null : settingsFileOf(rawConfig, boardDir, env)
-  // The memory is the chats' (their transcripts folder, derived from the chat home by parseConfig; the project's on a first load).
-  const memoryDir = join(hasConfig && typeof config.transcripts === 'string' && config.transcripts !== '' ? config.transcripts : transcriptsOf(chatHome, env), 'memory')
-  const bridgeFile = chatFile(config, 'board.json')
+  const memoryDir = join(placed.transcripts, 'memory')
+  const bridgeFile = chatFile(placed, 'board.json')
   const userSettingsFile = join(homedir(), '.claude', 'settings.json')
-  return { boardDir, project, chatHome, dataHome, bridgeFile, projectSettingsFile, config: hasConfig ? config : null, configGiven: config, gameRepo, workDir: workFolder(config), dataDir, isExplicitData, remote, picturesFolder, keepSetFile, memoryDir, userSettingsFile, recordFile }
+  return { boardDir, project, chatHome, dataHome, bridgeFile, projectSettingsFile, config: hasConfig ? placed : null, configGiven: placed, gameRepo, workDir: workFolder(placed), dataDir, isExplicitData, remote, picturesFolder, keepSetFile, memoryDir, userSettingsFile, recordFile }
 }
 
 /** The boards of `project` that answer: the PC's list (boards.json) and this folder's own data/port.json, each asked whose it is. */

@@ -8847,3 +8847,10 @@ JSON. Now (nothing changes with `data` and `chatHome` empty; the tests pin today
   load keeps this PC's RAW config.json keys (codex, label, sync, %ENV% paths as written), never the parsed config; a relative `data` or
   `chatHome` is the board folder's, never the working folder's. The two-PC test runs the switched-on layout for real (a data home that is
   not the carry folder, a secret in board-settings.json refused, B's own `data` named before the file exists, B's raw keys kept).
+- **Chat 1's re-check (2026-11-21, round 2)**: the roots make `data` and `chatHome` absolute ONCE from the board folder and every root
+  follows that placed config (the store, the bridge key, the pictures and assets, the memory through the chat home's transcripts). The two
+  layouts never mix: saved.json names the save's layout (`data` or `project`), load refuses a save of the other layout, and save refuses
+  onto a branch that holds `data/` from a PC without a data home. board-settings.json is an item of the load's plan (changed-here check,
+  backup, and a created file is in the manifest so `--undo` removes it); save prunes a stale `settings/board-settings.json` when it is not
+  carried this time. settingsFromCarry drops every PC key of the carried config.json before this PC's own come in (a save from before the
+  rule). Load refuses the moved layout as save does. config.json's BOM is stripped and a non-object file falls back to the parsed config.

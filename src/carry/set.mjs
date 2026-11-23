@@ -180,6 +180,8 @@ export function carriedSettings(config, { boardDir } = {}) {
 /** This PC's config object from the carried one: project and gameRepo resolved against this board folder; its own PC keys kept. */
 export function settingsFromCarry(carried, { project, boardDir, current = {} } = {}) {
   const config = { ...carried }
+  // Review e: a save made before this rule still carries PC keys (port, gamePort, appAccount, chatHome): none of them is this PC's.
+  for (const key of PC_KEYS) if (!KEPT_PC_KEYS.includes(key)) delete config[key]
   config.project = typeof carried.project === 'string' ? resolve(boardDir, carried.project) : project
   if (typeof carried.gameRepo === 'string') config.gameRepo = resolve(boardDir, carried.gameRepo)
   for (const key of PC_KEYS) if (!KEPT_PC_KEYS.includes(key) && current[key] !== undefined) config[key] = current[key]

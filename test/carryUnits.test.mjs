@@ -13,6 +13,7 @@ import { createServer } from 'node:http'
 
 import { boardsAnswering, optionsOf, parseArgs, rootsOf, secretsOf } from '../tools/carry.mjs'
 import { save } from '../src/carry/save.mjs'
+import { load } from '../src/carry/load.mjs'
 import { carriedProjectSettings } from '../src/carry/set.mjs'
 import { PC_KEYS } from '../src/config.mjs'
 import { readFileSync } from 'node:fs'
@@ -226,17 +227,27 @@ test('T5.2 A8: the roots know the chat home and the data home: the memory and th
     const saveCode = readFileSync(new URL('../src/carry/save.mjs', import.meta.url), 'utf8')
     const loadCode = readFileSync(new URL('../src/carry/load.mjs', import.meta.url), 'utf8')
     assert.match(saveCode, /const SET_ROOTS = \['home\/', 'data\/', 'board\/', 'memory\/'\]/)
-    assert.match(saveCode, /settings\['settings\/board-settings\.json'\] = projectSettings$/m)
+    assert.match(saveCode, /settings\[SETTINGS_TO\] = projectSettings$/m)
     assert.match(saveCode, /secretsIn\(\[\.\.\.files, \.\.\.Object\.entries\(settings\)/, 'review 3: the settings are scanned too')
     assert.match(saveCode, /chatHome: roots\.chatHome \?\? null, dataHome: roots\.dataHome \?\? null/)
     assert.match(loadCode, /chatHome: roots\.chatHome \?\? null, dataHome: roots\.dataHome \?\? null/)
     assert.match(loadCode, /const SET_ROOTS = \['home\/', 'data\/', 'board\/', 'memory\/'\]/, 'review 1: load places data/ back')
-    assert.match(loadCode, /const target = roots\.projectSettingsFile \?\? set\.projectSettingsFileOf\?\.\(roots\.config\) \?\? null\n[^]*?writeAtomic\(target, projectSettingsText\)/)
+    assert.match(loadCode, /const settingsTarget = roots\.projectSettingsFile \?\? set\.projectSettingsFileOf\?\.\(roots\.config\) \?\? null[^]*?plan\.push\(\{ to: settingsTo, target: settingsTarget/, 'review 2 and c: the settings file is an item of the plan, placed by the roots')
     // Review 2 and 5: the settings file's place comes from config.json's own `data` before the file exists; a relative `data` is the board folder's.
     writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: '..', data: '../game/.workerboard-rel' }))
     const relative = await rootsOf({ boardDir: board, flags, env, git })
     assert.deepEqual([relative.chatHome, relative.dataHome, relative.projectSettingsFile], [wrap, join(game, '.workerboard-rel'), join(game, '.workerboard-rel', 'board-settings.json')])
     assert.equal(relative.config.settingsFile, null, 'loadConfig names no file while it does not exist; the roots do')
+    // Review a: every root follows the homes made absolute from the board folder (the working folder plays no part).
+    assert.deepEqual([relative.workDir, relative.bridgeFile, relative.config.data, relative.config.chatHome, relative.config.project],
+      [join(game, '.workerboard-rel', '.claude', 'work'), join(wrap, '.claude', 'board.json'), join(game, '.workerboard-rel'), wrap, game])
+    assert.equal(relative.memoryDir, join(relative.config.transcripts, 'memory'))
+    assert.equal(relative.config.transcripts, moved.config.transcripts, 'the transcripts are the chat home\'s, relative or not')
+    // Review f: load refuses the moved layout as save does, before it fetches anything.
+    const loadLogs = []
+    const refusedLoad = await load({ ...moved, config: moved.configGiven }, { log: text => loadLogs.push(text) }, { fs: { readFile: async () => { throw new Error('not read') } }, recordFile: join(board, 'data', 'carry.json'), boardAnswers: async () => [], keepers: async () => [], lockAgeMs: async () => null })
+    assert.deepEqual([refusedLoad.ok, refusedLoad.refusals.map(one => one.code)], [false, ['in-place']])
+    assert.match(loadLogs.join('\n'), /^Refused: the data lives in the data folder already/m)
     // Review 3: the project's settings travel without PC keys; a file that is no JSON object is not carried.
     const carried = JSON.parse(carriedProjectSettings(JSON.stringify({ name: 'Moved', weekStopAt: 90, ...Object.fromEntries(PC_KEYS.map(key => [key, 'x'])) })))
     assert.deepEqual(carried, { name: 'Moved', weekStopAt: 90 })

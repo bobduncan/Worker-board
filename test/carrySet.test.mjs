@@ -176,6 +176,10 @@ test('T5.2 A8: every PC key (config.mjs PC_KEYS) but project and gameRepo stays 
   const theirs = Object.fromEntries(PC_KEYS.filter(key => !['project', 'gameRepo'].includes(key)).map(key => [key, `theirs-${key}`]))
   const back = settingsFromCarry(JSON.parse(JSON.stringify(carried)), { project, boardDir, current: theirs })
   for (const key of Object.keys(theirs)) assert.equal(back[key], theirs[key], key)
+  // Review e: a carried config.json from before the rule (port, gamePort, appAccount, chatHome in it): none of them reaches this PC.
+  const older = { ...carried, port: 4310, gamePort: 5300, appAccount: 'their-account', chatHome: 'D:/theirs/wrap' }
+  const fresh = settingsFromCarry(older, { project, boardDir, current: { port: 4400 } })
+  assert.deepEqual([fresh.port, 'gamePort' in fresh, 'appAccount' in fresh, 'chatHome' in fresh], [4400, false, false, false])
   assert.equal(back.project, project)
   assert.ok(PC_KEYS.includes('chatHome') && PC_KEYS.includes('data') && PC_KEYS.includes('appAccount'), 'the keys the review named are PC keys')
   // The project's settings file: named by loadConfig once `data` is set; none today.
