@@ -2922,7 +2922,7 @@ async function main(args) {
     // Life came, or a new sleep began: a new spell entry for a chat the record knows.
     for (const lane of boardLanes(state)) {
       const spell = spellOf(lane)
-      if (spell !== null && wakes.wakes.has(lane.name) && newSpell(wakes, lane.name, spell)) changed = true
+      if (spell !== null && wakes.wakes.has(lane.name) && newSpell(wakes, lane.name, spell, now, { move: true })) changed = true
     }
     if (reopenWakes(state)) changed = true
     if (changed) wakesChanged()
