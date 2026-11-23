@@ -111,6 +111,24 @@ test('T14: the page says the wake row needs your OK, with the reason in its tool
   } finally { await soon.close() }
 })
 
+// 2026-11-22 (the person: "This set it up button doesnt do anything"): the note's button opened the settings panel, and the
+// same click, bubbling on to the page's "a click elsewhere folds it" listener, folded it again at once.
+test('"Set it up" on the note opens the settings panel and the same click does not fold it again; a later click elsewhere does', async () => {
+  const { openPage } = await import('./pageHarness.mjs')
+  const { asSent, build, ask, MIN: PAGE_MIN, NOW: PAGE_NOW } = await import('./partnerState.mjs')
+  const rows = [{ key: 'wake', title: 'Wake, start and resume chats', byCode: false, why: SEND_WHY }]
+  const jobs = { rows, missing: ['mcp__ccd_session_mgmt__send_message'], needsTask: false, missingRoutines: [], checked: null, canAllow: true, taskLine: null }
+  const page = await openPage({ state: { ...asSent(build([ask('Q2', 'person', PAGE_NOW - 40 * PAGE_MIN)])), codeJobs: jobs } })
+  try {
+    assert.equal(page.find('#code-jobs-note').hidden, false)
+    assert.equal(page.find('#settings').open, false)
+    page.find('#code-jobs-open').click()
+    assert.equal(page.find('#settings').open, true)
+    page.find('#code-jobs-note-text').click()
+    assert.equal(page.find('#settings').open, false)
+  } finally { await page.close() }
+})
+
 // T12 (the person, 2026-10-28: every worker its own routine, "<project> - Worker N"): which worker slots have a routine.
 const PROJECT = 'my-project'
 const ROUTINES = (...slots) => slots.map(n => `${PROJECT}-worker-${n}`)
