@@ -8,7 +8,8 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { join } from 'node:path'
-import { LOW, halfTheCores, runTests } from '../tools/test.mjs'
+import { failingFiles, gateVerdict } from '../src/landing.mjs'
+import { LOW, STALL_MS, TEST_TIMEOUT_MS, boardFolders, halfTheCores, holdsBoard, insidePattern, openFiles, runTests, stallLines, stopInside } from '../tools/test.mjs'
 
 test('B351: npm test runs the tests through tools/test.mjs, on half the cores, at least one', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
@@ -43,7 +44,7 @@ test('2026-11-11: the run lowers itself to below normal before node --test start
   assert.equal(code, 0)
   assert.equal(LOW, os.constants.priority.PRIORITY_BELOW_NORMAL)
   assert.deepEqual(lowered, [{ args: [LOW], started: 0 }, { args: [4242, LOW], started: 1 }])
-  assert.deepEqual(calls[0].args, ['--test', '--test-concurrency=12', 'test/a.test.mjs'])
+  assert.deepEqual([calls[0].args.slice(0, 2), calls[0].args.at(-1)], [['--test', '--test-concurrency=12'], 'test/a.test.mjs'])
   assert.equal(calls[0].program, 'node.exe')
   assert.equal(calls[0].options.windowsHide, true)
 })
@@ -90,4 +91,153 @@ test('2026-11-11, the real case: a test file of the run reports below-normal pri
   const code = await runTests({ files: [file.replace(/\\/g, '/')], cores: 2, start })
   assert.equal(code, 0)
   assert.equal(Number(readFileSync(seen, 'utf8')), os.constants.priority.PRIORITY_BELOW_NORMAL)
+})
+
+// F39 (2026-11-21): a hung test file costs minutes, not the gate's hour.
+const sink = () => { const seen = { text: '' }; return { seen, stream: { write: chunk => { seen.text += String(chunk) } } } }
+const realStart = () => {
+  const { NODE_TEST_CONTEXT: _context, ...env } = process.env
+  return (program, args, options) => spawn(program, args, { ...options, env })
+}
+const hangFolder = (t, name, body) => {
+  const folder = mkdtempSync(join(os.tmpdir(), 'test-run-hang-'))
+  t.after(() => rmSync(folder, { recursive: true, force: true }))
+  const file = join(folder, name)
+  writeFileSync(file, body)
+  return { folder, file: file.replace(/\\/g, '/') }
+}
+
+test('F39: node --test gets a per-test timeout and a second reporter that writes the files it takes up and ends', async () => {
+  const { calls, start } = standIn(0)
+  await runTests({ files: ['test/a.test.mjs'], cores: 8, start, setPriority: () => {} })
+  const args = calls[0].args
+  assert.deepEqual(args.slice(0, 3), ['--test', '--test-concurrency=4', `--test-timeout=${TEST_TIMEOUT_MS}`])
+  assert.equal(args.includes('--test-force-exit'), false, 'it ended files while their tests still waited (the first F39 gate)')
+  assert.equal(TEST_TIMEOUT_MS, 10 * 60 * 1000)
+  assert.equal(STALL_MS, 15 * 60 * 1000)
+  assert.ok(args.includes('--test-reporter=spec') && args.includes('--test-reporter-destination=stdout'), 'the usual output still on stdout')
+  assert.ok(args.some(arg => /^--test-reporter=file:.*openFilesReporter\.mjs$/.test(arg)))
+  assert.equal(args.at(-1), 'test/a.test.mjs')
+})
+
+test('F39: the files still open, from the reporter\'s lines, and the lines a stalled run ends with', () => {
+  const lines = [
+    { at: 'start', file: 'C:/b/test/a.test.mjs', test: null }, { at: 'start', file: 'C:/b/test/a.test.mjs', test: 'one' }, { at: 'end', file: 'C:/b/test/a.test.mjs', test: 'one' },
+    { at: 'start', file: 'C:/b/test/a.test.mjs', test: 'two' }, { at: 'start', file: 'C:/b/test/b.test.mjs', test: null }, { at: 'start', file: 'C:/b/test/c.test.mjs', test: null },
+    { at: 'end', file: 'C:/b/test/c.test.mjs', test: null },
+  ].map(one => JSON.stringify(one)).join('\n') + '\n{ torn'
+  const open = openFiles(lines)
+  assert.deepEqual(open, [{ file: 'C:/b/test/a.test.mjs', tests: ['two'] }, { file: 'C:/b/test/b.test.mjs', tests: [] }])
+  assert.deepEqual(stallLines(open, 15 * 60 * 1000, 'C:/b'), [
+    'stalled: no test output for 15 minutes; files still open: test/a.test.mjs (two), test/b.test.mjs (at its top level)',
+  ])
+  // Review, blocker 2: a stalled run is a refusal and names no file to run again alone (the held-back files' failures are lost).
+  const verdict = gateVerdict(['✔ one (1ms)', 'test at test/c.test.mjs:3:1', ...stallLines(open, 15 * 60 * 1000, 'C:/b')].join('\n'), 'board', 1)
+  assert.equal(verdict.ok, false)
+  assert.match(verdict.why, /^the test run stalled \(stalled: no test output for 15 minutes; files still open: test\/a\.test\.mjs/)
+  assert.equal(verdict.files, undefined)
+})
+
+test('F39, the real case: a test that hangs inside itself and leaves a timer (taskWindowPage, 2026-11-21) ends the run at the watchdog, naming its file', { timeout: 200_000 }, async t => {
+  const { folder, file } = hangFolder(t, 'hangs-inside.test.mjs', "import { test } from 'node:test'\ntest('waits for a page that never draws', () => new Promise(() => setInterval(() => {}, 1000)))\n")
+  const { seen, stream } = sink()
+  const began = Date.now()
+  const code = await runTests({ files: [file], cores: 2, start: realStart(), setPriority: () => {}, timeoutMs: 2000, stallMs: 6000, watchMs: 250, out: stream, err: stream, cwd: folder })
+  assert.equal(code, 1)
+  assert.ok(Date.now() - began < 150_000, 'ended within the bound, also on a busy PC')
+  assert.match(seen.text, /stalled: no test output for 6 seconds; files still open: .*hangs-inside\.test\.mjs/)
+  assert.equal(gateVerdict(seen.text, 'board', code).ok, false, 'refused')
+})
+
+test('F39: a file that hangs at its top level ends the run at the stall watchdog with its whole tree, naming the file', { timeout: 200_000 }, async t => {
+  // F39 (part 6): the file also starts a process outside the run's tree that names the run's folder (a WMI-started board's way).
+  const sleeperCode = [
+    "import { spawn } from 'node:child_process'",
+    "import { writeFileSync } from 'node:fs'",
+    // A launcher that starts the sleeper and ends at once: the sleeper's parent is gone, so it is in no tree (a WMI start's way).
+    "const launcher = \"const { spawn } = require('node:child_process'); const one = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)', process.cwd()], { detached: true, stdio: 'ignore', windowsHide: true }); one.unref(); require('node:fs').writeFileSync('sleeper.pid', String(one.pid))\"",
+    "spawn(process.execPath, ['-e', launcher], { stdio: 'ignore', windowsHide: true })",
+    'setInterval(() => {}, 1000)',
+    'await new Promise(() => {})',
+    '',
+  ].join('\n')
+  const { folder, file } = hangFolder(t, 'hangs-on-top.test.mjs', sleeperCode)
+  const { seen, stream } = sink()
+  const began = Date.now()
+  // A list of boards of its own: without a readable list the sweep does nothing.
+  const home = mkdtempSync(join(os.tmpdir(), 'boards-home-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  writeFileSync(join(home, 'boards.json'), JSON.stringify({ boards: [] }))
+  const code = await runTests({ files: [file], cores: 2, start: realStart(), setPriority: () => {}, timeoutMs: 600_000, stallMs: 3000, watchMs: 250, out: stream, err: stream, cwd: folder, env: { ...process.env, WORKER_BOARD_HOME: home } })
+  assert.equal(code, 1)
+  assert.ok(Date.now() - began < 150_000, 'ended at the watchdog, also on a busy PC')
+  assert.match(seen.text, /stalled: no test output for 3 seconds; files still open: .*hangs-on-top\.test\.mjs \(at its top level\)/)
+  assert.equal(gateVerdict(seen.text, 'board', code).ok, false, 'refused')
+  if (process.platform === 'win32') {
+    const sleeper = Number(readFileSync(join(folder, 'sleeper.pid'), 'utf8'))
+    let alive = true
+    try {
+      process.kill(sleeper, 0)
+    } catch {
+      alive = false
+    }
+    assert.equal(alive, false, 'the process it left outside its tree is ended too')
+  }
+})
+
+test('F39 review 9: the sweep names a folder only on a path boundary, and never sweeps a board\'s own folder', () => {
+  const re = new RegExp(insidePattern('D:/boards/x/worker-board'))
+  assert.equal(re.test('node d:\\boards\\x\\worker-board\\server.mjs'), true)
+  assert.equal(re.test('node "d:\\boards\\x\\worker-board" --demo'), true)
+  assert.equal(re.test('node d:\\boards\\x\\worker-board-t5-a6\\server.mjs'), false, 'another worktree beside it is not inside')
+  const calls = []
+  const run = (...args) => calls.push(args)
+  stopInside('D:/boards/x/worker-board', Date.now(), run, ['D:\\boards\\x\\worker-board'])
+  assert.equal(calls.length, 0, 'a board folder is never swept')
+  // The re-check: a folder that holds a board (the project folder around it) is never swept either, and nothing is swept when
+  // the list of boards cannot be read.
+  stopInside('D:/boards/x', Date.now(), run, ['D:\\boards\\x\\worker-board'])
+  stopInside('D:/temp/run-2', Date.now(), run, null)
+  assert.equal(calls.length, 0, 'a folder holding a board, or no readable list: no sweep')
+  assert.equal(holdsBoard('D:/boards', ['D:\\boards\\x\\worker-board']), true)
+  assert.equal(holdsBoard('D:/boards/x/worker-board-t5', ['D:\\boards\\x\\worker-board']), false)
+  if (process.platform === 'win32') {
+    stopInside('D:/temp/run-1', Date.now(), run, ['D:\\boards\\x\\worker-board'])
+    assert.equal(calls.length, 1)
+    assert.match(calls[0][1].at(-1), /\$_\.ProcessId -ne \$PID/, 'never the sweep\'s own powershell')
+  }
+})
+
+test('F39 review 10: with piped output the run counts on close, after the tail of its output', async () => {
+  const { seen, stream } = sink()
+  const start = () => {
+    const child = new EventEmitter()
+    child.pid = 4243
+    child.stdout = new EventEmitter()
+    child.stderr = new EventEmitter()
+    setImmediate(() => {
+      child.emit('exit', 0)
+      // The pipe's tail comes a moment after the process ended.
+      setTimeout(() => {
+        child.stdout.emit('data', 'ℹ fail 0\n')
+        child.emit('close', 0)
+      }, 30)
+    })
+    return child
+  }
+  const code = await runTests({ files: ['x'], cores: 2, start, setPriority: () => {}, out: stream, err: stream })
+  assert.equal(code, 0)
+  assert.match(seen.text, /ℹ fail 0/)
+})
+
+test('F39, the re-check: the list of boards fails closed: a broken boards.json gives null, a missing one no boards', t => {
+  const home = mkdtempSync(join(os.tmpdir(), 'boards-home-'))
+  t.after(() => rmSync(home, { recursive: true, force: true }))
+  assert.equal(boardFolders({ WORKER_BOARD_HOME: home }), null, 'no list: no sweep')
+  writeFileSync(join(home, 'boards.json'), '{ torn')
+  assert.equal(boardFolders({ WORKER_BOARD_HOME: home }), null)
+  writeFileSync(join(home, 'boards.json'), '{}')
+  assert.equal(boardFolders({ WORKER_BOARD_HOME: home }), null, 'no list of boards in it: unreadable too')
+  writeFileSync(join(home, 'boards.json'), JSON.stringify({ boards: [{ folder: 'D:\\boards\\x\\worker-board' }] }))
+  assert.deepEqual(boardFolders({ WORKER_BOARD_HOME: home }), ['D:\\boards\\x\\worker-board'])
 })

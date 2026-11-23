@@ -30,14 +30,14 @@ const SPENT_ZERO = {
 }
 
 /** The board over a made-up project at 12:00: every side chat and Worker 1 last reported 40 min ago (`state`), on `session`. */
-function boardState({ state = 'busy', otherSession = false } = {}) {
+function boardState({ state = 'busy', otherSession = false, startedAt = NOW - 60 * MIN, appStartedAt = undefined } = {}) {
   const id = name => name.replace(' ', '')
   const app = name => JSON.stringify({ title: `Game - ${name}`, sessionId: `local_${id(name)}`, cliSessionId: `cli-${id(name)}`, cwd: 'C:\\game', isArchived: false, createdAt: 1, lastActivityAt: NOW - 50 * MIN, lastAssistantUuid: 'u-1' })
   const report = name => ({ state, since: NOW - 40 * MIN, background: false, run: 1, seq: 4, at: NOW - 40 * MIN + 500, session: otherSession ? `cli-other-${id(name)}` : `cli-${id(name)}`, mod: '0.32.0', busyAt: null })
   const reports = new Map(['Advisor', 'Supervisor', 'Advisor 2', 'Product owner', 'Worker 1'].map(name => [name, report(name)]))
   const work = storeFromText('## Garden\n- [ ] B12 Plant the hedge\n', { now: NOW - 60 * MIN })
-  const raw = { listText: '{"prefix":"Game - ","main":"Main","supervisor":"Supervisor","owner":"Product owner","helper":"Advisor 2"}', appChatTexts: ['Main', 'Worker 1', 'Advisor', 'Supervisor', 'Advisor 2', 'Product owner'].map(app), tails: {}, planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work }
-  return buildState(raw, { lines: [], outbox: [], runs: [], board: { startedAt: NOW - 60 * MIN, offSince: null }, seen: { shown: { Main: NOW - 1000 }, other: {} }, now: NOW, config: { ...parseConfig('{}', {}), project: 'C:\\game' }, reports })
+  const raw = { listText: '{"prefix":"Game - ","main":"Main","supervisor":"Supervisor","owner":"Product owner","helper":"Advisor 2"}', appChatTexts: ['Main', 'Worker 1', 'Advisor', 'Supervisor', 'Advisor 2', 'Product owner'].map(app), tails: {}, planLineTexts: {}, adviceText: null, folders: null, askTexts: [], pictureLists: {}, work, ...(appStartedAt === undefined ? {} : { appStartedAt }) }
+  return buildState(raw, { lines: [], outbox: [], runs: [], board: { startedAt, offSince: null }, seen: { shown: { Main: NOW - 1000 }, other: {} }, now: NOW, config: { ...parseConfig('{}', {}), project: 'C:\\game' }, reports })
 }
 
 test('F27, review 1, 3: a silent busy or asking side chat, the Advisor among them, gets its report\'s time as its spell, never 0', () => {
@@ -47,6 +47,16 @@ test('F27, review 1, 3: a silent busy or asking side chat, the Advisor among the
       assert.equal(state[side].isRunning, false, `${kind} ${side} reads not running`)
       assert.equal(spellOf(state[side]), NOW - 40 * MIN + 500, `${kind} ${side}`)
     }
+  }
+})
+
+test('F38 (B1300, chat 1 review 1): the board started 10 min ago, after the side chats\' 40-min-old reports: each side lane\'s spell is its report\'s own time, never the start', () => {
+  const started = NOW - 10 * MIN
+  const state = boardState({ state: 'busy', startedAt: started, appStartedAt: NOW - 600 * MIN })
+  for (const side of SIDES) {
+    // T13 moved the kept report to the start (its own time rides along): the case F38 is about.
+    assert.deepEqual([state[side].ownReport?.at, state[side].ownReport?.heardAt], [started, NOW - 40 * MIN + 500], `${side}: the moved report`)
+    assert.equal(spellOf(state[side]), NOW - 40 * MIN + 500, side)
   }
 })
 

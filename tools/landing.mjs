@@ -2,8 +2,8 @@
 // Each command prints one line of ASCII JSON; its exit code is the verdict: 0 ok, 1 not ok, 2 a wrong call.
 //
 //   node tools/landing.mjs gate-check --kind board|mod --file <gate log> [--exit <code>]
-//   node tools/landing.mjs lock-take --file <lock> --by <chat> --branch <branch> --pid <pid> [--stale-minutes 15]
-//   node tools/landing.mjs lock-refresh --file <lock> --pid <pid> --at <the time lock-take (or the last refresh) gave>
+//   node tools/landing.mjs lock-take --file <lock> --by <chat> --branch <branch> --pid <pid> [--stale-minutes 15] [--check-pid yes]
+//   node tools/landing.mjs lock-refresh --file <lock> --pid <pid> --at <the time lock-take (or the last refresh) gave> [--phase land]
 //   node tools/landing.mjs lock-release --file <lock> --pid <pid> --at <the time lock-take (or the last refresh) gave>
 //   node tools/landing.mjs inspect --boards <json> --processes <json> --connections <json>
 //   node tools/landing.mjs log-line --file <data/landings.jsonl> --fields <json>
@@ -15,7 +15,7 @@ import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { STALE_LOCK_MS, asciiJson, gateVerdict, inspectorDecision, landingLine, refreshLock, releaseLock, takeLock } from '../src/landing.mjs'
+import { STALE_LOCK_MS, asciiJson, pidRuns, gateVerdict, inspectorDecision, landingLine, refreshLock, releaseLock, takeLock } from '../src/landing.mjs'
 
 const MIN = 60_000
 
@@ -68,12 +68,13 @@ export function command(name, args) {
     const by = need(given, 'by')
     const branch = need(given, 'branch')
     const pid = Number(need(given, 'pid'))
-    const took = takeLock(need(given, 'file'), { by, branch, pid, staleMs })
+    // F39: --check-pid (land.ps1 gives it): a lock whose landing process is gone is broken at once.
+    const took = takeLock(need(given, 'file'), { by, branch, pid, staleMs, runs: given['check-pid'] === 'yes' ? pidRuns : null })
     say(took.ok ? { ok: true, by, branch, pid, at: took.token.at, broke: took.broke } : { ok: false, why: took.why })
     return took.ok ? 0 : 1
   }
   if (name === 'lock-refresh') {
-    const beat = refreshLock(need(given, 'file'), { pid: Number(need(given, 'pid')), at: need(given, 'at') })
+    const beat = refreshLock(need(given, 'file'), { pid: Number(need(given, 'pid')), at: need(given, 'at') }, Date.now(), given.phase ?? null)
     say(beat.ok ? { ok: true, at: beat.token.at } : { ok: false, why: beat.why })
     return beat.ok ? 0 : 1
   }

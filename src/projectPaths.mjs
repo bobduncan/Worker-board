@@ -8,7 +8,7 @@
 
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 
-import { workFolder } from './config.mjs'
+import { projectFile, workFolder } from './config.mjs'
 
 const parts = path => String(path).split('/').filter(part => part !== '')
 /** Whether `path` is `prefix` itself or lies under it (a folder named alone counts: the picture readers list a root). */
@@ -65,6 +65,13 @@ export function chatFile(config, ...rest) {
   return home === '' ? '' : join(home, '.claude', ...rest)
 }
 
+/**
+ * T5.2 A1 (chat 1's review, finding 10): the generated backlog view, a runtime file: `<data>/local/backlog.md` once the data moves,
+ * today `<project>/.claude/backlog.md` (config.mjs `projectFile`); a `backlog` setting with a whole path is itself. Every reader and
+ * writer of the view takes this, never `resolveStored` (which would put it into the game checkout).
+ */
+export const backlogViewOf = config => projectFile(config, 'backlog')
+
 /** The folder of the chats' cards (`<chat home>/.claude/chats`), or '' without a home. */
 export const chatsFolderOf = config => chatFile(config, 'chats')
 
@@ -75,18 +82,23 @@ export const routineFolderOf = config => (chatHomeOf(config) === '' ? '' : basen
 const STORE_KEYS = ['work', 'goals', 'goalsHistory', 'brainstorms', 'goalAsks', 'designKinds']
 /** The `.claude` folders that go under `<data>/docs`. */
 const DOC_FOLDERS = ['plans', 'specs', 'handover']
+/** T5.2 A4 (chat 1's review, finding 12): the chats' folders under `.claude`, in the chat home with `logs/` (the chat-log keeper writes there). */
+const CHAT_FOLDERS = ['.claude/chat-logs', '.claude/chats', 'logs']
 
 /**
  * Where a stored path lives now (§4 Links): the store, the goal map, the plans and the records write paths relative to the project
  * folder as it was. With `data` empty this is `join(project, path)`, today's `inProject`, for every path. With `data` set: a picture
  * root or `.claude/assets/` under `<data>/pictures`; the store's and the goal map's paths under `<data>` with their stored names;
- * `.claude/plans|specs|handover` under `<data>/docs`; `logs/` under the chat home; `<project folder name>/...` in the game repo and
- * `<board folder name>/...` in the board folder (a path written from the wrapper, design.json); anything else stays under the
- * project folder. An absolute path is itself.
+ * `.claude/plans|specs|handover` under `<data>/docs`; `logs/`, `.claude/chat-logs` and `.claude/chats` under the chat home (also with
+ * `data` empty: the chat home alone may be set); the backlog view where `backlogViewOf` says; `<project folder name>/...` in the
+ * game repo and `<board folder name>/...` in the board folder (a path written from the wrapper, design.json); anything else stays
+ * under the project folder. An absolute path is itself.
  */
 export function resolveStored(config, stored, { boardDir = null } = {}) {
   const path = String(stored ?? '')
   if (path === '' || isAbsolute(path)) return path
+  for (const name of CHAT_FOLDERS) if (under(path, name)) return join(chatHomeOf(config), ...parts(path))
+  if (isSet(config.backlog) && !isAbsolute(config.backlog) && path === config.backlog) return backlogViewOf(config)
   const data = dataOf(config)
   if (data === null) return join(config.project, ...parts(path))
   const game = isSet(config.gameRepo) ? config.gameRepo : config.project
@@ -96,7 +108,6 @@ export function resolveStored(config, stored, { boardDir = null } = {}) {
   const assets = assetsPrefixOf(config)
   if (assets !== null && under(path, assets.slice(0, -1))) return join(assetsOf(config), ...parts(path.slice(assets.length)))
   for (const name of DOC_FOLDERS) if (under(path, `.claude/${name}`)) return join(data, 'docs', ...parts(path.slice('.claude/'.length)))
-  if (under(path, 'logs')) return join(chatHomeOf(config), ...parts(path))
   for (const key of STORE_KEYS) {
     const value = config[key]
     if (isSet(value) && !isAbsolute(value) && under(path, value)) return join(data, ...parts(path))

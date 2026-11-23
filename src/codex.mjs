@@ -97,8 +97,12 @@ export async function prepareCodexHome({ home = CLEAN_HOME, userHome = userCodex
     const value = topLevel(config, key)
     if (value !== null && /^[\w.\-]+$/.test(value)) lines.push(`${key} = "${value}"`)
   }
-  // Windows: without a sandbox level Codex finds the job folder read-only (as in the person's own setup).
-  if (process.platform === 'win32') lines.push('', '[windows]', `sandbox = "${SANDBOX}"`)
+  // Windows: without a sandbox level Codex finds the job folder read-only (as in the person's own setup). The elevated
+  // sandbox needs a one-time setup per Codex home, which the clean home never had: every command asked for it again (a
+  // popup each time) and was refused, so the picture's copy into the job folder failed (2026-11-22). prefer_mxc makes
+  // Codex take the Windows sandbox that needs no setup where Windows has it, as the Codex app does; elevated stays the
+  // fallback where it does not.
+  if (process.platform === 'win32') lines.push('', '[features]', 'prefer_mxc = true', '', '[windows]', `sandbox = "${SANDBOX}"`)
   await writeAtomic(join(home, 'config.toml'), lines.map(line => `${line}\n`).join(''))
   return home
 }

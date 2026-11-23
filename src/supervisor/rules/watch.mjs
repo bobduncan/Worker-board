@@ -36,6 +36,7 @@ import { isSleep, stallWords } from '../../stallWords.mjs'
 import { STOP_HANDS_MS, isHandTaken, isTaskStopWord } from '../../hands.mjs'
 import { triedWords } from '../../wake.mjs'
 import { isRethinkHold, rethinkWords } from '../../work/rethink.mjs'
+import { focusGoalsOf } from '../../stepStatus.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -748,6 +749,25 @@ function personHold(view, held) {
   return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps))
 }
 
+/** B1295: a held why that is a hold in words (guards.mjs `readyHold`: "waits for: <words>", set by work block, cleared by the partner or Main). */
+const WORDS_HOLD = /^waits for: /
+/** B1295 (chat 1's review): how long a hold in words on a fix of the focus goal is a wait on purpose (X209 lasted ~10 h). */
+export const FOCUS_WORDS_HOLD_MS = 12 * 60 * MIN
+
+/**
+ * B1295 (X209: B1159 in review behind its fix B1288, held in words by the partner on purpose, read as stuck every hour): whether a
+ * held fix waits on purpose: a hold in words (not the rethink, which `personHold` reads) on a fix whose Goal is the focus goal or
+ * a goal under it, for FOCUS_WORDS_HOLD_MS. The rule none-ready (stepStatus.mjs `noneReadyOf`) takes such a hold to the partner and
+ * Main, but only when the ready list is empty and a worker is free: on a busy board a forgotten hold would stay silent for days, so
+ * past the cap review-held judges it again (chat 1's review, 2026-11-21). Outside the focus nothing else follows it up, so
+ * review-held judges it there as before.
+ */
+function focusWordsHold(view, fixId, held) {
+  if (!WORDS_HOLD.test(held ?? '') || isRethinkHold(held) || typeof view.focus !== 'string') return false
+  const goal = valueOf(view.items.get(fixId), 'Goal')
+  return typeof goal === 'string' && focusGoalsOf(view.focus, view.goals).has(goal)
+}
+
 /** B1021: the states in which a step is with a worker that was given it or took it. */
 const MOVING = ['queued', 'taken', 'in progress']
 /** F5 verifier 3, 6: the states of the step a Touches overlap hold waits for in which the hold is a wait. */
@@ -802,6 +822,8 @@ export function holdMoves(view, held, visited = new Set()) {
  * ending in a refined fix not held) is a wait, no case; nothing is said while a limit is full (the rule does not run, so the
  * watch forgets the key and the hold counts again from the first run after it, and from the limit's reset at the earliest,
  * `limitEndOf`). A chain that stands still after the reset fires as before.
+ * B1295 (X209): nor is a hold in words ("waits for: <words>", not the rethink) on a fix of the focus goal or a goal under it, for its
+ * first 12 h (`focusWordsHold`, FOCUS_WORDS_HOLD_MS): none-ready follows it up; past the cap, or outside the focus, it is a case.
  */
 function reviewHeld(view, ctx) {
   const found = []
@@ -833,7 +855,8 @@ function reviewHeld(view, ctx) {
  * late a step in review is by what it waits for (`wait`, resultCheck.mjs `reviewWaitOf`), one judgement for the rules
  * review-stuck, dropped-fix and review-held and the health summary (health.mjs). `seenOf(key)`: since when the watch
  * first saw the key (the rules' own watch; the health summary reads the supervisor's memory), undefined for not yet. Not
- * late: the person's answer, a hold that is their open ask or a block by steps that all wait for them alone (B916), a check whose QA task a worker is at work on or that is ready or
+ * late: the person's answer, a hold that is their open ask or a block by steps that all wait for them alone (B916), a hold in words on
+ * a fix of the focus goal for its first 12 h (B1295), a check whose QA task a worker is at work on or that is ready or
  * given and not taken yet (the hand-over's to move, and the rules ready-while-free and handover-unanswered watch it), a
  * report whose check failed (the hand-over tells its worker), anything while the person pauses. Any other hold counts from when the watch first saw it, a check from when its QA task was made (T9.1.1;
  * from when it was asked, with none), a dropped fix from the drop, each from the end of the last pause at the earliest.
@@ -894,6 +917,9 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56), and from the end of a full limit.
     const key = `review-held ${wait.end} ${wait.held.slice(0, 80)}`
     const ms = spanOf(view, seenOf, key, null, { floor: limitEndOf(view) })
+    // B1295 (X209): a hold in words on a fix of the focus goal is a wait on purpose for 12 h (none-ready follows it up while a worker is
+    // free and nothing else is ready); the key stays with the watch, so the hold's time counts on and past the cap it is a case again.
+    if (focusWordsHold(view, wait.end, wait.held) && ms <= FOCUS_WORDS_HOLD_MS) return { ...not, key, ms }
     return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms }
   }
   return null
