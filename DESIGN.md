@@ -8808,6 +8808,15 @@ Still with `data` empty everything is exactly today's path. With it set:
   literal outside the table, per file as the LINES that hold them (test/fixtures/pathGuard-known.json; chat 1's review of 2026-11-20: a
   count per file hid a new tie beside a removed one): a new line fails naming it, a line that is gone fails until it is taken out; P3
   and the switch-on round empty it.
+### T5.2 Round A (the switch-on round, chat 3, 2026-11-21)
+
+Nothing changes while `data` and `chatHome` are empty (each test proves today's path beside the moved one). A1 (finding 10): the
+backlog view is a runtime file, `backlogViewOf` (`<data>/local/backlog.md`): server.mjs's viewFile and backlogFile, state.mjs's
+backlog line and the partner's briefing (rounds.mjs) take it, and `resolveStored` gives the same for the `backlog` setting's path.
+A3 (finding 11): workCtx carries `workPrefix`, so take and next answers name the store as the chat reaches it. A4 (finding 12):
+`.claude/chat-logs`, `.claude/chats` and `logs/` go to the chat home even with `data` empty, and the plan's links (gameFile.mjs
+`findGameFile(config, ...)`) are read where the table puts a stored path, inside the data home or the chat home only.
+
 ## B1273 (F36a): an account switch costs nothing (2026-11-19, chat 3)
 
 The person: "I want to be able to switch accounts often". The Claude app keeps one chat list per account
