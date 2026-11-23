@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { boardChats, parseAppChat, parseList } from './appChats.mjs'
 import { parseAsk } from './asks.mjs'
 import { ASK_MS, GRACE_MS, IDLE_HOLD_MS } from './config.mjs'
-import { chatFile, chatHomeOf, resolveStored } from './projectPaths.mjs'
+import { backlogViewOf, chatFile, chatHomeOf, resolveStored } from './projectPaths.mjs'
 import { allWords, closedForYou, minutesOf, sizeMinutes, forYou, noteSections, overview, queue, refineStateOf, withoutNotes } from './backlog.mjs'
 import { pathKey } from './games.mjs'
 import { asksAtEnd, parseHandover } from './handover.mjs'
@@ -1877,6 +1877,17 @@ const spellReportOf = (lane, kept = null) => {
   return report === null ? lane?.ownReport ?? null : { state: report.state, since: report.since ?? null, at: report.at, run: report.run ?? null, ...(Number.isFinite(report.heardAt) ? { heardAt: report.heardAt } : {}) }
 }
 
+
+/**
+ * B1304 (chat 1's review 3, 1): the wake notice of the workers the hand-out passed over says what came of their place: a new worker is asked
+ * for in it, or none as the last launch (HH:MM) started no chat. The notice as it was without a notice or a replacement.
+ */
+function withReplacement(notice, replacement, timeOf = hourMinute) {
+  if (notice === null || replacement === null) return notice
+  const line = replacement.asked === true ? 'a new worker is asked for in its place'
+    : Number.isFinite(replacement.heldAt) ? `no new worker in its place: the last launch (${timeOf(replacement.heldAt)}) started no chat` : null
+  return line === null ? notice : { ...notice, text: `${notice.text} · ${line}` }
+}
 export function buildState(raw, options) {
   // B917 (X93): the fixes and asks of every step from one index of the store per rebuild (work/links.mjs).
   return withLinks(raw?.work?.items, () => builtState(raw, options))
@@ -1949,7 +1960,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // B296, B301: the backlog from the work store, the one source of the work. `store` is the line about it on the Backlog
   // tab and, when it cannot be read, on top of the page; `raw.work` is missing where the board has no store. Nothing is
   // drawn from the backlog file instead.
-  const shown = storeBacklog(raw.work, { prefix, names }, { backlog: config.project === '' ? null : resolveStored(config, config.backlog) })
+  const shown = storeBacklog(raw.work, { prefix, names }, { backlog: config.project === '' ? null : backlogViewOf(config) })
   const backlog = shown.backlog
   const workOk = shown.store?.ok === true
   // The asset wait (2026-11-11, the B1124 case): the asset requests as the server read them (src/assets.mjs, `raw.assets`): an open one
@@ -2625,7 +2636,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     settings: { maxWorkers: config.maxWorkers, followUpMinutes: config.followUpMinutes, handOutBeyondFocus: config.handOutBeyondFocus === true, offAfterMinutes: config.offAfterMinutes, handover: config.handover ?? 'sequence' },
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
     // B1279 (X205): with the wake record, the hand-out starts a worker through the one wake procedure, and only one it can wake.
-    wakeable: (wakes?.record ?? null) === null ? null : wakeableOf(chats, wakes),
+    wakeable: (wakes?.record ?? null) === null ? null : wakeableOf(chats, wakes, now),
   })
   // B468: what each worker runs at for its step, and the words that have the main chat set it (none without the Workers
   // mod). Model per step: its model too, by the settings' model ids, and the usual setting between steps from the settings.
@@ -2868,7 +2879,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     reconciled: reconciled === null ? null : { moves: reconciled.moves, deliveries: reconciled.deliveries, efforts: efforts.words, notes: reconciled.notes ?? [], partnerAsks: reconciled.partnerAsks ?? [], escalations: reconciled.escalations ?? [], restarts: rollout?.words ?? [], restFree: reconciled.restFree ?? [], handedBack: reconciled.handedBack ?? [], start: reconciled.start ?? null, retired: reconciled.retired ?? [], stranded: reconciled.stranded ?? [], handOutHeld: reconciled.handOutHeld === true,
       // B1279 (X205): the outbox sweep closes a waiting start word of the hand-out once the wake procedure starts workers; the notice
       // keeps "could not wake ...; open its chat" for a worker the hand-out passed over while ready work waits.
-      startsByWake: reconciled.startsByWake === true, passedOver: reconciled.passedOver ?? [] },
+      startsByWake: reconciled.startsByWake === true, passedOver: reconciled.passedOver ?? [], replacement: reconciled.replacement ?? null },
     // B570: what each chat on an older Workers mod waits for, by name (the partner, its helper, the supervisor too).
     modRuns: Object.fromEntries(rollout?.runs ?? []),
     // Partner answers (2026-10-19): whether the partner answers detail questions first (the Focus page's switch); null
@@ -3279,7 +3290,7 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   return {
     ...built, chats, ...roles,
     // P5: the kept reports the lanes read (the same `lane.report` the hasRunSince above reads), so the notice itself leaves out a chat that ran since its failed wake.
-    wakeNotice: noticeOf(record, targets, now, ms => sinceClock(ms, now), { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }),
+    wakeNotice: withReplacement(noticeOf(record, targets, now, ms => sinceClock(ms, now), { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }), built.reconciled?.replacement ?? null, ms => sinceClock(ms, now)),
     wakes: newestSpells(record),
     // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
     wakeBoardSince: nobody?.since ?? null,

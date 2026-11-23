@@ -1629,6 +1629,9 @@ in `art-inbox/worker-board/b262/`.
   a time (per area: how many tasks, the typical working time, how far estimates were off; an area under 5 tasks is
   still a guess), and shows "Estimates lately: 7x too high" on the Overview (its tooltip per area) and "estimate 1 h,
   took 6 min" in the Backlog tab's "Recently finished". The tasks of one step are one there. Nothing is kept by hand.
+  F42: a step's estimate is its refine Size (else the minutes of its take); a task kept without one takes it where it is read
+  (`withStepSizes`), so "Estimates lately" reads the newest ten tasks, not those from before the `Estimate` head line went out of use.
+  It says only those ten (1.6x too high on 2026-11-23); over all 329 tasks with an estimate the typical figure was about 6x.
   The picture: `art-inbox/worker-board/2026-10-14-b185-task-times.png`.
 - An estimate older than 15 minutes of work is marked as old. In step 4 the mod reminded a working chat to renew it (the
   reminder was dropped in 0.25.1 with the classic hooks: the person knows, and it was small).
@@ -4293,7 +4296,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   "blocked by B<n>, ..." when every blocker waits for the person alone, `waitsForPerson`: their answer, verdict in a recap or Accept, also at
   the end of the blocker's chain of fixes with no link at work; one blocker that waits for a check or a worker keeps it a case; once their wait
   ends the hold counts from then, as nothing was watched meanwhile; B1021, X148: nor is a block by steps that all move, `holdMoves`: each
-  with a worker, or behind a chain at work or ending in a refined fix not held; and nothing is said while a limit is full, the rule does not run,
+  with a worker, or behind a chain at work or ending in a refined fix not held; B1295, X209: nor is a hold in words, "waits for: <words>"
+  (work block, not the rethink), on a fix whose Goal is the focus goal or under it, a wait on purpose for 12 h (`FOCUS_WORDS_HOLD_MS`;
+  none-ready takes it to the partner and Main, but only when nothing is ready and a worker is free, so past the cap it is a case
+  again); on any other goal it is a case at 60 min as before; and nothing is said while a limit is full, the rule does not run,
   the watch forgets the key and the hold counts again from the limit's reset at the earliest, `limitEndOf`; a chain that stands still after it fires as before); one case per chain, named by its first step, with the
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
@@ -4307,7 +4313,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case; B985, X139: nor is a fix of a goal with an open ask titled `Rebuild G<n>` that covers it, the whole goal or the evaluated part (`rebuildHoldOf`, goalGuard.mjs, as B791 holds the evaluate word): the refine gate types no word for it and skips it, so the gate stays free (`refineQueue`, `state.rebuildHolds`), and once the ask is answered or withdrawn the hour counts from that close, not from the fix's Since). B664: the health
   summary judges a step in review as review-stuck, dropped-fix and review-held do, through one helper (`reviewLateOf`,
   with the supervisor's memory of when it first saw each key): a check whose QA task a worker is on, the person's open ask,
-  a block by steps that all wait for the person alone (B916), a block by steps that all move and any hold while a limit is full (B1021) and a hold the watch only just saw are not odd there either,
+  a block by steps that all wait for the person alone (B916), a block by steps that all move and any hold while a limit is full (B1021), a hold in words on a fix of the focus goal for its first 12 h (B1295) and a hold the watch only just saw are not odd there either,
   `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
   last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
   the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; the health summary shows each step in progress with its
@@ -4403,6 +4409,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   rebuild in `WORKER_BOARD_READ_LOG`): an Autopilot pass that changed nothing keeps the state, one that sent a word resets it;
   an unnamed session's whoami costs one rebuild a second for its first 30 s and one in 30 s after, and never throws away a
   state read under a second ago.
+  F42 (X213, X214: a 47 h PC sleep in the middle of a state rebuild): a state built more than the gap time (`GAP_MS`) before its read
+  ended is read once more (`src/afterSleep.mjs`). The hold's end takes its gaps at the call (`gapsNow`), and the Supervisor's health and
+  sweep checks leave a kept state from before such a jump (`keptSinceJump`). Other readers of `readState.last()` can still see one until
+  the next read.
   The clock of every age the supervisor measures: RUNNING TIME (board-off time left out by `boardOffMs`) in `stale-checkpoint`, `open-fix`,
   `effort-mismatch`, `review-stuck`, `dropped-fix`, `old-limit-reading` (B727) and the health summary's step and checkpoint ages (B727: a
   gap inside adds "(PC off <h>)"); WALL TIME on purpose in the health summary's chat-state age, the age of a step behind a blocker, a
@@ -5522,7 +5532,7 @@ its turn back at once, one 10-minute net. The reconciler's own give, its later l
   last 10 minutes that have not reported yet (a start word whose worker has not reported since; a spawn word, which
   carries how many workers had reported then), no idle worker is left after the gives, and fewer workers than
   `maxWorkers` (5 unless set, B-max) are not off, the main chat is asked once per need (`board-start <who> <how
-  many ran> <start window>`, once per 10-minute window, B728: a once-ever key silenced a start for ever after one went for the same worker and count): `start "<worker>"` for a worker of the list whose chat is off or free and known not to run (shown "Not running"; the one off longest first; B1279, X205: with the wake record the start is a wake need of that worker, `byWake`, carried by the wake procedure and never a start word only a hand could carry, `workerStart` passes over one whose wake failed on every path in its spell and counts one it is waking as on its way, a start word of it still waiting is closed at the outbox sweep (`reconciled.startsByWake`), and when none can be woken the hand-out names them (`passedOver`): no start and no spawn, and the one wake notice, "could not wake Worker 4: ...; open its chat", stays the attention line for them for as long as the ready work waits, also with no try in the spell), else `spawn
+  many ran> <start window>`, once per 10-minute window, B728: a once-ever key silenced a start for ever after one went for the same worker and count): `start "<worker>"` for a worker of the list whose chat is off or free and known not to run (shown "Not running"; the one off longest first; B1279, X205: with the wake record the start is a wake need of that worker, `byWake`, carried by the wake procedure and never a start word only a hand could carry, `workerStart` passes over one whose wake failed on every path in its spell and counts one it is waking as on its way, a start word of it still waiting is closed at the outbox sweep (`reconciled.startsByWake`), and when none can be woken the hand-out names them (`passedOver`, also while a start or a new worker is on its way or the workers are full, B1304): no start, a new worker in their place only when the last launch did start a chat (B1304: `wakeableOf`'s `lastLaunch`, wake.mjs `lastLaunchOf`: the record's newest launch with a verdict, any chat's, of the last 2 hours, a failed one older than the app's return or cut off by the board's restart not counted; none counts as may), the notice adding "a new worker is asked for in its place" (for as long as that spawn word is on its way) or "no new worker in its place: the last launch (HH:MM) started no chat"; a worker it cannot wake keeps its place under `maxWorkers` (it may run again; counted apart from the workers on their way, and as reported in a spawn word, so its own later report is not the new worker's), and the one wake notice, "could not wake Worker 4: ...; open its chat", stays the attention line for them for as long as the ready work waits, also with no try in the spell), else (no worker off, or the replacement above) `spawn
   workers` with `Count: 1`, `Why: ready tasks wait and no worker is free`. `maxWorkers` set to no number (a unit test only) asks for none.
   Main does this without judgment: it is the board's hands (roles/main.md, "Main is the board's hands").
 - **The flow** (`src/work/flow.mjs`, `examples/work/flow.json`): `{ "from": "refined", "to": "queued", "by": "server",
@@ -6226,14 +6236,22 @@ asks come; only a checkpoint after it, or a busy spell of over 2 minutes after i
 that ended, or a busy report heard for that long), starts the 15 minutes anew.
 
 **The envelope** (outbox command `handover`): `{ kind: "resume", step: null, clear: null, restart: false, set: null,
-line: "go on with ...", back: null, resume: "resume B12 <spell start ms>" }`. Its `step` is null, so the decision's
+line: "go on with ...", back: null, resume: "resume B12 <spell start ms>", giveBackMs }`. Its `step` is null, so the decision's
 in-flight task and the hand-over's own envelope logic never read it (the decision reads only the resume envelopes for
 the timers); its `resume` marker makes it once per spell, as `back` does. The Workers mod 0.27.x reads the unknown kind
 as `task` (board.ts `parseEnvelope`) and, with no clear, set or restart, types the line as the board's word and settles
 it once: no mod change. The outbox sweep keeps it while its worker holds that step taken or in progress and drops it
 once not ("Worker N no longer holds B12"); its next take brings it to a running chat; for an asleep chat the waiting
 envelope is what has the board open it (opener.mjs `asleepWithWork` counts every waiting word by `to`); for a chat that
-is off it is a wake word (say.mjs `isWakeWord`), as RESUME_STEP was.
+is off it is a wake word (say.mjs `isWakeWord`), as RESUME_STEP was. B1294 (X109, 2026-11-21: Worker 4's chat hung at
+00:34, its line of 00:39:56 waited and the give-back at 00:55 closed it, but rule 8 named it at 00:51): the line's own
+cure is the give-back, so it carries `giveBackMs` (the setting `giveBackAfterMinutes` when it was written; an older line
+the default 15) and rule 8 names it only after that and `undeliveredMinutes` (holderTimers.mjs `goOnWaitMs`, watch.mjs
+`isUndelivered`), as a task stop waits STOP_HANDS_MS first. Like the give-back, that wait counts the board's running time:
+the board's off time since the line (a stop, a PC sleep: watch.mjs `boardOffMs`) is left out (chat 1's review). Every
+other word keeps the plain limit on wall time. The sweep does not
+close the line when its worker's lane reads running: a kept report read as working right after a board start (00:45:09)
+would have closed a line that still mattered.
 
 **After `giveBackAfterMinutes` (15) from the line being written, not delivered** (a chat the app will not open must not
 hold its step for ever), with no progress: the decision says `giveBack: { step, chat, askedAt }` and `close` (the line
@@ -6448,7 +6466,7 @@ idle Main waited untaken (X203, three times by 20:40). Now:
   message, start or wake job until its own send went (`noteHandSent`, any send of it the hands' answer reports, or its own daily
   probe, `probeDue(..., hand)`, `probeBy`). The board's refusal (`sendsRefusedSince`) follows only when no hand's send went since the
   last lift (`handSentAt`, or else the newest message attempt a hand sent, `handWentAt`, kept as `handSentAt` once found (`keepHandWent`, as the record prunes attempts), B1279: a record written before B1271 kept no `handSentAt`, and one hand's refusal then stopped every hand's start and wake for a day, X205; the probe's own send counts); after a lift an attempt or an outbox line no longer revives it by itself.
-- A hand's send that went and brought no report (B1279, X205: on 2026-11-19 three such sends started nothing, one model turn's send at once) is followed by ONE carry word for that spell before the launch (`nextPath` with `carry`, `carryAfterSilent`, server.mjs `carryPass` while the hands may send), to a free chat's model or the courier; nobody to carry it: the launch goes as before. A hand never gets that message again in the spell.
+- A hand's send that went and brought no report (B1279, X205: on 2026-11-19 three such sends started nothing, one model turn's send at once) is followed by ONE carry word for that spell before the launch (`nextPath` with `carry`, `carryAfterSilent`, server.mjs `carryPass` while the hands may send), to a free chat's model or the courier; nobody to carry it: the launch goes as before. A hand never gets that message again in the spell. (B1304: the live branch is tested on a running board copy, test/wakeCarryBoard.test.mjs.)
 - A refused send spends no message try (`nextPath` counts only the attempts that were not refused): the next hand that may send takes
   the message at once; a refused hand is held off by its own mark (once its own send went it may try again), a hand whose try went
   without a report never gets that message again in the spell (`handTried`). A refused hand alone is no sender (server.mjs `handsNow`,
@@ -7986,7 +8004,7 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   checkout is the repository's first working tree) and the PC's list of boards (`boards.json`: the ports; a trial copy is a board
   of the list whose remote `local` is the main checkout); a list that cannot be read, or that names no trial copy, is a refusal
   (`-NoTrial` lands the main board alone).
-- **The gate** runs BEFORE the lock (it takes about ten minutes): `git worktree add --detach` of the head in a temporary
+- **The gate** runs BEFORE the lock until F39, UNDER it since (it takes about ten minutes; see "F39" below): `git worktree add --detach` of the head in a temporary
   folder, a junction `node_modules` to the main checkout's, `npm test` there (2026-11-11: below-normal priority on half the
   PC's cores, and it waits its turn in the PC's one queue of heavy runs, `tools/one-at-a-time.mjs`, so a landing never runs
   beside another heavy run. F14 (2026-11-14, the person: speed up): the gate's run goes FIRST-CLASS in that queue (HEAVY_RUN_FIRST=1:
@@ -8019,8 +8037,8 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   for a look, the gate log gets a `teardown:` line and the landings line the reason ("has no happy-dom after the gate (it was
   emptied): run npm ci ..." or "the gate's junction ... could not be removed"); a refusal of the gate itself carries it as
   "; and ...". The next run sweeps the leftover.
-- **One landing at a time**: `data/landing.lock` (`by`, `branch`, `at`, `pid`), made by an exclusive create. Held by another
-  and younger than 15 minutes: refused ("a landing by <by> of <branch> holds the lock since HH:MM"); older: broken with the
+- **One landing at a time**: `data/landing.lock` (`by`, `branch`, `at`, `pid`; since F39 also `since` and `phase`, see "F39" below), made by an exclusive create. Held by another
+  and younger than 15 minutes: refused (since F39 "<by> lands <branch> since HH:MM: land after it", before any gate); older, or its land.ps1 gone (F39): broken with the
   line "broke a stale landing lock of ...", one breaker at a time. Refreshed at every phase (a heartbeat, `lock-refresh`), so a live landing never looks stale; one taken over meanwhile is a refusal
   before main moves. Released in a `finally`, and only by the run that took it.
   Under the lock the checks run once more, because main may have moved during the gate: the branch still contains main and
@@ -8821,6 +8839,15 @@ Still with `data` empty everything is exactly today's path. With it set:
   literal outside the table, per file as the LINES that hold them (test/fixtures/pathGuard-known.json; chat 1's review of 2026-11-20: a
   count per file hid a new tie beside a removed one): a new line fails naming it, a line that is gone fails until it is taken out; P3
   and the switch-on round empty it.
+### T5.2 Round A (the switch-on round, chat 3, 2026-11-21)
+
+Nothing changes while `data` and `chatHome` are empty (each test proves today's path beside the moved one). A1 (finding 10): the
+backlog view is a runtime file, `backlogViewOf` (`<data>/local/backlog.md`): server.mjs's viewFile and backlogFile, state.mjs's
+backlog line and the partner's briefing (rounds.mjs) take it, and `resolveStored` gives the same for the `backlog` setting's path.
+A3 (finding 11): workCtx carries `workPrefix`, so take and next answers name the store as the chat reaches it. A4 (finding 12):
+`.claude/chat-logs`, `.claude/chats` and `logs/` go to the chat home even with `data` empty, and the plan's links (gameFile.mjs
+`findGameFile(config, ...)`) are read where the table puts a stored path, inside the data home or the chat home only.
+
 ## B1273 (F36a): an account switch costs nothing (2026-11-19, chat 3)
 
 The person: "I want to be able to switch accounts often". The Claude app keeps one chat list per account
@@ -8902,3 +8929,51 @@ returns on `isClosing`, and a look already under way is refused at the same door
 land.ps1's POST (land.ps1 reads the refusal as "waiting for it to come back anyway"). test/boardSelfBoard.test.mjs runs both orders
 on a real copy that is a git folder of its own. Left for a later step: the keeper stamps the board's own log lines with the time
 (the diagnosis had to lean on the start checks' clock words).
+
+## F39: the test queue never starves a worker, never runs two gates at once (2026-11-21, chat 4, the person's yes)
+
+What happened on 2026-11-21. Worker gates queued from 10:30, 10:48, 10:58 and 11:20, and the four landings (first-class since F14)
+went first every time, so workers sat idle 50-100 minutes. Two land.ps1 runs a minute apart (11:10 and 11:11) each ran a gate, and
+one of them was wasted. A test (taskWindowPage.test.mjs, inside a test: its two headless-browser tests never reported) hung for the
+gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, and a second gate started beside it.
+
+- **A run at work keeps its slot** (tools/one-at-a-time.mjs). The holder beats: it writes a new `beat` into its slot file every
+  minute (HEAVY_RUN_BEAT_MS) while its command runs. A lock is stale when its process is gone, it cannot be read, or its beat is
+  older than 5 minutes (a reused process id). A lock without a beat (an older copy's) keeps the age rule, now 75 minutes, above
+  land.ps1's 60-minute gate clock (a test reads both).
+- **Fair order** (`queueOrder`, one pure function, so two runs never both think it is their turn). A first-class ticket counts as
+  if it came 30 minutes earlier than it did. A landing jumps at most 30 minutes ahead, and a worker that has waited 30 minutes or
+  more goes before a landing that came after that (an old copy's ordinary ticket goes after every other: see the review fixes
+  below). Today's case replayed (test/oneAtATime.test.mjs): B1283, A2, Worker 3, A1/A3/A4,
+  A7, Worker 1, Worker 5, Worker 4. F14's "runs now" line and the gate clock stay as they are.
+- **One landing at a time, whole** (tools/land.ps1, src/landing.mjs). The landing lock is taken BEFORE the gate, and the gate's
+  poll loop beats it once a minute (`lockBeatSeconds`). A second land.ps1 refuses at once, before any gate: "<by> lands <branch>
+  since HH:MM: land after it". `since` is when the lock was taken, kept across the beats. The "main moved during the gate"
+  re-check stays under the lock.
+- **A hung test costs minutes, not the hour** (tools/test.mjs). node --test runs with `--test-timeout` (10 minutes,
+  TEST_TIMEOUT_MS), never `--test-force-exit` (the first F39 gate: it ended files while their tests still waited). A test that hangs and leaves a timer keeps its file open until the watchdog.
+  A stall watchdog ends the run with its whole tree when there has been no output for 15 minutes (TEST_STALL_MS): a file
+  that hangs at its top level. It ends with "stalled: ...; files still open: ..." (a second reporter, tools/openFilesReporter.mjs,
+  writes which files are taken up and ended). Since the review a stall is a refusal with no rerun (see below).
+
+**F39, chat 1's review (2026-11-21), the fixes:**
+- **Old and new copies side by side** (blocker 1). Copies of before F39 run in open worktrees and the game until they merge main.
+  A ticket and a lock of this copy say `order: 2`. An unmarked ordinary ticket (an old copy's) is ranked by the old rule, after every
+  first-class ticket, as the old copy ranks itself, so the two copies never both wait for each other. Each beat also moves
+  `startedAt`, which old copies judge a lock by; `since` keeps when the slot was taken.
+- **A stalled run is a refusal** (blocker 2). node --test holds back the results of the files after the earliest unfinished one,
+  so their failures would be lost. `gatePassed` reads the stall line as the verdict ("the test run stalled (...)"), and
+  `gateVerdict` names no files to rerun for it.
+- **The holder's clock.** A live holder whose beat is only old (the PC slept) is freed only after its lock stayed the same for two
+  beats of the waiter's own monotonic clock.
+- **The cap.** A run is stopped after 120 minutes (HEAVY_RUN_MAX_MS, code 124), and its lock is stale past that with a 10-minute
+  margin.
+- **Tickets beat at every look.** A ticket with an old beat (a reused process id) is dropped, and so is an old copy's ticket older
+  than 3 hours.
+- **The landing lock's phase**: "gate" when taken, "land" once main is about to move (`lock-refresh --phase land`).
+  `landingRestarts` (land phase, not stale, its process runs) is what the board watcher, the leaked-browser closer, faults-gone and
+  the carry guards read, so a dead board is not left alone through an hour-long gate.
+- **land.ps1**: the rerun alone defaults to `node tools/test.mjs {file}`, after Stop-FolderProcesses. A lock lost during the gate
+  stops the gate and refuses. The sweep of a cut landing's gate first ends what it left running there.
+- **tools/test.mjs**: the sweep names a folder only on a path boundary, never in a folder that is or holds a board's (boards.json;
+  an unreadable list: no sweep), never its own powershell. A run the helper stopped at its cap is refused like a stall. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.

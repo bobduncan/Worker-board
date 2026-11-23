@@ -89,6 +89,7 @@ export function gitRunner() {
 export function cached(read, ttlMs, now = Date.now) {
   let value
   let latest
+  let latestAt = -Infinity
   let readAt = -Infinity
   let running = null
   let queued = null
@@ -97,6 +98,7 @@ export function cached(read, ttlMs, now = Date.now) {
     const mine = round
     const reading = read().then(answer => {
       latest = answer
+      latestAt = now()
       // An answer that was asked for before `reset` is given to who waited for it, but not kept.
       if (mine === round) {
         value = answer
@@ -126,6 +128,8 @@ export function cached(read, ttlMs, now = Date.now) {
   }
   /** B736: the newest answer any read gave, however old, or undefined before the first: for what must not wait for a read. */
   fresh.last = () => latest
+  /** F42: when that newest answer came (-Infinity before the first); unlike `readAt`, a reset does not forget it. */
+  fresh.lastAt = () => latestAt
   /** B978: when the kept answer was read (-Infinity when none is kept: the next call reads anyway). */
   fresh.readAt = () => readAt
   return fresh
