@@ -140,7 +140,8 @@ export function sideStateOf({ late, word, runningMs, isFull = false }) {
     if (!(runningMs(word.at) < SIDE_HAND_MS)) return { ...plain, note: `no hand sent the board's word to ${who} within ${SIDE_HAND_MS / 60_000} min` }
     return word.keepCard === true ? { ...plain, note: `the board is asking ${who}` } : { ...plain, hold: true }
   }
-  return { ...plain, note: `the board could not ask ${who}: ${plainWhy(word.why) ?? word.state}` }
+  // B1394 (principle 16): the person's card names no file; the outbox record keeps the whole why.
+  return { ...plain, note: `the board could not ask ${who}: ${plainWhy(word.why)?.replace(/ \(no app id in [^)]*\)$/, '') ?? word.state}` }
 }
 
 /**
