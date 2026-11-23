@@ -17,7 +17,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { lockHolder } from '../src/landing.mjs'
+import { landingRestarts, lockHolder } from '../src/landing.mjs'
 import { parseStop } from '../src/boardSelf.mjs'
 import { boardsFile, readBoards } from '../src/ports.mjs'
 import { LIST_SCRIPT, keepersOf, parseProcessList, powershell, startKeeper, logLine } from '../src/keeperStart.mjs'
@@ -117,7 +117,8 @@ export async function watchOnce({
       const stop = parseStop(await readFile(join(dir, 'data', 'stop.json'), 'utf8').catch(() => ''))
       const started = await readStarted(dir)
       const decided = watchDecision({
-        answers: false, keepers: keepersOf(listed.processes, dir, board.port), lockAgeMs: lock === null ? null : lock.ageMs, stop,
+        // F39, review 7: a landing lock counts only while that landing restarts the boards itself (its 'land' phase, its process runs).
+        answers: false, keepers: keepersOf(listed.processes, dir, board.port), lockAgeMs: landingRestarts(lock, { staleMs: Infinity }) ? lock.ageMs : null, stop,
         startedAt: Number.isFinite(started?.at) ? started.at : null, bootAt: listed.logonAt ?? listed.bootAt ?? null, now, record: record.boards[dir],
       })
       record.boards[dir] = decided.record

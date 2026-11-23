@@ -4265,7 +4265,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   "blocked by B<n>, ..." when every blocker waits for the person alone, `waitsForPerson`: their answer, verdict in a recap or Accept, also at
   the end of the blocker's chain of fixes with no link at work; one blocker that waits for a check or a worker keeps it a case; once their wait
   ends the hold counts from then, as nothing was watched meanwhile; B1021, X148: nor is a block by steps that all move, `holdMoves`: each
-  with a worker, or behind a chain at work or ending in a refined fix not held; and nothing is said while a limit is full, the rule does not run,
+  with a worker, or behind a chain at work or ending in a refined fix not held; B1295, X209: nor is a hold in words, "waits for: <words>"
+  (work block, not the rethink), on a fix whose Goal is the focus goal or under it, a wait on purpose for 12 h (`FOCUS_WORDS_HOLD_MS`;
+  none-ready takes it to the partner and Main, but only when nothing is ready and a worker is free, so past the cap it is a case
+  again); on any other goal it is a case at 60 min as before; and nothing is said while a limit is full, the rule does not run,
   the watch forgets the key and the hold counts again from the limit's reset at the earliest, `limitEndOf`; a chain that stands still after it fires as before); one case per chain, named by its first step, with the
   held why; a chain whose last fix is at work is no case, however deep; its line reads "waits for its fix B<n>, held:
   <why>" on the Backlog tab, in work next and list, and in the health summary, which counts review chains, not steps),
@@ -4279,7 +4282,7 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   after an hour, `FIX_RETRY_MS`, up to BOARD_TRIES; a round with questions waits for the person and is no case; B985, X139: nor is a fix of a goal with an open ask titled `Rebuild G<n>` that covers it, the whole goal or the evaluated part (`rebuildHoldOf`, goalGuard.mjs, as B791 holds the evaluate word): the refine gate types no word for it and skips it, so the gate stays free (`refineQueue`, `state.rebuildHolds`), and once the ask is answered or withdrawn the hour counts from that close, not from the fix's Since). B664: the health
   summary judges a step in review as review-stuck, dropped-fix and review-held do, through one helper (`reviewLateOf`,
   with the supervisor's memory of when it first saw each key): a check whose QA task a worker is on, the person's open ask,
-  a block by steps that all wait for the person alone (B916), a block by steps that all move and any hold while a limit is full (B1021) and a hold the watch only just saw are not odd there either,
+  a block by steps that all wait for the person alone (B916), a block by steps that all move and any hold while a limit is full (B1021), a hold in words on a fix of the focus goal for its first 12 h (B1295) and a hold the watch only just saw are not odd there either,
   `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
   last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
   the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; the health summary shows each step in progress with its
@@ -7978,7 +7981,7 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   checkout is the repository's first working tree) and the PC's list of boards (`boards.json`: the ports; a trial copy is a board
   of the list whose remote `local` is the main checkout); a list that cannot be read, or that names no trial copy, is a refusal
   (`-NoTrial` lands the main board alone).
-- **The gate** runs BEFORE the lock (it takes about ten minutes): `git worktree add --detach` of the head in a temporary
+- **The gate** runs BEFORE the lock until F39, UNDER it since (it takes about ten minutes; see "F39" below): `git worktree add --detach` of the head in a temporary
   folder, a junction `node_modules` to the main checkout's, `npm test` there (2026-11-11: below-normal priority on half the
   PC's cores, and it waits its turn in the PC's one queue of heavy runs, `tools/one-at-a-time.mjs`, so a landing never runs
   beside another heavy run. F14 (2026-11-14, the person: speed up): the gate's run goes FIRST-CLASS in that queue (HEAVY_RUN_FIRST=1:
@@ -8011,8 +8014,8 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   for a look, the gate log gets a `teardown:` line and the landings line the reason ("has no happy-dom after the gate (it was
   emptied): run npm ci ..." or "the gate's junction ... could not be removed"); a refusal of the gate itself carries it as
   "; and ...". The next run sweeps the leftover.
-- **One landing at a time**: `data/landing.lock` (`by`, `branch`, `at`, `pid`), made by an exclusive create. Held by another
-  and younger than 15 minutes: refused ("a landing by <by> of <branch> holds the lock since HH:MM"); older: broken with the
+- **One landing at a time**: `data/landing.lock` (`by`, `branch`, `at`, `pid`; since F39 also `since` and `phase`, see "F39" below), made by an exclusive create. Held by another
+  and younger than 15 minutes: refused (since F39 "<by> lands <branch> since HH:MM: land after it", before any gate); older, or its land.ps1 gone (F39): broken with the
   line "broke a stale landing lock of ...", one breaker at a time. Refreshed at every phase (a heartbeat, `lock-refresh`), so a live landing never looks stale; one taken over meanwhile is a refusal
   before main moves. Released in a `finally`, and only by the run that took it.
   Under the lock the checks run once more, because main may have moved during the gate: the branch still contains main and
@@ -8903,3 +8906,51 @@ returns on `isClosing`, and a look already under way is refused at the same door
 land.ps1's POST (land.ps1 reads the refusal as "waiting for it to come back anyway"). test/boardSelfBoard.test.mjs runs both orders
 on a real copy that is a git folder of its own. Left for a later step: the keeper stamps the board's own log lines with the time
 (the diagnosis had to lean on the start checks' clock words).
+
+## F39: the test queue never starves a worker, never runs two gates at once (2026-11-21, chat 4, the person's yes)
+
+What happened on 2026-11-21. Worker gates queued from 10:30, 10:48, 10:58 and 11:20, and the four landings (first-class since F14)
+went first every time, so workers sat idle 50-100 minutes. Two land.ps1 runs a minute apart (11:10 and 11:11) each ran a gate, and
+one of them was wasted. A test (taskWindowPage.test.mjs, inside a test: its two headless-browser tests never reported) hung for the
+gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, and a second gate started beside it.
+
+- **A run at work keeps its slot** (tools/one-at-a-time.mjs). The holder beats: it writes a new `beat` into its slot file every
+  minute (HEAVY_RUN_BEAT_MS) while its command runs. A lock is stale when its process is gone, it cannot be read, or its beat is
+  older than 5 minutes (a reused process id). A lock without a beat (an older copy's) keeps the age rule, now 75 minutes, above
+  land.ps1's 60-minute gate clock (a test reads both).
+- **Fair order** (`queueOrder`, one pure function, so two runs never both think it is their turn). A first-class ticket counts as
+  if it came 30 minutes earlier than it did. A landing jumps at most 30 minutes ahead, and a worker that has waited 30 minutes or
+  more goes before a landing that came after that (an old copy's ordinary ticket goes after every other: see the review fixes
+  below). Today's case replayed (test/oneAtATime.test.mjs): B1283, A2, Worker 3, A1/A3/A4,
+  A7, Worker 1, Worker 5, Worker 4. F14's "runs now" line and the gate clock stay as they are.
+- **One landing at a time, whole** (tools/land.ps1, src/landing.mjs). The landing lock is taken BEFORE the gate, and the gate's
+  poll loop beats it once a minute (`lockBeatSeconds`). A second land.ps1 refuses at once, before any gate: "<by> lands <branch>
+  since HH:MM: land after it". `since` is when the lock was taken, kept across the beats. The "main moved during the gate"
+  re-check stays under the lock.
+- **A hung test costs minutes, not the hour** (tools/test.mjs). node --test runs with `--test-timeout` (10 minutes,
+  TEST_TIMEOUT_MS), never `--test-force-exit` (the first F39 gate: it ended files while their tests still waited). A test that hangs and leaves a timer keeps its file open until the watchdog.
+  A stall watchdog ends the run with its whole tree when there has been no output for 15 minutes (TEST_STALL_MS): a file
+  that hangs at its top level. It ends with "stalled: ...; files still open: ..." (a second reporter, tools/openFilesReporter.mjs,
+  writes which files are taken up and ended). Since the review a stall is a refusal with no rerun (see below).
+
+**F39, chat 1's review (2026-11-21), the fixes:**
+- **Old and new copies side by side** (blocker 1). Copies of before F39 run in open worktrees and the game until they merge main.
+  A ticket and a lock of this copy say `order: 2`. An unmarked ordinary ticket (an old copy's) is ranked by the old rule, after every
+  first-class ticket, as the old copy ranks itself, so the two copies never both wait for each other. Each beat also moves
+  `startedAt`, which old copies judge a lock by; `since` keeps when the slot was taken.
+- **A stalled run is a refusal** (blocker 2). node --test holds back the results of the files after the earliest unfinished one,
+  so their failures would be lost. `gatePassed` reads the stall line as the verdict ("the test run stalled (...)"), and
+  `gateVerdict` names no files to rerun for it.
+- **The holder's clock.** A live holder whose beat is only old (the PC slept) is freed only after its lock stayed the same for two
+  beats of the waiter's own monotonic clock.
+- **The cap.** A run is stopped after 120 minutes (HEAVY_RUN_MAX_MS, code 124), and its lock is stale past that with a 10-minute
+  margin.
+- **Tickets beat at every look.** A ticket with an old beat (a reused process id) is dropped, and so is an old copy's ticket older
+  than 3 hours.
+- **The landing lock's phase**: "gate" when taken, "land" once main is about to move (`lock-refresh --phase land`).
+  `landingRestarts` (land phase, not stale, its process runs) is what the board watcher, the leaked-browser closer, faults-gone and
+  the carry guards read, so a dead board is not left alone through an hour-long gate.
+- **land.ps1**: the rerun alone defaults to `node tools/test.mjs {file}`, after Stop-FolderProcesses. A lock lost during the gate
+  stops the gate and refuses. The sweep of a cut landing's gate first ends what it left running there.
+- **tools/test.mjs**: the sweep names a folder only on a path boundary, never in a folder that is or holds a board's (boards.json;
+  an unreadable list: no sweep), never its own powershell. A run the helper stopped at its cap is refused like a stall. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.

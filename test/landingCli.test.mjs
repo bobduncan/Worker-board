@@ -66,7 +66,7 @@ test('lock-take and lock-release: one taker wins when six start at once, the oth
   assert.deepEqual(all.map(one => one.status).sort(), [0, 1, 1, 1, 1, 1])
   const held = JSON.parse(readFileSync(file, 'utf8'))
   assert.equal(held.by, winners[0].said.by)
-  for (const loser of all.filter(one => !one.said.ok)) assert.match(loser.said.why, new RegExp(`^a landing by ${held.by} of ${held.branch} holds the lock since \\d\\d:\\d\\d$`))
+  for (const loser of all.filter(one => !one.said.ok)) assert.match(loser.said.why, new RegExp(`^${held.by} lands ${held.branch} since \\d\\d:\\d\\d: land after it$`))
   // Not given back by another run; given back by the one that took it.
   assert.equal(run('lock-release', '--file', file, '--pid', 1, '--at', held.at).said.released, false)
   assert.equal(existsSync(file), true)
@@ -83,7 +83,7 @@ test('lock-take breaks a stale lock and says so; --stale-minutes sets how old th
   assert.match(took.said.broke, /^broke a stale landing lock of chat 1 \(old, since \d\d:\d\d\)$/)
   const young = run('lock-take', '--file', file, '--by', 'chat 4', '--branch', 'x', '--pid', 3, '--stale-minutes', 60)
   assert.equal(young.status, 1)
-  assert.match(young.said.why, /chat 3 of new/)
+  assert.match(young.said.why, /chat 3 lands new since \d\d:\d\d: land after it/)
 })
 
 test('inspect takes the lists as PowerShell writes them (one object is no array, a byte-order mark in front) and answers with the verdict', () => {
@@ -174,4 +174,16 @@ test('gate-check names the failing test files of a run that failed, and only the
   const coloured = join(dir, 'coloured.log')
   writeFileSync(coloured, 'ℹ tests 1\n\u001b[34mℹ fail 0\u001b[39m\n')
   assert.deepEqual(run('gate-check', '--kind', 'board', '--file', coloured, '--exit', 0).said, { ok: true, why: null })
+})
+
+test('F39: lock-take --check-pid yes breaks a fresh lock whose landing process is gone', () => {
+  const dir = folder()
+  const file = join(dir, 'landing.lock')
+  const gone = spawnSync(process.execPath, ['-e', '0']).pid
+  writeFileSync(file, JSON.stringify({ by: 'chat 3', branch: 'old', at: new Date().toISOString(), pid: gone }))
+  const without = run('lock-take', '--file', file, '--by', 'chat 4', '--branch', 'new', '--pid', process.pid)
+  assert.equal(without.status, 1, 'without the flag the age rule alone')
+  const took = run('lock-take', '--file', file, '--by', 'chat 4', '--branch', 'new', '--pid', process.pid, '--check-pid', 'yes')
+  assert.equal(took.status, 0)
+  assert.match(took.said.broke, /: its landing is gone\)$/)
 })
