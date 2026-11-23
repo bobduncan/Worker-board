@@ -8905,8 +8905,8 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
   since HH:MM: land after it". `since` is when the lock was taken, kept across the beats. The "main moved during the gate"
   re-check stays under the lock.
 - **A hung test costs minutes, not the hour** (tools/test.mjs). node --test runs with `--test-timeout` (10 minutes,
-  TEST_TIMEOUT_MS) and `--test-force-exit`, so a test that hangs inside itself fails and its file ends even with a timer it left
-  running. A stall watchdog ends the run with its whole tree when there has been no output for 15 minutes (TEST_STALL_MS): a file
+  TEST_TIMEOUT_MS), never `--test-force-exit` (the first F39 gate: it ended files while their tests still waited). A test that hangs and leaves a timer keeps its file open until the watchdog.
+  A stall watchdog ends the run with its whole tree when there has been no output for 15 minutes (TEST_STALL_MS): a file
   that hangs at its top level. It ends with "stalled: ...; files still open: ..." (a second reporter, tools/openFilesReporter.mjs,
   writes which files are taken up and ended). Since the review a stall is a refusal with no rerun (see below).
 

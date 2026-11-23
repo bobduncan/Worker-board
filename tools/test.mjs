@@ -10,7 +10,7 @@
 // which gave one test file at a time and an hour-long gate; the affinity still holds the run to those two then.
 //
 // F39 (2026-11-21): a hung test file costs minutes, not the hour. node --test gets a per-test timeout (10 minutes,
-// TEST_TIMEOUT_MS), which ends a test that hangs inside itself (taskWindowPage.test.mjs hung that way for an hour on 2026-11-21).
+// TEST_TIMEOUT_MS), which fails a test that hangs inside itself (taskWindowPage.test.mjs hung that way for an hour on 2026-11-21).
 // And a stall watchdog: no output of the run for 15 minutes (TEST_STALL_MS) while it is open, a file that hangs at its top
 // level, ends the run with its whole tree and a line naming the test files still open (tools/openFilesReporter.mjs writes them
 // to a file of their own). A stalled run is a refusal (src/landing.mjs gatePassed), never rerun file by file: node --test held
@@ -161,8 +161,9 @@ export function runTests({
   const folder = mkdtempSync(join(os.tmpdir(), 'test-run-'))
   const events = join(folder, 'open-files.jsonl')
   const args = [
-    // --test-force-exit: a file whose tests are done (one ended at the timeout among them) exits even with a timer it left running.
-    '--test', `--test-concurrency=${halfTheCores(cores)}`, `--test-timeout=${timeoutMs}`, '--test-force-exit',
+    // Never --test-force-exit (the first F39 gate, 2026-11-23): it ends a file while its tests still wait, and 13 good tests failed.
+    // A test past the timeout that leaves a timer running keeps its file open: the stall watchdog ends that run.
+    '--test', `--test-concurrency=${halfTheCores(cores)}`, `--test-timeout=${timeoutMs}`,
     '--test-reporter=spec', '--test-reporter-destination=stdout', `--test-reporter=${REPORTER}`, `--test-reporter-destination=${events}`,
     ...files,
   ]

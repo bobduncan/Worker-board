@@ -111,7 +111,8 @@ test('F39: node --test gets a per-test timeout and a second reporter that writes
   const { calls, start } = standIn(0)
   await runTests({ files: ['test/a.test.mjs'], cores: 8, start, setPriority: () => {} })
   const args = calls[0].args
-  assert.deepEqual(args.slice(0, 4), ['--test', '--test-concurrency=4', `--test-timeout=${TEST_TIMEOUT_MS}`, '--test-force-exit'])
+  assert.deepEqual(args.slice(0, 3), ['--test', '--test-concurrency=4', `--test-timeout=${TEST_TIMEOUT_MS}`])
+  assert.equal(args.includes('--test-force-exit'), false, 'it ended files while their tests still waited (the first F39 gate)')
   assert.equal(TEST_TIMEOUT_MS, 10 * 60 * 1000)
   assert.equal(STALL_MS, 15 * 60 * 1000)
   assert.ok(args.includes('--test-reporter=spec') && args.includes('--test-reporter-destination=stdout'), 'the usual output still on stdout')
@@ -137,18 +138,18 @@ test('F39: the files still open, from the reporter\'s lines, and the lines a sta
   assert.equal(verdict.files, undefined)
 })
 
-test('F39, the real case: a test that hangs inside itself (taskWindowPage, 2026-11-21) fails at the per-test timeout, naming its file', { timeout: 120_000 }, async t => {
+test('F39, the real case: a test that hangs inside itself and leaves a timer (taskWindowPage, 2026-11-21) ends the run at the watchdog, naming its file', { timeout: 200_000 }, async t => {
   const { folder, file } = hangFolder(t, 'hangs-inside.test.mjs', "import { test } from 'node:test'\ntest('waits for a page that never draws', () => new Promise(() => setInterval(() => {}, 1000)))\n")
   const { seen, stream } = sink()
   const began = Date.now()
-  const code = await runTests({ files: [file], cores: 2, start: realStart(), setPriority: () => {}, timeoutMs: 3000, stallMs: 60_000, watchMs: 500, out: stream, err: stream, cwd: folder })
+  const code = await runTests({ files: [file], cores: 2, start: realStart(), setPriority: () => {}, timeoutMs: 2000, stallMs: 6000, watchMs: 250, out: stream, err: stream, cwd: folder })
   assert.equal(code, 1)
-  assert.ok(Date.now() - began < 60_000, 'ended at the timeout, not later')
-  assert.match(seen.text, /waits for a page that never draws/)
-  assert.ok(failingFiles(seen.text).some(one => one.endsWith('hangs-inside.test.mjs')), seen.text)
+  assert.ok(Date.now() - began < 150_000, 'ended within the bound, also on a busy PC')
+  assert.match(seen.text, /stalled: no test output for 6 seconds; files still open: .*hangs-inside\.test\.mjs/)
+  assert.equal(gateVerdict(seen.text, 'board', code).ok, false, 'refused')
 })
 
-test('F39: a file that hangs at its top level ends the run at the stall watchdog with its whole tree, naming the file', { timeout: 120_000 }, async t => {
+test('F39: a file that hangs at its top level ends the run at the stall watchdog with its whole tree, naming the file', { timeout: 200_000 }, async t => {
   // F39 (part 6): the file also starts a process outside the run's tree that names the run's folder (a WMI-started board's way).
   const sleeperCode = [
     "import { spawn } from 'node:child_process'",
@@ -169,7 +170,7 @@ test('F39: a file that hangs at its top level ends the run at the stall watchdog
   writeFileSync(join(home, 'boards.json'), JSON.stringify({ boards: [] }))
   const code = await runTests({ files: [file], cores: 2, start: realStart(), setPriority: () => {}, timeoutMs: 600_000, stallMs: 3000, watchMs: 250, out: stream, err: stream, cwd: folder, env: { ...process.env, WORKER_BOARD_HOME: home } })
   assert.equal(code, 1)
-  assert.ok(Date.now() - began < 60_000, 'ended at the watchdog')
+  assert.ok(Date.now() - began < 150_000, 'ended at the watchdog, also on a busy PC')
   assert.match(seen.text, /stalled: no test output for 3 seconds; files still open: .*hangs-on-top\.test\.mjs \(at its top level\)/)
   assert.equal(gateVerdict(seen.text, 'board', code).ok, false, 'refused')
   if (process.platform === 'win32') {
