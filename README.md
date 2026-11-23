@@ -205,7 +205,8 @@ and the briefings for the main chat and the workers.
    three times an hour: `node start-board.mjs --stop` stops a board on purpose (the sign first, then its processes; /stop-app does
    the same through the `"stop"` words of the worker-board entry in `.claude/launch.json`, which `node server.mjs --launch-entry`
    writes); `npm run setup -- --watcher off` removes the task and keeps it off until `--watcher on`; `node tools/watch-boards.mjs
-   --dry` says what the watcher would do.
+   --dry` says what the watcher would do. Such a stop (and the page's Shut down) holds against the chats' own starts too: every
+   `start-board.mjs` without `--resume`, `--open` or `--anew` says the board was stopped on purpose and starts nothing.
    **Without the Workers mod** (B211): `node start-board.mjs` starts the board in the background when it does not run
    yet and prints where it runs (its own words go to `data\board.log`); a second call says it runs already. To have
    it start with every chat of the project, copy `examples\settings.json` to `<project>\.claude\settings.json` (or add
@@ -247,6 +248,12 @@ and the briefings for the main chat and the workers.
   when over 10 seconds ("Working · 25 s ago"); Free means the board would give it work now (DESIGN.md, "One status per chat").
 - Before you quit the app: "Pause all" on the board (each chat writes its checkpoint and stops; the board says when
   it is safe), and "Resume all" after it is open again (open the main chat when the board says so).
+- **Shut down** (2026-11-21), to close the app and the board for good: "Shut down" in the board's header pauses every chat
+  first (as Pause all), then stops the board once each chat ended its turn (5 minutes at the latest; "Shut down now" does
+  not wait). The board stays down: while its stop sign is there, no chat's Workers mod, chat-open hook or watcher starts it
+  again. `npm run stop` (or `node start-board.mjs --stop`, /stop-app) stops it at once, and holds the same way. Start it
+  again with the board's desktop icon or `npm run resume` (`node start-board.mjs --resume`); the chats are still paused
+  then, so nothing is woken until you press Resume all. Without Shut down everything starts again by itself as before.
 - When no chat runs (after an app or PC restart, or once every chat went idle) and work waits for one, the board opens
   one chat of the project in the Claude app by itself (Windows; T13 part 4), the main chat first: its Workers mod then
   wakes the rest. At most once in 3 minutes; when two opens bring no chat back, it stops and asks you to open a chat.
