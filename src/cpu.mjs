@@ -56,7 +56,7 @@ export async function readLevel(file, fallback = 'full') {
 export async function readLevelAt(file) {
   try {
     const at = JSON.parse(await readFile(file, 'utf8')).at
-    return Number.isFinite(at) ? at : null
+    return Number.isFinite(at) && at > 0 ? at : null
   } catch {
     return null
   }
@@ -288,23 +288,26 @@ export function strandedCandidates(list, chosen) {
  * F44 (a test run started under Low stayed at Idle on two cores after Full, its parent gone, so no tree led to it): the candidates that
  * carry Low's own mark, Idle on exactly the cores Low leaves (`masks`: pid to the mask as a decimal string), whose parent is gone, and what
  * they started that carries the mark too. A parent number given out again is no parent. On a PC where Low leaves every core there is no
- * mark to go by: none.
+ * mark to go by: none. `roots`: the numbers of processes already being given back, whose marked children count as well.
  */
-export function strandedProcesses(list, masks, cores, { chosen = [] } = {}) {
+export function strandedProcesses(list, masks, cores, { chosen = [], roots = [] } = {}) {
   const lowMask = affinityMask(cores, 'low')
   if (lowMask === affinityMask(cores, 'full')) return []
-  return withMarkedChildren(list, new Set(strandedCandidates(list, chosen).filter(one => masks.get(one.pid) === lowMask).map(one => one.pid)))
+  return withMarkedChildren(list, new Set(strandedCandidates(list, chosen).filter(one => masks.get(one.pid) === lowMask).map(one => one.pid)), roots)
 }
 
-/** F44: the `marked` processes whose parent is gone, with what they started that is marked too. A parent number given out again is no parent. */
-function withMarkedChildren(list, marked) {
+/**
+ * F44: the `marked` processes whose parent is gone, with what they, or `roots`, started that is marked too. A parent number given out again
+ * is no parent. The roots themselves are not in the answer unless marked.
+ */
+function withMarkedChildren(list, marked, roots = []) {
   const byPid = new Map(list.map(one => [one.pid, one]))
   const parentOf = one => {
     const parent = byPid.get(one.parent)
     if (parent === undefined || parent.pid === one.pid) return null
     return Number.isFinite(parent.created) && Number.isFinite(one.created) && parent.created > one.created ? null : parent
   }
-  const found = new Set(list.filter(one => marked.has(one.pid) && parentOf(one) === null).map(one => one.pid))
+  const found = new Set([...roots, ...list.filter(one => marked.has(one.pid) && parentOf(one) === null).map(one => one.pid)])
   for (let grew = true; grew;) {
     grew = false
     for (const one of list) {
@@ -313,7 +316,7 @@ function withMarkedChildren(list, marked) {
       grew = true
     }
   }
-  return list.filter(one => found.has(one.pid))
+  return list.filter(one => found.has(one.pid) && marked.has(one.pid))
 }
 
 /** F44: a time in ms as Windows dates a process (FILETIME: 100 ns since 1601), as the listing's `created`. */
@@ -343,13 +346,15 @@ export const LIST_SCRIPT = [
 ].join('; ')
 
 // Efficiency mode (EcoQoS): SetProcessInformation(ProcessPowerThrottling), the execution-speed bit on for Low, forced off for Full.
-const ECO_TYPE = "Add-Type -Namespace Cpu -Name Eco -MemberDefinition '[StructLayout(LayoutKind.Sequential)] public struct S { public uint V; public uint C; public uint M; } [DllImport(\"kernel32.dll\")] public static extern bool SetProcessInformation(IntPtr h, int cls, ref S s, int size);'"
-const SET_SCRIPT = [
+// F44: through Reflection.Emit, not Add-Type: no C# compiler, so a set that does not end cleanly leaves nothing in Temp (about 31,000 files
+// by 2026-11-23, most of Defender's scan time in the person's recording).
+const ECO_TYPE = "$a = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'CpuEco'), [Reflection.Emit.AssemblyBuilderAccess]::Run); $t = $a.DefineDynamicModule('CpuEco').DefineType('CpuEco', [Reflection.TypeAttributes]'Public,Class'); $m = $t.DefinePInvokeMethod('SetProcessInformation', 'kernel32.dll', [Reflection.MethodAttributes]'Public,Static,PinvokeImpl', [Reflection.CallingConventions]::Standard, [bool], [Type[]]@([IntPtr], [int], [uint32[]], [int]), [Runtime.InteropServices.CallingConvention]::Winapi, [Runtime.InteropServices.CharSet]::Ansi); $m.SetImplementationFlags([Reflection.MethodImplAttributes]::PreserveSig); $eco = $t.CreateType()"
+export const SET_SCRIPT = [
   "try { (Get-Process -Id $PID).PriorityClass = 'BelowNormal' } catch {}",
   `try { ${ECO_TYPE} } catch {}`,
   '$changes = [Console]::In.ReadToEnd() | ConvertFrom-Json',
   '$done = @()',
-  "foreach ($c in @($changes)) { try { $p = Get-Process -Id ([int]$c.pid) -ErrorAction Stop; $p.PriorityClass = [string]$c.priority; $p.ProcessorAffinity = [IntPtr][long]$c.affinity; $done += [int]$c.pid; try { $s = New-Object Cpu.Eco+S; $s.V = 1; $s.C = 1; $s.M = [uint32]$(if ($c.eco) { 1 } else { 0 }); [void][Cpu.Eco]::SetProcessInformation($p.Handle, 4, [ref]$s, 12) } catch {} } catch {} }",
+  "foreach ($c in @($changes)) { try { $p = Get-Process -Id ([int]$c.pid) -ErrorAction Stop; $p.PriorityClass = [string]$c.priority; $p.ProcessorAffinity = [IntPtr][long]$c.affinity; $done += [int]$c.pid; try { [void]$eco::SetProcessInformation($p.Handle, 4, [uint32[]]@(1, 1, [uint32]$(if ($c.eco) { 1 } else { 0 })), 12) } catch {} } catch {} }",
   'ConvertTo-Json -Compress @($done)',
 ].join('; ')
 // F44: reads the cores of the processes named on its input; it sets nothing.
@@ -519,7 +524,7 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
       const candidates = strandedCandidates(list, found).filter(one => !given.has(one.pid))
       if (candidates.length > 0 && typeof processes.masks === 'function') {
         const masks = await processes.masks(candidates.map(one => one.pid)).catch(() => new Map())
-        for (const one of strandedProcesses(list, masks, cores, { chosen: found })) if (!given.has(one.pid)) given.set(one.pid, one)
+        for (const one of strandedProcesses(list, masks, cores, { chosen: found, roots: [...given.keys()] })) if (!given.has(one.pid)) given.set(one.pid, one)
       }
       stranded = [...given.values()].map(one => ({ pid: one.pid, key: keyOf(one), priority: 'Normal', affinity: affinityMask(cores, 'full'), eco: false }))
     }

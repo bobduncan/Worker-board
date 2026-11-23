@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { chatChanges, chosenProcesses, commandArgs, cpuLimiter, fileTimeOf, isChatProcess, MASK_SCRIPT, orphansOf, parseMasks, saveLevel, sessionOf, strandedCandidates, strandedProcesses } from '../src/cpu.mjs'
+import { chatChanges, chosenProcesses, commandArgs, cpuLimiter, fileTimeOf, isChatProcess, MASK_SCRIPT, orphansOf, parseMasks, saveLevel, sessionOf, SET_SCRIPT, strandedCandidates, strandedProcesses } from '../src/cpu.mjs'
 
 const A = 'aaaaaaaa-1111-2222-3333-444444444444'
 const CLI = 'C:\\Apps\\claude-code\\2.1.0\\claude.exe --output-format stream-json'
@@ -181,6 +181,9 @@ test('the stranded: Low\'s mark, its parent gone, a tool\'s program, with what i
   assert.deepEqual(strandedProcesses(left, leftMasks(), 24).map(one => one.pid), [300, 301, 560])
   assert.deepEqual(strandedProcesses(left, leftMasks(), 24, { chosen: [left[2]] }).map(one => one.pid), [560], 'one already chosen is Full\'s own; its child is reached through it')
   assert.deepEqual(strandedProcesses(left, new Map(), 24), [], 'no reading of the cores: nothing')
+  const child = { pid: 301, parent: 300, name: 'node.exe', commandLine: 'node worker', priority: IDLE, created: 31 }
+  const known = { pid: 300, parent: 299, name: 'node.exe', commandLine: 'node --test', priority: NORMAL, created: 30 }
+  assert.deepEqual(strandedProcesses([known, child], new Map([[301, LOW]]), 24, { roots: [300] }).map(one => one.pid), [301], 'a root\'s marked child, not the root itself')
   assert.deepEqual(strandedProcesses(left, new Map([[300, '3']]), 2), [], 'on a PC where Low leaves every core there is no mark')
 })
 
@@ -332,4 +335,49 @@ test('a click on Low starts the count: what stood at BelowNormal before it is le
   await limiter.apply()
   assert.deepEqual(byPid(windows.calls.sets, 701).map(one => one.priority), ['Idle'])
   assert.deepEqual(byPid(windows.calls.sets, 700), [])
+})
+
+test('back at Full what a limited orphan started after it was limited comes back too, also on a later pass', async t => {
+  const windows = fake([desktop, chat(BELOW), loose(700)], { masks: new Map([[701, LOW], [702, LOW], [703, ALL]]) })
+  const limiter = await limiterOn(t, windows, { now: () => T })
+  await limiter.apply()
+  assert.equal(windows.state.get(700).priority, IDLE)
+  // Born from the limited orphan: Idle on Low's cores, with a living parent that carries no reading of its own.
+  windows.state.set(701, loose(701, { parent: 700, priority: IDLE, created: born(7_000) }))
+  windows.state.set(702, loose(702, { parent: 701, priority: IDLE, created: born(8_000) }))
+  windows.state.set(703, loose(703, { parent: 700, priority: IDLE, created: born(9_000) })) // at Idle on other cores: not Low's mark
+  const reading = windows.processes.masks
+  windows.processes.masks = async () => { throw new Error('Access is denied') }
+  windows.calls.sets.length = 0
+  await limiter.set('full')
+  assert.equal(windows.state.get(700).priority, NORMAL, 'what the board knows needs no reading')
+  assert.equal(windows.state.get(701).priority, IDLE, 'without a reading its child is not touched')
+  windows.processes.masks = reading
+  windows.calls.sets.length = 0
+  await limiter.apply()
+  for (const pid of [701, 702]) assert.deepEqual(byPid(windows.calls.sets, pid).map(one => [one.priority, one.affinity, one.eco]), [['Normal', ALL, false]])
+  assert.deepEqual(byPid(windows.calls.sets, 703), [])
+  assert.equal(byPid(windows.calls.sets, 700).length, 1, 'the orphan itself once a pass')
+})
+
+test('a saved time of 0 or below is no time: Low counts from now', async t => {
+  for (const at of [0, -5]) {
+    const dir = await mkdtemp(join(tmpdir(), 'cpu-f44-'))
+    t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+    const file = join(dir, 'cpu.json')
+    await saveLevel(file, 'low', at)
+    const windows = fake([desktop, chat(BELOW), loose(700, { created: born(-1_000) }), loose(701)])
+    const limiter = cpuLimiter({ file, platform: 'win32', cores: 24, sessions: async () => [A], processes: windows.processes, now: () => T })
+    await limiter.apply()
+    assert.deepEqual(byPid(windows.calls.sets, 700), [], `saved at ${at}: from before Low`)
+    assert.deepEqual(byPid(windows.calls.sets, 701).map(one => one.priority), ['Idle'])
+  }
+})
+
+test('F44: the set script starts no compiler, and a failing efficiency call never stops priority and cores', () => {
+  assert.doesNotMatch(SET_SCRIPT, /Add-Type/i)
+  assert.match(SET_SCRIPT, /try \{ \$a = \[AppDomain\]::CurrentDomain\.DefineDynamicAssembly\(.*\$eco = \$t\.CreateType\(\) \} catch \{\}/, 'making the call is tried on its own')
+  const steps = ['$p.PriorityClass = ', '$p.ProcessorAffinity = ', '$done += ', 'try { [void]$eco::SetProcessInformation('].map(step => SET_SCRIPT.indexOf(step))
+  assert.ok(steps.every(at => at >= 0) && steps.every((at, i) => i === 0 || steps[i - 1] < at), 'priority, cores and "done" come before the efficiency call')
+  assert.match(SET_SCRIPT, /SetProcessInformation\(\$p\.Handle, 4, \[uint32\[\]\]@\(1, 1, \[uint32\]\$\(if \(\$c\.eco\) \{ 1 \} else \{ 0 \}\)\), 12\) \} catch \{\} \} catch \{\} \}/, 'its own try inside the process\'s')
 })

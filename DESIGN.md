@@ -2325,7 +2325,11 @@ lagged the game (78% CPU: the board's own server and the vite servers ran at Nor
   of the person's starts at Normal), its parent gone, and born since Low was switched on. The command line is no test: on the live PC 0 of
   24 `node.exe` under the chats named the project's folder. **What this can get wrong:** a program of the person's with a tool's name that
   a launcher started at BelowNormal during Low and then left. It runs at Idle until Full gives it back.
+  Accepted too (chat 1's final check): a worker a remembered orphan starts during Full, a helper of another program that runs at BelowNormal
+  (ASUS Armoury's do) limited until Full, `-p` as another flag's value, and doubled quotes in a command line.
   The board remembers what it limited or gave back outside a tree (`pid@created`, in memory), so Low, Full, Low limits it again.
+- **No compiler (F44).** The efficiency call is made with Reflection.Emit, not `Add-Type`: each set used to start the C# compiler, and sets
+  that did not end cleanly left about 31,000 files in Temp. A failing efficiency call stops nothing: priority and cores are set first.
 - **Windows only.** Elsewhere the control says "not available here" and nothing runs; `POST /api/cpu` answers 409.
 - **The head** shows the level lit and what applies: "full power", or "15 processes on 2 cores, lowest priority: tests
   and builds run slower". `POST /api/cpu {level}` takes the click, from the board's own page only (token, origin, JSON,
