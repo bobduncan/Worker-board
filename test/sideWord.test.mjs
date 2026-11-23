@@ -205,6 +205,12 @@ test('chat 1\'s crossing 2: a refused side send marks that hand alone, never the
   assert.match(done.slice(side, side + 500), /noteHandRefusedAlone\(wakes, checked\.chat, clock\(\)\)[\s\S]*continue/)
 })
 
+test('B1394: while a limit is full a waiting side word is no hand\'s; every other hand word stays one', () => {
+  assert.equal(isHandWord(word()), true)
+  assert.equal(isHandWord(word(), { isFull: true }), false)
+  assert.equal(isHandWord({ id: 'w2', command: 'wake', about: 'Worker 1' }, { isFull: true }), true)
+})
+
 test('chat 1\'s blocker: while a limit is full no word is due and the card comes as before, saying so; after the reset one word goes and the card stays', () => {
   const full = build({ now: at(12, 19), week: 99 })
   assert.equal(full.limitFull, true)
