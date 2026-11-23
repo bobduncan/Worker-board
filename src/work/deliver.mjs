@@ -322,7 +322,9 @@ export async function deliverWork({ state, dir, assetsDir = null, outbox, apply,
     const workers = (state.chats ?? []).filter(lane => !lane.isLeftover && !lane.isMain)
     const notOff = workers.filter(lane => lane.state !== 'off' && lane.isRunning !== false).length
     // The review: the word says how many workers had reported then, so the next passes count its worker as on its way.
-    lines.push({ key: startKey(start, notOff, now), words: { ...startWord, reported: workers.filter(lane => lane.report != null).length } })
+    // B1304 (chat 1's re-check 1): a passed-over worker counts as reported: its own first report later is not the new worker's.
+    const passedOver = plan.passedOver ?? []
+    lines.push({ key: startKey(start, notOff, now), words: { ...startWord, reported: workers.filter(lane => lane.report != null || passedOver.includes(lane.name)).length } })
   }
   // B949: the ready words the sweep dropped as "gone" (its fault) go once more, while their step is still that chat's.
   // The asset-stop rerun (2026-11-11): and a failed request's word, when none ever reached its chat (A245).

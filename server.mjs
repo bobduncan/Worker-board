@@ -23,7 +23,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { constants as osConstants, setPriority } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -119,7 +119,7 @@ import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
 import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
-import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
+import { landingRestarts, lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { parseList, readAccountFolders } from './src/appChats.mjs'
@@ -2757,7 +2757,11 @@ async function main(args) {
     wakesChanged()
     isOpening = true
     try {
-      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
+      // B1304 (chat 1's review, minor): a board copy under test records its launches in this file instead of starting the real program.
+      const stub = process.env.WORKER_BOARD_OPEN_STUB ?? ''
+      const done = stub !== '' ? await appendFile(stub, `${JSON.stringify({ chat: target.chat, session: target.session, at: now })}
+`).then(() => ({ launched: true, ok: true, why: null }))
+        : await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
       if (!done.launched) {
         // Nothing was launched: no try spent (the ⚙ row says why).
         wakeGivenBack(wakes, key, jobId)
@@ -4699,7 +4703,7 @@ async function main(args) {
         // and the close of one (its tree, each process while its creation time holds; the tool's own folder); Windows only, and only on
         // the PC's first board (chat 1's review: three boards on this PC would each close the same browser and split the leak count), the
         // landing read right before the kill.
-        ...(closesBrowsers ? { processes: () => windowsProcesses.list(), closeBrowser: one => closeLeaked(one, { landing: () => { const held = lockHolder(join(HERE, 'data', 'landing.lock'), clock()); return held !== null && held.ageMs < STALE_LOCK_MS } }) } : {}),
+        ...(closesBrowsers ? { processes: () => windowsProcesses.list(), closeBrowser: one => closeLeaked(one, { landing: () => landingRestarts(lockHolder(join(HERE, 'data', 'landing.lock'), clock()), { staleMs: STALE_LOCK_MS }) }) } : {}),
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),
@@ -4707,7 +4711,8 @@ async function main(args) {
         // P2 (T2.11), the rule faults-gone: what stands in each repository now, whether a landing runs (data/landing.lock, a lock not
         // stale), when this board started, and the steps whose check runs now.
         branches: () => faultsNow({ repos: knownRepos(), run: gitRunner() }),
-        landing: () => { const held = lockHolder(join(HERE, 'data', 'landing.lock'), clock()); return held !== null && held.ageMs < STALE_LOCK_MS },
+        // F39, review 7: only a landing in its 'land' phase whose process runs (a gate can take an hour).
+        landing: () => landingRestarts(lockHolder(join(HERE, 'data', 'landing.lock'), clock()), { staleMs: STALE_LOCK_MS }),
         startedAt: () => startedAt,
         checking: () => [...runningChecks.keys()],
         // B482: what the main chat was told and since when a wait was seen, kept over a restart
