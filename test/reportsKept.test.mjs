@@ -199,9 +199,15 @@ test('a chat that reports after the restart is read from its new report; one tha
   const late = STARTED + 6 * MIN
   const log2 = quiet()
   for (let t = STARTED + 5_000; t <= late; t += 5_000) log2.heard(t)
-  // T13 part 3: silent past offAfterMinutes after an idle report it is asleep since then (counted from the start), no longer off.
+  // T13 part 3: silent past offAfterMinutes after an idle report (counted from the start) it is asleep, no longer off.
+  // F38 (B1300): asleep since the report's own time (14:00), never the board's start it was moved to: a start begins no new sleep.
   const asleep = build({ now: late, reports, log: log2 })
-  assert.deepEqual([lane(asleep, 'Weeder').state, lane(asleep, 'Weeder').isRunning, lane(asleep, 'Weeder').asleep, lane(asleep, 'Weeder').asleepSince], ['free', false, true, STARTED])
+  assert.deepEqual([lane(asleep, 'Weeder').state, lane(asleep, 'Weeder').isRunning, lane(asleep, 'Weeder').asleep, lane(asleep, 'Weeder').asleepSince], ['free', false, true, STOPPED])
+  // The age clock still counts from the start: five minutes after it, not after the report, it is still unknown.
+  const early = STARTED + 4 * MIN
+  const log3 = quiet()
+  for (let t = STARTED + 5_000; t <= early; t += 5_000) log3.heard(t)
+  assert.equal(lane(build({ now: early, reports, log: log3 }), 'Weeder').state, 'unknown')
 })
 
 test('B736\'s keep still ends: past 10 minutes of hearing no chat the saved reports are read by the usual rules, counted from the start', () => {

@@ -357,7 +357,8 @@ list does not know. Do it now, in this turn:
   and is not working on it: wake it ("resume your step B<id> from your checkpoint") by the session id the board names,
   never by the chat's title (B986, X140: after an account switch an old chat of the same name may be open); while the Claude
   app is on another account the board holds by itself (B1273: "The Claude app is on another account ..."): wake nobody,
-  ask the person nothing, it goes on when they switch back; a held step
+  ask the person nothing yourself (B1283: the board files its one ask, run the board there or keep waiting), it goes on
+  when they switch back; a held step
   whose chat is not in the app's list needs nothing from you: the board gives it back by itself 20 minutes after the chat
   stopped (go on after 5, back 15 after), from its checkpoint; a task given to a worker that is
   gone or not on the hand-over the board takes back itself, and a pin to a chat gone for half an hour it takes
