@@ -5,7 +5,8 @@
 
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
@@ -61,9 +62,9 @@ test('isShutdownDue: at once for "now", when the pause is safe, else at SHUTDOWN
   assert.equal(shutdownView(null), null)
 })
 
-// The real folder's data/stop.json, kept and put back: the run refuses before it probes or starts anything.
-const HERE = join(dirname(fileURLToPath(import.meta.url)), '..')
-const SIGN = join(HERE, 'data', 'stop.json')
+// A copy of start-board.mjs in a temporary folder, with its own data/stop.json: never the real board's (other test files start and
+// stop boards of this folder at the same time, and a held sign left there would keep the person's board down).
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const freePort = () => new Promise(done => {
   const server = createServer().listen(0, '127.0.0.1', () => {
     const { port } = server.address()
@@ -72,18 +73,21 @@ const freePort = () => new Promise(done => {
 })
 
 test('start-board.mjs: a held sign refuses a plain and a quiet start (the chats\' mod, the hook) and starts nothing', async t => {
-  const before = existsSync(SIGN) ? readFileSync(SIGN) : null
-  t.after(() => (before === null ? rmSync(SIGN, { force: true }) : writeFileSync(SIGN, before)))
-  mkdirSync(dirname(SIGN), { recursive: true })
-  writeFileSync(SIGN, JSON.stringify(shutdownSign({ at: AT })))
+  const dir = mkdtempSync(join(tmpdir(), 'board-held-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  for (const part of ['start-board.mjs', 'package.json', 'src']) cpSync(join(ROOT, part), join(dir, part), { recursive: true })
+  const sign = join(dir, 'data', 'stop.json')
+  mkdirSync(dirname(sign), { recursive: true })
+  writeFileSync(sign, JSON.stringify(shutdownSign({ at: AT })))
   const port = String(await freePort())
-  const run = (...args) => spawnSync(process.execPath, [join(HERE, 'start-board.mjs'), '--port', port, ...args], { encoding: 'utf8', timeout: 30_000, env: startEnv(process.env) })
+  const run = (...args) => spawnSync(process.execPath, [join(dir, 'start-board.mjs'), '--port', port, ...args], { cwd: dir, encoding: 'utf8', timeout: 30_000, env: startEnv(process.env) })
   const plain = run()
   assert.equal(plain.status, 0, plain.stderr)
   assert.match(plain.stdout, /^The worker board was shut down on purpose at 09:30: it stays down\./)
   const quiet = run('--quiet')
   assert.deepEqual([quiet.status, quiet.stdout], [0, ''])
-  assert.ok(existsSync(SIGN), 'a refused start leaves the sign')
+  assert.ok(existsSync(sign), 'a refused start leaves the sign')
+  assert.equal(existsSync(join(dir, 'data', 'board.log')), false, 'nothing was started')
 })
 
 // The page: the Shut down button, its question, the request, the line while it waits, and the banner once the board is gone.
