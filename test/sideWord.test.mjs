@@ -9,7 +9,7 @@ import test from 'node:test'
 
 import { parseConfig } from '../src/config.mjs'
 import { handJobs, isForHandsYet, isHandWord } from '../src/hands.mjs'
-import { foldOutbox } from '../src/store.mjs'
+import { foldOutbox, outboxKnown } from '../src/store.mjs'
 import { isUndelivered } from '../src/supervisor/rules/watch.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
@@ -19,6 +19,7 @@ import { waitsOnOf } from '../src/work/waitsOn.mjs'
 import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
+const KEEP = { messageMs: 10 * MIN, answerMs: 24 * 60 * MIN, pause: null }
 const at = (h, m, s = 0) => new Date(2026, 10, 21, h, m, s).getTime()
 const WAIT_AT = at(10, 49)
 const PROJECT = 'C:\\garden'
@@ -55,7 +56,9 @@ function build({ now, who = 'chat 1', since = WAIT_AT, outbox = [], week = 40 })
   }
   const reports = [report('Lead', 'idle', at(10, 0), now - 5_000), report('Worker 1', 'idle', at(10, 50), now - 5_000), report('Worker 2', 'idle', at(10, 0), now - 5_000)]
   const keptReadings = [{ at: now - MIN, fiveHour: { used: 10, resetsAt: now + 120 * MIN }, week: { used: week, resetsAt: now + 2880 * MIN } }]
-  return buildState(raw, { lines: [], outbox, words: outbox, keptReadings, runs: [], now, config, seen: { shown: {}, other: {} }, board: { startedAt: at(9, 0), offSince: null }, reports: new Map(reports) })
+  // The words as the server gives them (server.mjs `words`): one that waited too long reads `expired`.
+  const known = outboxKnown(outbox, now, KEEP)
+  return buildState(raw, { lines: [], outbox: known, words: known, keptReadings, runs: [], now, config, seen: { shown: {}, other: {} }, board: { startedAt: at(9, 0), offSince: null }, reports: new Map(reports) })
 }
 const lateCards = state => state.forYou.filter(one => one.kind === 'wait late')
 const laneOf = (state, name) => state.chats.find(one => one.name === name)
@@ -244,4 +247,23 @@ test('chat 1\'s review 4: a failed side word is no case for rule 8', () => {
   const failed = word({ state: 'waiting', at: at(10, 0) })
   assert.equal(isUndelivered({ now: at(12, 0), pause: null, chats: [], items: new Map(), prefix: '' }, failed, { stillWaits: () => true, waking: new Set(), gone: new Set(), limit: MIN }), false)
   assert.equal(isUndelivered({ now: at(12, 0), pause: null, chats: [], items: new Map(), prefix: '' }, { ...failed, command: 'line' }, { stillWaits: () => true, waking: new Set(), gone: new Set(), limit: MIN }), true, 'the control: another word that waits is one')
+})
+
+test('chat 1\'s re-check c: a word that waited too long reads as the end of its hand window, never "expired" on the card, and is closed', () => {
+  const late = at(12, 31)
+  const known = outboxKnown([word()], late, KEEP)
+  assert.equal(known[0].state, 'expired')
+  const cards = lateCards(build({ now: late, outbox: [word()] }))
+  assert.equal(cards.length, 1)
+  assert.match(cards[0].text, /Then no hand sent the board's word to chat 1 within 10 min\./)
+  assert.doesNotMatch(cards[0].text, /expired/)
+  const full = lateCards(build({ now: late, week: 99, outbox: [word()] }))
+  assert.match(full[0].text, /Then the board did not ask chat 1: a limit is full\./)
+  assert.doesNotMatch(full[0].text, /expired/)
+  // The store still holds it waiting: the board closes it with the plain why; its wait ended: that why.
+  assert.deepEqual(sideClosesOf({ words: known, liveKeys: new Set([KEY]), runningMs: () => 0 }), [{ id: 'w1', why: 'no hand sent it within 10 min' }])
+  assert.deepEqual(sideClosesOf({ words: known, liveKeys: new Set([KEY]), runningMs: () => 0, isFull: true }), [{ id: 'w1', why: 'a limit is full' }])
+  assert.deepEqual(sideClosesOf({ words: known, liveKeys: new Set(), runningMs: () => 0 }), [{ id: 'w1', why: 'its wait ended' }])
+  // One the board closed as expired before is not closed again.
+  assert.deepEqual(sideClosesOf({ words: [word({ state: 'expired', closedAt: at(12, 30) })], liveKeys: new Set([KEY]), runningMs: () => 0 }), [])
 })

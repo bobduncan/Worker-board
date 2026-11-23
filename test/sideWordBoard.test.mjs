@@ -100,7 +100,7 @@ test('over two looks and a restart: exactly one word to chat 1 by a hand, exactl
     await put(join(chats, `${cli}.json`), JSON.stringify({ name, role, state: 'waiting', task: null, at: NOW - MIN }))
   }
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'side', project, port, gamePort: 7341, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'side', project, port, gamePort: 7341, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), browsersRule: false }))
   const env = { CLAUDE_CONFIG_DIR: join(dir, 'claude-config'), WORKER_BOARD_HOME: join(dir, 'pc') }
   const base = `http://127.0.0.1:${port}`
   const start = async () => {

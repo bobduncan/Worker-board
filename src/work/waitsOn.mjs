@@ -63,7 +63,8 @@ export function waitWhoOf(who, { names = [], prefix = '' } = {}) {
 
 /** What the holder waits for, from the call's `why`, in a few words; "its answer" when none. */
 export const waitWhatOf = why => {
-  const words = String(why ?? '').replace(/\s+/g, ' ').trim().slice(0, WHAT_CHARS).replace(/ · /g, ', ')
+  // B1307 (chat 1's re-check a): trimmed after the cut too: the record reads back trimmed, so a why cut on a space would never equal itself.
+  const words = String(why ?? '').replace(/\s+/g, ' ').trim().slice(0, WHAT_CHARS).trim().replace(/ · /g, ', ')
   return words === '' ? 'its answer' : words
 }
 

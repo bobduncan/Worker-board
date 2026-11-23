@@ -133,6 +133,8 @@ export function sideStateOf({ late, word, runningMs, isFull = false }) {
     if (runningMs(word.deliveredAt) >= SIDE_ANSWER_MS) return { ...plain, note: `${asked}; no answer in ${SIDE_ANSWER_MS / 60_000} min` }
     return word.keepCard === true ? { ...plain, note: asked } : { ...plain, hold: true }
   }
+  // Chat 1's re-check c: a word that waited too long reads `expired` (store.mjs `outboxKnown`): the end of its hand window.
+  if (word.state === 'expired' && !Number.isFinite(word.closedAt)) return isFull ? notAsked : { ...plain, note: `no hand sent the board's word to ${who} within ${SIDE_HAND_MS / 60_000} min` }
   if (['waiting', 'taken'].includes(word.state) || isRetryDue(word)) {
     if (isFull && word.state !== 'taken') return notAsked
     if (!(runningMs(word.at) < SIDE_HAND_MS)) return { ...plain, note: `no hand sent the board's word to ${who} within ${SIDE_HAND_MS / 60_000} min` }
@@ -148,9 +150,11 @@ export function sideStateOf({ late, word, runningMs, isFull = false }) {
 export function sideClosesOf({ words, liveKeys, runningMs, isFull = false }) {
   const closes = []
   for (const word of Array.isArray(words) ? words : []) {
-    if (word?.command !== SIDE_WORD || !(word.state === 'waiting' || isRetryDue(word))) continue
+    // `expired` with no close yet: the store still holds it waiting (store.mjs `outboxKnown` only reads it so).
+    const isLateWord = word?.state === 'expired' && !Number.isFinite(word.closedAt)
+    if (word?.command !== SIDE_WORD || !(word.state === 'waiting' || isLateWord || isRetryDue(word))) continue
     if (!liveKeys.has(word.key)) closes.push({ id: word.id, why: 'its wait ended' })
-    else if (runningMs(word.at) >= SIDE_HAND_MS) closes.push({ id: word.id, why: isFull ? FULL_WHY : word.state === 'failed' ? String(plainWhy(word.why) ?? STALE_SIDE_WHY) : STALE_SIDE_WHY })
+    else if (isLateWord || runningMs(word.at) >= SIDE_HAND_MS) closes.push({ id: word.id, why: isFull ? FULL_WHY : word.state === 'failed' ? String(plainWhy(word.why) ?? STALE_SIDE_WHY) : STALE_SIDE_WHY })
   }
   return closes
 }

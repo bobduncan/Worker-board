@@ -52,6 +52,7 @@ import { LANDING_ASK_WHY, landingAskOf } from './landingAsk.mjs'
 import { BOOKKEEPING_DROP_WORDS } from './dropAsk.mjs'
 import { LANDED_KIND, landedByOwner, landedHistoryLine, landedWaitOf, landedWord } from './landedWait.mjs'
 import { RECAP_AT_WORK, WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, waitWhatOf, waitWhoOf, waitWhoProblem, waitsOnLine, waitsOnOf } from './waitsOn.mjs'
+import { isAskedSide } from './sideWord.mjs'
 import { estimateAtOf, nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { askedForOf, takenAtOf, takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
@@ -3736,9 +3737,9 @@ async function waitOn(found, on, w, isBlock, body) {
     if (problem !== null) return refuse(400, `${id}: ${problem}.`)
     // The record keeps the list's bare name (the prefix may hold the field's own " · ").
     on = waitWhoOf(on, { names: Array.isArray(w.chats) ? w.chats : [], prefix: w.prefix })
-    // The same who again (with or without the list's prefix, in any case) keeps the first since, unless it names a new why: B1307 (chat 1's
-    // review 5): that is a new wait with a fresh clock (and so one new word to a side chat, work/sideWord.mjs).
-    const newWhy = String(body.why ?? '').trim() !== '' && waitWhatOf(body.why).toLowerCase() !== standing?.what.toLowerCase()
+    // The same who again (with or without the list's prefix, in any case) keeps the first since. B1307 (chat 1's review 5 and re-check b): on
+    // a side chat a new why is a new wait with a fresh clock (and so one new word, work/sideWord.mjs); waits on board chats stay as they were.
+    const newWhy = isAskedSide(on) && String(body.why ?? '').trim() !== '' && waitWhatOf(body.why).toLowerCase() !== standing?.what.toLowerCase()
     if (standing !== null && plain(standing.who, w.prefix) === plain(on, w.prefix) && !newWhy) {
       return { ok: true, result: { id, text: `${id} waits on ${standing.who} since ${waitClock(standing.since)} already (${standing.what}): the record stands; work unblock ${id} once it answered.`, changed: false } }
     }

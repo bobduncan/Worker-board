@@ -7584,7 +7584,7 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   `work block id=B<n> on="chat 1" why="its go to land"`: only the owner of a taken or in-progress step; `who` a chat of the board
   (the list's names, with or without the prefix) or a side chat "chat 0" to "chat 4"; an id (B/Q/X/I, any case), the person ("you",
   "the person", "me") and the own name are refused with "a wait on the person is a blocking ask; a wait on a fix is on=B<n>". The
-  same who again keeps the first since (the record stands, `changed: false`), unless it names a new why: that is a new wait with a fresh clock (B1307). `work unblock id=B<n>` (no `on`, or `on=<who>`): the
+  same who again keeps the first since (the record stands, `changed: false`), except that on a side chat ("chat 1" to "chat 4") a new why is a new wait with a fresh clock (B1307); on a board chat it changes nothing. `work unblock id=B<n>` (no `on`, or `on=<who>`): the
   owner, the main chat or the person clear it; another worker gets 403; without a chat wait an unblock with no `on` is B306's clear
   of `Waits for`, as before. A report, a take and a give-back (the board's and a take-back of a given task) clear it too.
 - **The lane**: a stopped chat (its report idle while it holds the step: interrupted) whose step records a wait is parked on
@@ -7624,7 +7624,8 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   comes as before, saying so; a word given back in doubt is never a hand's job again (a late answer settles it, or the give-up);
   a refusal that is tried again holds the Late, and the Late shows the plain words; a side word is no case for rule 8 (`undelivered`);
   a word still to go is closed when its wait ends; the hand window is running time; a wait that was late before its word keeps its
-  card (`keepCard`) with "Then the board asked chat 1 at HH:MM"; the "no word could go" record carries text '' so the log keeps it.
+  card (`keepCard`) with "Then the board asked chat 1 at HH:MM"; the "no word could go" record carries text '' so the log keeps it;
+  a word the outbox reads as `expired` is the end of its hand window, so the Late says "a limit is full" or "no hand sent it".
 - **The forgotten record**: the answer to `work step` with a checkpoint while a wait stands says "You still wait on chat 1 since
   HH:MM (its go to land): work unblock B<n> once it gave its answer." Chat 1's go messages say "unblock first" (roles/main.md).
 - **Resume all** leaves a step with a standing wait out of its resume list (pause.mjs `isResumed`): a resume would only wake the

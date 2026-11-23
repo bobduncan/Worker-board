@@ -96,6 +96,21 @@ test('the record: the holder writes a wait on a chat with work block (the live B
   assert.equal((await chat(dir, 'Worker 4', { action: 'unblock', id: 'B1081' }, WAIT_AT + 3 * MIN)).ok, true)
   assert.equal((await chat(dir, 'Worker 4', { action: 'block', id: 'B1081', on: 'chat 1', why: 'its go to land' }, WAIT_AT)).ok, true)
   assert.equal(await field(dir, 'B1081', 'Waits on'), WAITS_ON)
+  // B1307 (chat 1's re-check a): the same why cut on a space at its 80th character is the same why: the clock stands.
+  const CUT = `${'x'.repeat(79)} and more words after the cut`
+  const cutDir = await storeDir({ B1081: b1081() })
+  t.after(() => rm(cutDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  assert.equal((await chat(cutDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'chat 1', why: CUT }, WAIT_AT)).result.changed, true)
+  const cutLine = await field(cutDir, 'B1081', 'Waits on')
+  assert.equal((await chat(cutDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'chat 1', why: CUT }, WAIT_AT + 5 * MIN)).result.changed, false)
+  assert.equal(await field(cutDir, 'B1081', 'Waits on'), cutLine)
+  // B1307 (chat 1's re-check b): on a board chat a new why changes nothing, as before: only a side chat's wait is renewed.
+  const boardDir = await storeDir({ B1081: b1081() })
+  t.after(() => rm(boardDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  assert.equal((await chat(boardDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Worker 5', why: 'its review' }, WAIT_AT)).result.changed, true)
+  const boardLine = await field(boardDir, 'B1081', 'Waits on')
+  assert.equal((await chat(boardDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Worker 5', why: 'another reason' }, WAIT_AT + 5 * MIN)).result.changed, false)
+  assert.equal(await field(boardDir, 'B1081', 'Waits on'), boardLine)
   // A board chat by name is a who too (the list's names).
   // The forgotten record: a checkpoint while it stands reminds the holder.
   const saved = await chat(dir, 'Worker 4', { action: 'step', id: 'B1081', commit: '03ac0c10', next: 'main merged in and pushed; waiting for chat 1\'s go' }, at(11, 24))
