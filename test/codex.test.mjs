@@ -83,3 +83,37 @@ test('Codex is found where its app keeps it: the newest one, or the one the sett
   assert.equal(await findCodex({ env: { LOCALAPPDATA: join(home, 'elsewhere') } }), null)
   assert.equal(await findCodex({ env: {} }), null)
 })
+
+// B1310 (A499, 2026-11-22): Codex drew the picture, its sandbox refused the copy into the job folder, so no picture.png.
+test('a picture Codex drew but could not copy is kept from its own folder; none, or two, fail naming the folder', async t => {
+  const out = await folder(t)
+  const clean = join(HOMES, 'clean-b1310')
+  const options = { codexHome: clean, userHome: join(HOMES, 'user'), command: FAKE, images: [], seconds: 20 }
+  const generated = join(clean, 'generated_images')
+  // An older picture of an earlier job lies there already: never taken for this job's.
+  await mkdir(join(generated, 'old-session'), { recursive: true })
+  await writeFile(join(generated, 'old-session', 'exec-old.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 7, 7, 7, 7]))
+  await utimes(join(generated, 'old-session', 'exec-old.png'), 1_000, 1_000)
+
+  const to = join(out, '1.png')
+  const kept = await make({ ...options, prompt: 'DRAWNONE', to })
+  assert.equal(kept.ok, true)
+  assert.deepEqual([...(await readFile(to)).subarray(8)], [9, 9, 9, 9])
+  assert.equal(await readFile(join(out, '1.prompt.txt'), 'utf8'), 'DRAWNONE')
+
+  // The next job: two pictures made during it, not told apart.
+  await rm(generated, { recursive: true, force: true })
+  await mkdir(join(generated, 'old-session'), { recursive: true })
+  const two = await make({ ...options, prompt: 'DRAWNTWO', to: join(out, '2.png') })
+  assert.equal(two.ok, false)
+  assert.ok(two.why.includes(generated) && /2 pictures/.test(two.why), two.why)
+  // None at all (an older picture only): fails naming the folder.
+  await rm(generated, { recursive: true, force: true })
+  await mkdir(join(generated, 'old-session'), { recursive: true })
+  await writeFile(join(generated, 'old-session', 'exec-old.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 7, 7, 7, 7]))
+  await utimes(join(generated, 'old-session', 'exec-old.png'), 1_000, 1_000)
+  const none = await make({ ...options, prompt: 'NOTHING', to: join(out, '3.png') })
+  assert.equal(none.ok, false)
+  assert.ok(none.why.includes(generated) && /no picture/.test(none.why), none.why)
+  assert.deepEqual((await readdir(out)).sort(), ['1.png', '1.prompt.txt'])
+})

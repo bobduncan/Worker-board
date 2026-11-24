@@ -52,7 +52,7 @@ import { recapsOf } from './work/recap.mjs'
 import { afterPause, checkpointOf, isHolding, pauseAnswer, pauseFacts } from './work/pause.mjs'
 import { AWAY_LINE } from './appAccount.mjs'
 import { lateWaitOf, recapSuspension, waitSuspension, waitsOnOf } from './work/waitsOn.mjs'
-import { isAskedSide, isLimitFull, sideClosesOf, sideKeyOf, sideStateOf, sideWordOf } from './work/sideWord.mjs'
+import { isAskedSide, isLimitFull, sideClosesOf, sideKeepOf, sideKeptOf, sideKeyOf, sideStateOf, sideWordOf } from './work/sideWord.mjs'
 import { assetFailureOf, assetSuspension, assetWaitOf, assetWorkOf, backgroundNoNewsOf, lateAssetsOf } from './work/assetWait.mjs'
 import { reconcile } from './work/reconcile.mjs'
 import { EFFORTS, effortPlan, planWordsFor, probeOf, runSettings, setsRefusedOf } from './work/effort.mjs'
@@ -2605,8 +2605,17 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const sideRunningMs = from => { const since = afterPause(pauseRecord, from); return now - since - offMsOf(gaps, now)(since) }
   // Chat 1's review: no word while a limit is full; `sideWordsClose` the words still to go whose wait ended or whose time for a hand is over.
   const limitFull = isLimitFull(limits)
-  const lateSides = lateWaits.map(late => ({ late, side: sideStateOf({ late, word: isAskedSide(late.who) ? sideWordOf(stepWords, sideKeyOf(late.id, late.wait)) : null, runningMs: sideRunningMs, isFull: limitFull }) }))
+  // F53: a word closed because a limit was full is none (`sideWordOf`); `kept` the card showed then, so the next word keeps it.
+  const lateSides = lateWaits.map(late => {
+    const isSide = isAskedSide(late.who)
+    const word = isSide ? sideWordOf(stepWords, sideKeyOf(late.id, late.wait)) : null
+    const kept = isSide && sideKeptOf(stepWords, sideKeyOf(late.id, late.wait))
+    return { late, word, kept, side: sideStateOf({ late, word, runningMs: sideRunningMs, isFull: limitFull, kept }) }
+  })
   const sideWordsDue = lateSides.filter(one => one.side.due && one.late.id !== null).map(({ late, side }) => ({ id: late.id, who: late.who, chat: late.chat, wait: late.wait, since: late.since, overdue: side.overdue }))
+  // F53 (b): `sideCardsKept` the cards shown because a limit is full that the outbox does not keep yet: the delivering board's look
+  // writes each down once (server.mjs), so the card stays until the one word went, also over a restart.
+  const sideCardsKept = lateSides.filter(one => one.late.id !== null && sideKeepOf(one) !== null).map(({ late }) => ({ id: late.id, who: late.who, chat: late.chat, wait: late.wait }))
   const sideWordsClose = !workOk || isHolding(pauseRecord) ? [] : sideClosesOf({
     words: stepWords, isFull: limitFull, runningMs: sideRunningMs,
     liveKeys: new Set([...raw.work.items.values()].filter(item => item.head.get('Kind') === 'step' && ['taken', 'in progress'].includes(item.head.get('State')) && waitsOnOf(item) !== null).map(item => sideKeyOf(item.head.get('Id'), waitsOnOf(item)))),
@@ -3071,6 +3080,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     // B1307 (F40): the late side waits the board asks their side chat about (server.mjs says the word).
     sideWordsDue,
     sideWordsClose,
+    sideCardsKept,
     limitFull,
     // B124: the main chat (null when the list has none), the name and folder a new project makes it with, how many
     // workers there are, and the newest ask for workers.

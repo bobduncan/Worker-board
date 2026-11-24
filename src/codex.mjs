@@ -107,6 +107,28 @@ export async function prepareCodexHome({ home = CLEAN_HOME, userHome = userCodex
   return home
 }
 
+/**
+ * Fallback when a job ends without `picture.png` (its sandbox refused the copy into the job folder, the picture then stays
+ * in Codex's own `generated_images/<session>/*.png`): the PNGs of the board's own Codex home written at or after `since`
+ * (ms). Answers `{ folder, found }`, `found` the paths, newest first. Only the board's clean home is read, never the person's.
+ */
+export async function generatedSince({ home = CLEAN_HOME, since }) {
+  const folder = join(home, 'generated_images')
+  const found = []
+  const walk = async (dir, depth) => {
+    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory() && depth < 3) await walk(path, depth + 1)
+      else if (entry.isFile() && /\.png$/i.test(entry.name)) {
+        const info = await stat(path).catch(() => null)
+        if (info !== null && info.mtimeMs >= since) found.push({ path, at: info.mtimeMs })
+      }
+    }
+  }
+  await walk(folder, 0)
+  return { folder, found: found.sort((a, b) => b.at - a.at).map(one => one.path) }
+}
+
 const lastLine = text => text.split('\n').map(line => line.trim()).filter(line => line !== '').pop() ?? ''
 
 /**
@@ -151,13 +173,21 @@ export async function makePicture({ command, prompt, images, to, seconds, now = 
     })
     if (ended.isLate) return { ok: false, why: `Codex took longer than ${seconds} seconds and was stopped.`, seconds: took() }
 
-    const made = join(dir, PICTURE)
-    const head = await readFile(made).then(bytes => bytes.subarray(0, 4), () => null)
-    if (head === null || !head.equals(PNG)) {
+    let made = join(dir, PICTURE)
+    const isPng = async path => (await readFile(path).then(bytes => bytes.subarray(0, 4), () => null))?.equals(PNG) === true
+    if (!(await isPng(made))) {
       const words = await readFile(reply, 'utf8').catch(() => '')
       if (words.includes('NO_IMAGE_TOOL')) return { ok: false, why: 'Codex has no picture tool in this session.', seconds: took() }
-      const said = lastLine(words) || lastLine(ended.said)
-      return { ok: false, why: `Codex made no picture${ended.code === 0 || ended.code === null ? '' : ` (it ended with code ${ended.code})`}.${said === '' ? '' : ` It said: ${said.slice(0, 200)}`}`, seconds: took() }
+      // B1310: Codex drew it but could not copy it here: keep the one picture it generated during this job.
+      const { folder, found } = await generatedSince({ home, since: began })
+      const own = []
+      for (const path of found) if (await isPng(path)) own.push(path)
+      if (own.length === 1) made = own[0]
+      else {
+        const said = lastLine(words) || lastLine(ended.said)
+        const looked = ` Looked in ${folder}: ${own.length === 0 ? 'no picture' : `${own.length} pictures, not told apart`} made during the job.`
+        return { ok: false, why: `Codex made no picture${ended.code === 0 || ended.code === null ? '' : ` (it ended with code ${ended.code})`}.${said === '' ? '' : ` It said: ${said.slice(0, 200)}`}${looked}`, seconds: took() }
+      }
     }
     await mkdir(dirname(to), { recursive: true })
     // B406: whole or not there, never half a picture.

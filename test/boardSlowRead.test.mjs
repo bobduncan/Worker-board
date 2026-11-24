@@ -156,4 +156,17 @@ test('a whole read of 5 s: a chat\'s report is kept and work health answers with
   const rule = WATCH_RULES.find(one => one.id === 'board-slow')
   const found = rule.check(buildView({ state, items: new Map(), now: Date.now() }), { seen: new Map(), observed: [] })
   assert.deepEqual(found.map(one => one.key), ['board-slow board'])
+
+  // B1139: the copy's own trace (data/call-trace.jsonl) holds each work call cut into its parts, timed from the chat's send: the
+  // late `next` of the Lead reads about 20 s, nearly all of it before the board took it.
+  let traced = []
+  await until(async () => {
+    traced = (await readFile(join(board, 'data', 'call-trace.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line))
+    return traced.some(one => one.request?.startsWith('lead-id-'))
+  }, 'the trace of the late call')
+  const late = traced.find(one => one.request?.startsWith('lead-id-'))
+  assert.deepEqual([late.action, late.chat, late.status, late.attempt], ['next', 'Lead', 200, 1])
+  assert.ok(late.total >= 20_000 && late.beforeBoard >= 19_000, JSON.stringify(late))
+  for (const mark of ['lock', 'body', 'known', 'begin', 'fresh', 'ctx', 'action', 'answered']) assert.ok(Number.isFinite(late.marks[mark]), `${mark}: ${JSON.stringify(late.marks)}`)
+  assert.ok(traced.some(one => one.action === 'note' && one.chat === 'Digger'))
 })
