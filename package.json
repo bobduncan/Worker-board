@@ -8,6 +8,8 @@
   "scripts": {
     "start": "node server.mjs",
     "demo": "node server.mjs --demo",
+    "stop": "node start-board.mjs --stop",
+    "resume": "node start-board.mjs --resume --open",
     "test": "node tools/one-at-a-time.mjs test -- node tools/test.mjs",
     "setup": "node setup.mjs",
     "new": "node tools/new-project.mjs",

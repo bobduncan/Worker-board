@@ -136,6 +136,20 @@ test('over two looks and a restart: exactly one word to chat 1 by a hand, exactl
   assert.deepEqual([record.state, record.text, record.step], ['dropped', '', 'B902'])
   assert.match(record.why, /chat 3 is not known to the board/)
 
+  // B1394: the word already waits when a limit fills up: no hand takes it (it would start a model turn past the person's stop line),
+  // and it still waits. Back under the limit, the same word goes.
+  const readingsFile = join(project, '.claude', 'limit-readings.json')
+  const setWeek = used => writeFile(readingsFile, JSON.stringify([{ at: Date.now(), week: { used, resetsAt: NOW + 3 * 24 * 60 * MIN } }]))
+  const token = /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
+  const isFull = async () => (await (await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } })).json()).limitFull === true
+  await setWeek(99)
+  await until(isFull, 'the board reads the limit as full')
+  const whileFull = await call('/api/bridge/hands', { chat: 'Worker 2', session: 'w2-id', mod: '0.27.1', can: ['send'] })
+  assert.deepEqual(whileFull.jobs.filter(job => job.id === word.id), [])
+  assert.equal((await byWho('chat 1'))[0].state, 'waiting')
+  await setWeek(40)
+  await until(async () => !(await isFull()), 'the board reads the limit as back')
+
   // A hand sends it, once, to chat 1's own id; the next claim has no job for it.
   const { jobs } = await call('/api/bridge/hands', { chat: 'Worker 2', session: 'w2-id', mod: '0.27.1', can: ['send'] })
   assert.deepEqual(jobs.filter(job => job.id === word.id).map(job => [job.to, job.chat]), [[FAKE_SIDE, 'chat 1']])
