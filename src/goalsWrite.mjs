@@ -5,7 +5,7 @@
 // not inside a child's block.
 import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 
-import { FOCUS_LINE, GOAL_LINE, LAST_LINE, doneBulletOf, hasDoneWhen, hasRun, nextAskId, nextGoalId, parseGoals, partOf } from './goals.mjs'
+import { BACKUP_LINE, FOCUS_LINE, GOAL_LINE, LAST_LINE, doneBulletOf, hasDoneWhen, hasRun, nextAskId, nextGoalId, parseGoals, partOf } from './goals.mjs'
 import { besideOf, moveInPlace, writeAtomic, writeNew } from './write.mjs'
 
 export const files = { readFile, writeFile, rename, rm, mkdir, access, open }
@@ -496,7 +496,7 @@ export function withChangeRules(text) {
   const start = file.lines.slice(0, head).findIndex(line => line.startsWith('Rules:'))
   if (start < 0) return text
   let end = start + 1
-  while (end < head && file.lines[end].trim() !== '' && !/^\s/.test(file.lines[end]) && !LAST_LINE.test(file.lines[end]) && !FOCUS_LINE.test(file.lines[end]) && !file.lines[end].startsWith('#')) end += 1
+  while (end < head && file.lines[end].trim() !== '' && !/^\s/.test(file.lines[end]) && !LAST_LINE.test(file.lines[end]) && !FOCUS_LINE.test(file.lines[end]) && !BACKUP_LINE.test(file.lines[end]) && !file.lines[end].startsWith('#')) end += 1
   const words = file.lines.slice(start, end).join(' ')
   if (words.includes(CHANGE_RULES) || (words.includes('"Objective:') && words.includes('"Your words:') && words.includes('"Not in it:') && words.includes('done when:') && words.includes('"Round:'))) return text
   file.lines.splice(end, 0, CHANGE_RULES)
@@ -654,13 +654,30 @@ export function deleteGoal(text, id) {
 /**
  * Focus 1 (spec 2026-10-18, section 5): the focus goal as the head line `Focus: G<n>`, in place where it stands, else
  * right after the head's "Last" lines, else under the file's first heading, else on top; null takes it out. A goal
- * that is not in the map is refused `gone`.
+ * that is not in the map is refused `gone`. The backup focus (2026-11-24): a goal that becomes the focus is no longer
+ * the backup, so its `Backup:` line goes in the same write.
  */
 export function setFocus(text, id) {
+  const set = setHeadLine(text, FOCUS_LINE, 'Focus', id)
+  if (!set.ok || id === null || parseGoals(set.text).backup !== id) return set
+  return setHeadLine(set.text, BACKUP_LINE, 'Backup', null)
+}
+
+/**
+ * The backup focus (2026-11-24): the head line `Backup: G<n>`, placed as `Focus:` is (right after it when it stands);
+ * null takes it out. A goal that is not in the map is refused `gone`; the focus itself is refused `isFocus`.
+ */
+export function setBackup(text, id) {
+  if (id !== null && parseGoals(text).focus === id) return { ok: false, why: 'isFocus' }
+  return setHeadLine(text, BACKUP_LINE, 'Backup', id, FOCUS_LINE)
+}
+
+/** A head line `<name>: <id>` (`pattern` finds it): in place, else after `after`'s line, the "Last" lines, the first heading, or on top. */
+function setHeadLine(text, pattern, name, id, after = null) {
   const file = split(text)
   const firstGoal = file.lines.findIndex(line => GOAL_LINE.test(line))
   const head = firstGoal < 0 ? file.lines.length : firstGoal
-  const at = file.lines.slice(0, head).findIndex(line => FOCUS_LINE.test(line))
+  const at = file.lines.slice(0, head).findIndex(line => pattern.test(line))
   if (id === null) {
     if (at < 0) return { ok: true, text }
     file.lines.splice(at, 1)
@@ -668,14 +685,15 @@ export function setFocus(text, id) {
   }
   const found = blockOf(file.lines, id)
   if (!found.ok) return found
-  const line = `Focus: ${id}`
+  const line = `${name}: ${id}`
   if (at >= 0) {
     file.lines[at] = line
     return { ok: true, text: join(file) }
   }
+  const before = after === null ? -1 : file.lines.slice(0, head).findIndex(one => after.test(one))
   const lastLines = file.lines.slice(0, head).flatMap((one, index) => (LAST_LINE.test(one) ? [index] : []))
   const heading = file.lines.slice(0, head).findIndex(one => one.startsWith('# '))
-  file.lines.splice(lastLines.length > 0 ? lastLines.at(-1) + 1 : heading >= 0 ? heading + 1 : 0, 0, line)
+  file.lines.splice(before >= 0 ? before + 1 : lastLines.length > 0 ? lastLines.at(-1) + 1 : heading >= 0 ? heading + 1 : 0, 0, line)
   return { ok: true, text: join(file) }
 }
 

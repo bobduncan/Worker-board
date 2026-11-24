@@ -66,6 +66,17 @@ test('the main chat alone: the board says it will ask, that it asked and what ha
   assert.deepEqual([none.lines, none.button.isDisabled], [[{ tone: '', text: 'The board asked the main chat, Studio · Lead, for three workers at 09:12; none has come.' }], false])
 })
 
+// 2026-11-22 (the person: "pls fix red text"): an ask of 17:50 that was lost stood in red at 23:13, with five workers running.
+test('a lost "+ Add worker" ask stays red for an hour and then goes; with no workers yet it stays', () => {
+  const lost = { ask: ask({ state: 'expired', isOpen: false }) }
+  const red = [{ tone: 'problem', text: 'The ask of 09:12 did not reach the main chat: open its chat, then ask again.' }]
+  const at = (workers, minutes) => plain(page.workersView({ ...base, ...workers }, AT + minutes * MIN)).lines
+  assert.deepEqual(at(lost, 59), red)
+  assert.deepEqual(at(lost, 60), [{ tone: '', text: 'Asks the main chat, Studio · Lead, to start one more worker. Any worker takes any task.' }])
+  assert.deepEqual(at({ ask: ask({ state: 'failed', isOpen: false }) }, 60), [{ tone: '', text: 'Asks the main chat, Studio · Lead, to start one more worker. Any worker takes any task.' }])
+  assert.deepEqual(at({ ...lost, count: 0 }, 600), red)
+})
+
 test('with workers there is a button "+ Add worker" in the panel head (B159), and it waits while its ask is open', () => {
   assert.deepEqual(view(base), {
     kind: 'more', title: null, text: null, steps: [],

@@ -16,7 +16,7 @@ const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
 const html = await readFile(join(PUBLIC, 'index.html'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// goals:start'), script.indexOf('// goals:end'))}
-Object.assign(this, { goalAddress, goalCounter, goalCrumb, goalDropTarget, goalFocusOf, goalFrameLine, goalFrameLines, goalHasOpenInside, goalKeyMove, goalLinkChoices, goalNextState, goalOutlineRows, goalPlaceAt, goalSearch, goalTools, goalZoomOut, tabOfAddress })`, made)
+Object.assign(this, { goalAddress, goalCounter, goalCrumb, goalForYouRows, goalDropTarget, goalFocusOf, goalFrameLine, goalFrameLines, goalHasOpenInside, goalKeyMove, goalLinkChoices, goalNextState, goalOutlineRows, goalPlaceAt, goalSearch, goalTools, goalZoomOut, tabOfAddress })`, made)
 // What the page's functions answer, as this file's own objects, so deepEqual compares them by value.
 const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
@@ -251,4 +251,24 @@ test('B514: words split on spaces, in any order; a word with an s finds its goal
   assert.deepEqual(page.goalSearch(goals, 'sound').map(one => one.id), ['G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11', 'G12'])
   assert.deepEqual(page.goalSearch(goals, 'sounds arena').map(one => one.id), ['G6'])
   assert.deepEqual(page.goalSearch(goals, 'g2'), [{ id: 'G2', title: 'Check the architecture', where: 'M2 › G2' }])
+})
+
+test('F61: a goal\'s frame lists the open asks of its steps that are the person\'s (Needs your attention) or wait for its recap, whatever the focus; closed cards and other goals\' asks are not in it', () => {
+  const goals = { ...stateGoals(), nodes: stateGoals().nodes.map(node => (node.id === 'G4' ? { ...node, steps: ['B12', 'B13'] } : node.id === 'G5' ? { ...node, steps: ['B20'] } : node)) }
+  const need = (workId, of, more = {}) => ({ id: `work:${workId}`, workId, of, question: `Keep ${of}?`, title: `Keep ${of}? (cut)`, ofTitle: `Step ${of}`, pictures: [], isClosed: false, from: 'Worker 1', ...more })
+  const state = {
+    focus: { id: 'G2' },
+    goals,
+    forYou: [need('Q903', 'B13'), need('Q889', 'B12'), need('Q777', 'B20'), need('Q700', 'B12', { isClosed: true }), { id: 'wake:1', workId: 'B12', of: 'B12', title: 'a step card' }],
+    routedAway: [{ id: 'Q850', route: 'recap', goal: 'G4', of: 'B13', title: 'Below its target?', pictures: [] }, { id: 'Q851', route: 'recap', goal: 'G5', of: 'B20', title: 'other goal' }, { id: 'Q852', route: 'main', goal: 'G4', of: 'B12', title: 'with the main chat' }],
+  }
+  const g4 = goals.nodes.find(node => node.id === 'G4')
+  const rows = page.goalForYouRows(state, g4)
+  assert.deepEqual(rows.map(row => [row.id, row.stand, row.step, row.title]), [['Q850', 'recap', 'B13', 'Below its target?'], ['Q889', 'yours', 'B12', 'Keep B12?'], ['Q903', 'yours', 'B13', 'Keep B13?']])
+  assert.deepEqual(rows[1].ask, { id: 'Q889', title: 'Keep B12?', of: 'B12', ofTitle: 'Step B12', pictures: [], route: 'person' }, 'the card\'s ask, as the recap list draws one, with its route')
+  assert.equal(rows[0].ask.route, 'recap', 'a recap wait is the state\'s own object: the panel\'s buttons work on it')
+  assert.deepEqual(page.goalForYouRows(state, goals.nodes.find(node => node.id === 'G5')).map(row => row.id), ['Q777', 'Q851'])
+  assert.deepEqual(page.goalForYouRows(state, goals.nodes.find(node => node.id === 'G2')), [], 'a goal whose steps hold no ask')
+  assert.deepEqual(page.goalForYouRows(state, null), [])
+  assert.deepEqual(page.goalForYouRows({}, g4), [])
 })

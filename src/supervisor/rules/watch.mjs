@@ -14,7 +14,8 @@
 
 import { linkGoneNames, wordLanesOf } from '../../modGone.mjs'
 import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
-import { RETIRED_WATCH_RULES, givenBackFrom } from '../../work/holderTimers.mjs'
+import { SIDE_WORD } from '../../work/sideWord.mjs'
+import { RETIRED_WATCH_RULES, givenBackFrom, goOnWaitMs, isGoOnWord } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
@@ -36,6 +37,8 @@ import { isSleep, stallWords } from '../../stallWords.mjs'
 import { STOP_HANDS_MS, isHandTaken, isTaskStopWord } from '../../hands.mjs'
 import { triedWords } from '../../wake.mjs'
 import { isRethinkHold, rethinkWords } from '../../work/rethink.mjs'
+import { isFolderOf } from '../../testQueue.mjs'
+import { focusGoalsOf } from '../../stepStatus.mjs'
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -554,15 +557,21 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to) && !gone.has(message.to))) return false
   // F17: a wake's carry word is the wake record's: its attempt's verdict and the board's "could not wake" name it, never rule 8 too.
   if (isCarryWord(message)) return false
+  // B1307 (chat 1's review 4): a side word has its own end: the person's Waits late card says what became of it.
+  if (message.command === SIDE_WORD) return false
   // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
   // hold before its release (B285).
   const held = message.at + heldMs(message, view.now, view.pause)
   const since = afterPause(view, Number.isFinite(message.releasedAt) ? Math.max(held, message.releasedAt) : held)
   // B1071 (X2): a task stop by code waits STOP_HANDS_MS for the board to carry it out, then the main chat may take it: late after both.
-  const limit = isTaskStopWord(message) ? STOP_HANDS_MS + judged.limit : judged.limit
-  if (message.state === 'waiting') return view.now - since > limit && stillWaits(message)
+  // B1294 (X109): a holder's "go on" line waits for its give-back (holderTimers.mjs), which closes it: late only after that and the limit.
+  const limit = isTaskStopWord(message) ? STOP_HANDS_MS + judged.limit : isGoOnWord(message) ? goOnWaitMs(message) + judged.limit : judged.limit
+  // B1294 review 1: the give-back counts the board's running time (handoverBoard.mjs `runningMs`), so a go-on line's wait leaves
+  // the board's off time out too (a stop or PC sleep), or it is named before the give-back that closes it.
+  const waited = view.now - since - (isGoOnWord(message) ? boardOffMs(view, since) : 0)
+  if (message.state === 'waiting') return waited > limit && stillWaits(message)
   // B880: a word a hand took and still holds (its call gave no answer): named as one that waits, with the hand.
-  if (message.state === 'taken' && isHandTaken(message)) return view.now - since > limit && stillWaits(message)
+  if (message.state === 'taken' && isHandTaken(message)) return waited > limit && stillWaits(message)
   // B1164 (B1160 part 2): a set word for Main's model (the app refuses the hands' set calls) is with Main once taken or typed: left out
   // while Main's model may still do it, counted once MAIN_MODEL_SET_MS passed and the worker still does not run at it (`stillWaits`).
   if (message.forModel === true && ['taken', 'delivered'].includes(message.state)) {
@@ -573,7 +582,7 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
     const isOnIt = step !== undefined && ['queued', 'taken', 'in progress', 'waiting on you'].includes(valueOf(step, 'State')) && plain(valueOf(step, 'Owner'), view.prefix) === plain(message.about, view.prefix)
     return isOnIt && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > MAIN_MODEL_SET_MS && stillWaits(message)
   }
-  return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && view.now - since > limit && stillWaits(message)
+  return (message.state === 'expired' || isFailedForGood(message)) && view.now - message.at < UNDELIVERED_LOOK_MS && waited > limit && stillWaits(message)
 }
 
 /**
@@ -748,6 +757,25 @@ function personHold(view, held) {
   return ids.length > 0 && ids.every(id => waitsForPerson(view.items.get(id), view.items, view.held, view.now, view.recaps))
 }
 
+/** B1295: a held why that is a hold in words (guards.mjs `readyHold`: "waits for: <words>", set by work block, cleared by the partner or Main). */
+const WORDS_HOLD = /^waits for: /
+/** B1295 (chat 1's review): how long a hold in words on a fix of the focus goal is a wait on purpose (X209 lasted ~10 h). */
+export const FOCUS_WORDS_HOLD_MS = 12 * 60 * MIN
+
+/**
+ * B1295 (X209: B1159 in review behind its fix B1288, held in words by the partner on purpose, read as stuck every hour): whether a
+ * held fix waits on purpose: a hold in words (not the rethink, which `personHold` reads) on a fix whose Goal is the focus goal or
+ * a goal under it, for FOCUS_WORDS_HOLD_MS. The rule none-ready (stepStatus.mjs `noneReadyOf`) takes such a hold to the partner and
+ * Main, but only when the ready list is empty and a worker is free: on a busy board a forgotten hold would stay silent for days, so
+ * past the cap review-held judges it again (chat 1's review, 2026-11-21). Outside the focus nothing else follows it up, so
+ * review-held judges it there as before.
+ */
+function focusWordsHold(view, fixId, held) {
+  if (!WORDS_HOLD.test(held ?? '') || isRethinkHold(held) || typeof view.focus !== 'string') return false
+  const goal = valueOf(view.items.get(fixId), 'Goal')
+  return typeof goal === 'string' && focusGoalsOf(view.focus, view.goals).has(goal)
+}
+
 /** B1021: the states in which a step is with a worker that was given it or took it. */
 const MOVING = ['queued', 'taken', 'in progress']
 /** F5 verifier 3, 6: the states of the step a Touches overlap hold waits for in which the hold is a wait. */
@@ -802,6 +830,8 @@ export function holdMoves(view, held, visited = new Set()) {
  * ending in a refined fix not held) is a wait, no case; nothing is said while a limit is full (the rule does not run, so the
  * watch forgets the key and the hold counts again from the first run after it, and from the limit's reset at the earliest,
  * `limitEndOf`). A chain that stands still after the reset fires as before.
+ * B1295 (X209): nor is a hold in words ("waits for: <words>", not the rethink) on a fix of the focus goal or a goal under it, for its
+ * first 12 h (`focusWordsHold`, FOCUS_WORDS_HOLD_MS): none-ready follows it up; past the cap, or outside the focus, it is a case.
  */
 function reviewHeld(view, ctx) {
   const found = []
@@ -833,7 +863,8 @@ function reviewHeld(view, ctx) {
  * late a step in review is by what it waits for (`wait`, resultCheck.mjs `reviewWaitOf`), one judgement for the rules
  * review-stuck, dropped-fix and review-held and the health summary (health.mjs). `seenOf(key)`: since when the watch
  * first saw the key (the rules' own watch; the health summary reads the supervisor's memory), undefined for not yet. Not
- * late: the person's answer, a hold that is their open ask or a block by steps that all wait for them alone (B916), a check whose QA task a worker is at work on or that is ready or
+ * late: the person's answer, a hold that is their open ask or a block by steps that all wait for them alone (B916), a hold in words on
+ * a fix of the focus goal for its first 12 h (B1295), a check whose QA task a worker is at work on or that is ready or
  * given and not taken yet (the hand-over's to move, and the rules ready-while-free and handover-unanswered watch it), a
  * report whose check failed (the hand-over tells its worker), anything while the person pauses. Any other hold counts from when the watch first saw it, a check from when its QA task was made (T9.1.1;
  * from when it was asked, with none), a dropped fix from the drop, each from the end of the last pause at the earliest.
@@ -894,6 +925,9 @@ export function reviewLateOf(view, item, wait, seenOf = () => undefined) {
     // blocker or an ask may have cleared: B614 refined at 16:39, blocked by B623 until 19:56), and from the end of a full limit.
     const key = `review-held ${wait.end} ${wait.held.slice(0, 80)}`
     const ms = spanOf(view, seenOf, key, null, { floor: limitEndOf(view) })
+    // B1295 (X209): a hold in words on a fix of the focus goal is a wait on purpose for 12 h (none-ready follows it up while a worker is
+    // free and nothing else is ready); the key stays with the watch, so the hold's time counts on and past the cap it is a case again.
+    if (focusWordsHold(view, wait.end, wait.held) && ms <= FOCUS_WORDS_HOLD_MS) return { ...not, key, ms }
     return { ...not, late: ms > view.settings.reviewMinutes * MIN, key, ms }
   }
   return null
@@ -976,7 +1010,9 @@ const lasting = ms => (ms < HOUR ? `${minutes(ms)} min` : `${Math.floor(ms / HOU
  * person's last pause at the earliest, less the time its worker stood suspended for the limit (the review: it cannot
  * write a checkpoint meanwhile). A checkpoint from before the step's current stretch in progress (it waited on you
  * since) counts as none: the stretch counts from its start. Null when it is not late, not in progress, the person
- * pauses, a limit is full, or its worker does not work now (paused for the limit, stopped, asleep). `{ kind, step,
+ * pauses, a limit is full, or its worker does not work now (paused for the limit, stopped, asleep). B1302 (X211): also null while
+ * a run of the step's folder waits or runs in the PC's test queue (`testQueueOf`), and the quiet time counts from the last pass
+ * that saw such a run (`queueSeen` in the late record: when, after the checkpoint). `{ kind, step,
  * checkpoint, quiet }`: `step` how long it has been in progress, `quiet` how long since its last checkpoint (or since
  * the stretch began, without one).
  */
@@ -986,15 +1022,71 @@ export function checkpointLate(item, view) {
   const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
   // The asset wait: while the provider draws, the holder runs no turn and writes no checkpoint: a quiet checkpoint is no fault then.
   if (owner?.state !== 'working' || owner.heldBy === 'asset') return null
+  const stretch = stretchOf(item, view, owner)
+  if (stretch === null) return null
+  const { began, checkpoint, written, counted } = stretch
+  // B1302 (X211): the holder's test run waits its turn in the PC's one-at-a-time queue (or runs there): it writes no checkpoint
+  // meanwhile (a run waited up to 1 h 45 min), so no case; and the quiet time counts from the last pass that saw it there. The cap
+  // (queueExcuseOf): past 3 x checkpointMinutes from the last checkpoint the queue excuses nothing, so a chat that loops on test runs is reported.
+  const excused = queueExcuseOf(item, view)
+  if (excused.run !== null) return null
+  const from = Math.max(written ?? began, excused.seenAt ?? 0)
+  const quiet = counted(from)
+  // B1175 (X196): `stopped` is the time its lane stood stopped since the checkpoint (the quiet time already leaves it out).
+  const late = { step: view.now - began, checkpoint, quiet, stopped: standingStillMs(view, owner.name, afterPause(view, from)), queueSeen: excused.seenAt !== null && excused.seenAt > (written ?? began) ? excused.seenAt : null }
+  return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+}
+
+/**
+ * B1302: where a step's stretch in progress stands, for the quiet-time rule and the queue's cap: `began` (its Since), `checkpoint`, `written`
+ * (the checkpoint's time when it is from this stretch, else null) and `counted(at)` (the running time since `at`: the person's pauses, the
+ * board off and the worker's stopped time left out). Null when its Since is not a time. `owner` the worker's lane, or undefined.
+ */
+function stretchOf(item, view, owner) {
   const began = sinceMs(valueOf(item, 'Since'))
   if (!Number.isFinite(began)) return null
   const checkpoint = checkpointOf(item)
   const written = Number.isFinite(checkpoint?.at) && checkpoint.at >= began ? checkpoint.at : null
-  const counted = from => view.now - afterPause(view, from) - boardOffMs(view, afterPause(view, from)) - (owner === undefined ? 0 : standingStillMs(view, owner.name, afterPause(view, from)))
-  const quiet = counted(written ?? began)
-  // B1175 (X196): `stopped` is the time its lane stood stopped since the checkpoint (the quiet time already leaves it out).
-  const late = { step: view.now - began, checkpoint, quiet, stopped: standingStillMs(view, owner.name, afterPause(view, written ?? began)) }
-  return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+  const counted = at => view.now - afterPause(view, at) - boardOffMs(view, afterPause(view, at)) - (owner === undefined ? 0 : standingStillMs(view, owner.name, afterPause(view, at)))
+  return { began, checkpoint, written, counted }
+}
+
+/** B1302 (the review of c055ddd2): the queue excuses a quiet step for at most this many times the checkpoint limit, from its last checkpoint (or the start of its stretch). */
+const QUEUE_EXCUSE_TIMES = 3
+
+/**
+ * B1302 (X211): what the PC's test queue excuses of a step in progress: `{ run, seenAt }` (`testQueueOf`), or none (`{ run: null, seenAt: null }`)
+ * once more than QUEUE_EXCUSE_TIMES x checkpointMinutes of running time passed since its last checkpoint: a chat that runs tests again
+ * and again without a checkpoint is the loop the rule is for (the longest honest wait, 105 min in the line and 120 min of run, stays
+ * under 360 min; X211's 2 h 15 too). Capped, the queue is neither used nor shown, also while a run still goes.
+ */
+export function queueExcuseOf(item, view) {
+  const none = { run: null, seenAt: null }
+  const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
+  const stretch = stretchOf(item, view, owner)
+  if (stretch === null) return none
+  if (stretch.counted(stretch.written ?? stretch.began) > QUEUE_EXCUSE_TIMES * view.settings.checkpointMinutes * MIN) return none
+  return testQueueOf(item, view)
+}
+
+/**
+ * B1302 (X211): a step's place in the PC's test queue (tools/one-at-a-time.mjs, src/testQueue.mjs), from `view.testQueue`
+ * (`{ runs, seen }`; none without a look): `run` its run that waits or runs there now (the oldest, or null), the folder being
+ * the step's own or its Quality Assurance task's checked step's (`-b<id>`, `isFolderOf`: another step's folder is not it),
+ * and `seenAt` the last pass that saw such a run (the supervisor's memory per folder; null never).
+ */
+export function testQueueOf(item, view) {
+  const ids = [idOf(item), valueOf(item, 'Checks')]
+  const queue = view.testQueue
+  if (queue === undefined || queue === null) return { run: null, seenAt: null }
+  const run = (queue.runs ?? []).filter(one => isFolderOf(one.cwd, ids)).sort((a, b) => a.since - b.since)[0] ?? null
+  const seen = [...(queue.seen ?? new Map())].filter(([key, at]) => Number.isFinite(at) && isFolderOf(key, ids)).map(([, at]) => at)
+  return { run, seenAt: seen.length === 0 ? null : Math.max(...seen) }
+}
+
+/** B1302: how a step's test run reads in a line of words: "waits in the test queue since 10:58, 1 ahead" or "runs in the test queue since 12:25". */
+export function testQueueWords(run) {
+  return run.state === 'running' ? `its test run goes since ${clockOf(run.since)}` : `waits in the test queue since ${clockOf(run.since)}, ${run.ahead} ahead`
 }
 
 /**
@@ -1028,7 +1120,7 @@ function staleCheckpoint(view) {
       // stale checkpoint of the same step is the same case, which must not read as gone and open again.
       rule: 'stale-checkpoint', key: `stale-checkpoint ${id}`, subject: id, text,
       evidence: `in progress since ${clockOf(sinceMs(valueOf(item, 'Since')))}; ${checkpoint === null ? 'no checkpoint in its record'
-        : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}; worked ${lasting(late.quiet)} since then, stopped ${lasting(late.stopped)} meanwhile`,
+        : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}; worked ${lasting(late.quiet)} since then, stopped ${lasting(late.stopped)} meanwhile${late.queueSeen === null ? '' : `; its test run left the test queue at ${clockOf(late.queueSeen)}`}`,
     })
   }
   return found
@@ -1501,7 +1593,9 @@ function startUntaken(view) {
 
 /**
  * Signals change 4, B908 (decision 7): nobody answers the board's wake-ups: every chat that needs a wake failed on every
- * path, and the board-wide spell's launch failed too. One finding per day (the board's local date).
+ * path, and the board-wide spell's launch failed too. One finding per day (the board's local date). F59 review 4: or no hand at all
+ * answers now (`wakeNoHands`, re-check a: never a hand only in one long round): while no hand runs and the courier calls no board-wide
+ * launch goes, and each chat's own courier word and launch failed.
  */
 function nobodyAnswersWakes(view) {
   // The start-up check names the chats it could not reach in one incident of their cause: they are not a second alarm here.
@@ -1510,11 +1604,12 @@ function nobodyAnswersWakes(view) {
   // The review of 2026-11-02 (7): only the board-wide spell of now, or one that failed within a day.
   const failedAt = Math.max(...(board?.attempts ?? []).map(one => one.verdictAt).filter(Number.isFinite))
   const isNow = board !== null && ((Number.isFinite(view.wakeBoardSince) && board.spell === view.wakeBoardSince) || view.now - failedAt <= DAY)
-  if (needs.length === 0 || !needs.every(lane => lane.wake.state === 'failed' && lane.wake.final === true) || board?.state !== 'failed' || !isNow) return []
+  const boardFailed = board?.state === 'failed' && isNow
+  if (needs.length === 0 || !needs.every(lane => lane.wake.state === 'failed' && lane.wake.final === true) || !(boardFailed || view.wakeNoHands === true)) return []
   return [{
     rule: 'nobody-answers-wakes', key: `nobody-answers-wakes ${dayOfMs(view.now)}`, subject: 'board',
-    text: `nobody answers the board's wake-ups: ${needs.map(lane => lane.name).join(', ')} could not be woken, and the launch when nobody ran failed`,
-    evidence: [`the board-wide launch: ${triedWords(board.attempts ?? [], clockOf).join('; ') || board.why || 'failed'}`, ...needs.map(lane => `${lane.name}: ${triedWords(lane.wake.attempts ?? [], clockOf).join('; ') || lane.wake.why}`)].join(' · '),
+    text: `nobody answers the board's wake-ups: ${needs.map(lane => lane.name).join(', ')} could not be woken, and ${boardFailed ? 'the launch when nobody ran failed' : 'no chat\'s hands run'}`,
+    evidence: [...(boardFailed ? [`the board-wide launch: ${triedWords(board.attempts ?? [], clockOf).join('; ') || board.why || 'failed'}`] : ['no hand that may send claims']), ...needs.map(lane => `${lane.name}: ${triedWords(lane.wake.attempts ?? [], clockOf).join('; ') || lane.wake.why}`)].join(' · '),
   }]
 }
 

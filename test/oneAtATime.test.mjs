@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_SLOTS, aheadOf, pidRuns, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
+import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'heavy-run-test-'))
@@ -116,9 +116,10 @@ test('F14: a first-class run (HEAVY_RUN_FIRST=1, a landing\'s gate) goes ahead o
   assert.ok(Number(one.out) <= Number(two.out), 'the ordinary runs keep their order')
   assert.match(three.err, /one-at-a-time: gate runs now \(waited \d+ s\)/)
   assert.match(one.err, /one-at-a-time: first runs now \(waited \d+ s\)/)
-  // The pure order: a first-class ticket counts only earlier first-class ones; an ordinary one every earlier ticket and every first-class one.
-  const order = [{ name: 'a', first: false }, { name: 'b', first: false }, { name: 'c', first: true }, { name: 'd', first: true }]
-  assert.deepEqual([aheadOf(order, 'c', true), aheadOf(order, 'd', true), aheadOf(order, 'a', false), aheadOf(order, 'b', false)], [0, 1, 2, 3])
+  // The pure order (F39): tickets a few seconds apart, the two first-class ones go before the ordinary ones that came just before.
+  const name = (seconds) => `${String(Date.parse('2026-11-21T10:00:00Z') + seconds * 1000).padStart(15, '0')}-00000001.json`
+  const order = [{ name: name(0), first: false }, { name: name(1), first: false }, { name: name(2), first: true }, { name: name(3), first: true }]
+  assert.deepEqual([aheadOf(order, name(2), true), aheadOf(order, name(3), true), aheadOf(order, name(0), false), aheadOf(order, name(1), false)], [0, 1, 2, 3])
 })
 
 test('it says who it waits for once in a while, not at every look', async () => {
@@ -139,7 +140,8 @@ test('a lock whose process is gone, that is too old or that cannot be read is ta
   const gone = spawnSync(process.execPath, ['-e', '0']).pid
   const cases = {
     'its process is gone': lockText({ pid: gone }),
-    'it is older than 45 minutes': lockText({ startedAt: new Date(Date.now() - 46 * 60 * 1000).toISOString() }),
+    'it is older than 75 minutes and does not beat': lockText({ startedAt: new Date(Date.now() - 76 * 60 * 1000).toISOString() }),
+    'its beat is older than 5 minutes': lockText({ startedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(), beat: new Date(Date.now() - 6 * 60 * 1000).toISOString() }),
     'an empty file': '',
     'a file of zeros': '\0'.repeat(120),
     'text that is not JSON': 'half a lock {"pid": ',
@@ -149,10 +151,12 @@ test('a lock whose process is gone, that is too old or that cannot be read is ta
     await t.test(name, async () => {
       const lock = newLock()
       writeFileSync(lock, text)
-      const result = await start(lock, 'taker', quick).done
+      // F39, review: a live holder with an old beat is freed after two beats of the waiter's clock (100 ms beats here).
+      const result = await start(lock, 'taker', quick, { HEAVY_RUN_BEAT_MS: '100' }).done
       assert.equal(result.code, 0)
       assert.match(result.out, /ran/)
-      assert.doesNotMatch(result.err, /waiting for/)
+      // F39, review: an old beat of a live holder waits two beats first; the others are taken at once.
+      if (name !== 'its beat is older than 5 minutes') assert.doesNotMatch(result.err, /waiting for/)
       assert.equal(existsSync(lock), false)
     })
   }
@@ -233,14 +237,54 @@ test('a signal while waiting ends the wait and leaves the other run its lock', a
   assert.equal(readFileSync(lock, 'utf8'), text)
 })
 
-test('whyStale: a lock is stale when it cannot be read, its process is gone, or it is older than 45 minutes', () => {
+test('whyStale: a lock is stale when it cannot be read, its process is gone, its beat is older than 5 minutes, or (no beat) older than 75 minutes', () => {
   const now = Date.parse('2026-10-25T12:00:00Z')
-  const info = (minutesAgo) => ({ pid: 4242, label: 'x', cwd: 'y', startedAt: new Date(now - minutesAgo * 60000).toISOString() })
+  const info = (minutesAgo, beatAgo = null) => ({ pid: 4242, label: 'x', cwd: 'y', startedAt: new Date(now - minutesAgo * 60000).toISOString(), ...(beatAgo === null ? {} : { beat: new Date(now - beatAgo * 60000).toISOString() }) })
   assert.equal(whyStale(info(10), now, () => true), null)
-  assert.equal(whyStale(info(44), now, () => true), null)
-  assert.match(whyStale(info(46), now, () => true), /older than 45 minutes/)
+  assert.equal(whyStale(info(74), now, () => true), null)
+  assert.match(whyStale(info(76), now, () => true), /older than 75 minutes and does not beat/)
   assert.match(whyStale(info(1), now, () => false), /process is gone/)
   assert.match(whyStale(null, now, () => true), /cannot be read/)
+  // F39, the real case (2026-11-21 12:05): a gate past 45 and past 60 minutes, alive and beating, keeps its slot.
+  assert.equal(whyStale(info(46, 1), now, () => true), null)
+  assert.equal(whyStale(info(61, 0.5), now, () => true), null)
+  assert.equal(whyStale(info(125, 4), now, () => true), null, 'beating: past the gate clock, up to the cap (review 5)')
+  assert.match(whyStale(info(20, 6), now, () => true), /beat is older than 5 minutes/)
+  assert.match(whyStale(info(61, 1), now, () => false), /process is gone/, 'a dead holder frees it at once')
+  assert.equal(BEAT_STALE_MS, 5 * 60 * 1000)
+})
+
+test('F39: the age rule for a lock without a beat is longer than land.ps1\'s gate clock', () => {
+  const land = readFileSync(new URL('../tools/land.ps1', import.meta.url), 'utf8')
+  const gate = Number(land.match(/\$gateMinutes = \[double\](\d+)/)[1])
+  assert.ok(MAX_AGE_MS > gate * 60 * 1000, `${MAX_AGE_MS / 60000} min > ${gate} min`)
+})
+
+test('F39: the real case of 2026-11-21 replayed: a first-class ticket counts 30 minutes earlier, so a worker waiting 30+ minutes goes before a later landing', () => {
+  const at = (hhmm) => Date.parse(`2026-11-21T${hhmm}:00Z`)
+  const ticket = (hhmm, label, first = false) => ({ name: `${String(at(hhmm)).padStart(15, '0')}-${String(label.length).padStart(8, '0')}.json`, first, label })
+  const tickets = [
+    ticket('10:30', 'Worker 3 B1294'), ticket('10:48', 'Worker 1 B1300'), ticket('10:58', 'Worker 5 B1279'), ticket('11:20', 'Worker 4 B1295'),
+    ticket('10:33', 'land B1283', true), ticket('10:54', 'land A2', true), ticket('11:10', 'land A1/A3/A4', true), ticket('11:11', 'land A7', true),
+  ]
+  assert.deepEqual(queueOrder(tickets).map((one) => one.label), [
+    'land B1283', 'land A2', 'Worker 3 B1294', 'land A1/A3/A4', 'land A7', 'Worker 1 B1300', 'Worker 5 B1279', 'Worker 4 B1295',
+  ])
+  // Today's rule put all four landings first: Worker 3, there since 10:30, would have waited for the landing of 11:11 too.
+  assert.ok(aheadOf(tickets, tickets[0].name, false) < aheadOf(tickets, tickets[6].name, true), 'Worker 3 (40 min) before the landing of 11:10')
+  assert.equal(FIRST_LEAD_MS, 30 * 60 * 1000)
+  // The same order for every run: each one's place is its index in the one order.
+  for (const [n, one] of queueOrder(tickets).entries()) assert.equal(aheadOf(tickets, one.name, one.first), n)
+})
+
+test('F39: the holder beats while its command runs, and gives the lock back after', async () => {
+  const lock = newLock()
+  const run = start(lock, 'beating', node('setTimeout(() => {}, 1500)'), { HEAVY_RUN_BEAT_MS: '200' })
+  const seen = await until(() => existsSync(lock) && JSON.parse(readFileSync(lock, 'utf8')), 'the lock')
+  const firstBeat = seen.beat
+  await until(() => { try { const now = JSON.parse(readFileSync(lock, 'utf8')); return now.beat !== firstBeat && now } catch { return false } }, 'a newer beat', 5000)
+  assert.equal((await run.done).code, 0)
+  assert.equal(existsSync(lock), false)
 })
 
 test('npm test runs through the helper, and the README says that the tests wait their turn', () => {
@@ -350,4 +394,103 @@ test('a landing\'s gate waits in the same queue: land.ps1 gates with npm test, w
   assert.doesNotMatch(land, /HEAVY_RUN_(HELD|LOCK|SLOTS)/, 'the landing never skips or moves the queue')
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.match(pkg.scripts.test, /^node tools\/one-at-a-time\.mjs /)
+})
+
+test('logs every run beside the lock: its label, folder, wait, run time, exit code and first-class word, but not a run held by another (2026-11-23)', async () => {
+  const lock = newLock()
+  const first = start(lock, 'gate', node('setTimeout(() => process.exit(3), 700)'))
+  await until(() => existsSync(lock), 'the first run to take the lock')
+  assert.equal((await start(lock, 'landing', quick, { HEAVY_RUN_FIRST: '1' }).done).code, 0)
+  assert.equal((await first.done).code, 3)
+  assert.equal((await start(lock, 'inner', quick, { HEAVY_RUN_HELD: '1' }).done).code, 0)
+  const lines = readFileSync(`${lock}.runs.jsonl`, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  assert.deepEqual(lines.map((one) => [one.label, one.exit, one.first, one.stopped]), [['gate', 3, false, null], ['landing', 0, true, null]])
+  assert.equal(lines[1].cwd, process.cwd())
+  assert.equal(typeof lines[1].waitedS, 'number')
+  assert.equal(typeof lines[1].ranS, 'number')
+})
+
+// F39, chat 1's review (2026-11-21).
+const ticketName = (ms, pid = process.pid) => `${String(ms).padStart(15, '0')}-${String(pid).padStart(8, '0')}.json`
+
+test('F39 review, blocker 1: an old copy\'s ordinary ticket goes after every first-class one, so old and new copies never wait for each other', async () => {
+  const now = Date.parse('2026-11-21T11:00:00Z')
+  const old = { name: ticketName(now - 40 * 60000), first: false, fair: false }
+  const landing = { name: ticketName(now), first: true, fair: true }
+  const worker = { name: ticketName(now - 40 * 60000 + 1), first: false, fair: true }
+  assert.deepEqual(queueOrder([old, landing, worker]).map((one) => one.name), [worker.name, landing.name, old.name])
+  // The live case: an unmarked ticket of a living process, 40 minutes older than a new landing: the landing runs at once.
+  const lock = newLock()
+  mkdirSync(`${lock}.queue`)
+  writeFileSync(join(`${lock}.queue`, ticketName(Date.now() - 40 * 60000)), lockText({ startedAt: new Date(Date.now() - 40 * 60000).toISOString() }))
+  const gate = await start(lock, 'gate', quick, { HEAVY_RUN_FIRST: '1' }).done
+  assert.equal(gate.code, 0)
+  assert.doesNotMatch(gate.err, /waiting for/)
+  assert.equal(ORDER_MARK, 2)
+})
+
+test('F39 review 3: each beat moves startedAt too (old copies judge by it), and since keeps when the slot was taken', async () => {
+  const lock = newLock()
+  const run = start(lock, 'beating', node('setTimeout(() => {}, 1500)'), { HEAVY_RUN_BEAT_MS: '200' })
+  const first = await until(() => existsSync(lock) && JSON.parse(readFileSync(lock, 'utf8')), 'the lock')
+  const later = await until(() => { try { const now = JSON.parse(readFileSync(lock, 'utf8')); return now.beat !== first.beat && now } catch { return false } }, 'a newer beat', 5000)
+  assert.equal(later.since, first.since)
+  assert.equal(later.startedAt, later.beat)
+  assert.notEqual(later.startedAt, first.startedAt)
+  assert.equal(later.order, ORDER_MARK)
+  assert.equal((await run.done).code, 0)
+})
+
+test('F39 review 4: a live holder with an old beat (the PC slept) is not freed before two beats of the waiter\'s clock, nor while its lock changes', async () => {
+  const lock = newLock()
+  const stale = () => lockText({ since: new Date(Date.now() - 20 * 60000).toISOString(), beat: new Date(Date.now() - 6 * 60000).toISOString() })
+  writeFileSync(lock, stale())
+  const began = Date.now()
+  const waiter = start(lock, 'after the sleep', quick, { HEAVY_RUN_BEAT_MS: '600' })
+  // The holder beats again (its text changes) twice within the waiter's two beats: the waiter keeps waiting.
+  await new Promise((done) => setTimeout(done, 500))
+  writeFileSync(lock, stale())
+  await new Promise((done) => setTimeout(done, 500))
+  writeFileSync(lock, stale())
+  const result = await waiter.done
+  assert.equal(result.code, 0)
+  assert.ok(Date.now() - began >= 2000, `freed only after its lock stayed the same for two beats (${Date.now() - began} ms)`)
+})
+
+test('F39 review 5: a run is stopped at the cap (HEAVY_RUN_MAX_MS) with code 124 and gives the slot back; a lock past the cap is stale', async () => {
+  const lock = newLock()
+  const result = await start(lock, 'hangs', node('setTimeout(() => {}, 60000)'), { HEAVY_RUN_MAX_MS: '800' }).done
+  assert.equal(result.code, 124)
+  assert.match(result.err, /one-at-a-time: hangs ran longer than 0 minutes and was stopped/)
+  assert.equal(existsSync(lock), false)
+  const now = Date.parse('2026-11-21T12:00:00Z')
+  const held = (minutes) => ({ pid: 1, label: 'x', cwd: 'y', since: new Date(now - minutes * 60000).toISOString(), startedAt: new Date(now).toISOString(), beat: new Date(now).toISOString() })
+  assert.equal(whyStale(held(125), now, () => true), null)
+  assert.match(whyStale(held(131), now, () => true), /held the slot for over 130 minutes/)
+  assert.equal(HOLD_MAX_MS, 120 * 60000)
+})
+
+test('F39 review 6: a ticket with an old beat (a reused pid), or an old copy\'s older than 3 hours, does not hold up the queue', async () => {
+  for (const over of [{ order: 2, beat: new Date(Date.now() - 6 * 60000).toISOString() }, { startedAt: new Date(Date.now() - 4 * 60 * 60000).toISOString() }]) {
+    const lock = newLock()
+    mkdirSync(`${lock}.queue`)
+    writeFileSync(join(`${lock}.queue`, ticketName(1)), lockText(over))
+    const result = await start(lock, 'after it', quick).done
+    assert.equal(result.code, 0)
+    assert.doesNotMatch(result.err, /waiting for/)
+  }
+  assert.equal(TICKET_MAX_AGE_MS, 3 * 60 * 60000)
+})
+
+test('F39, the re-check: a waiter whose queue folder is removed makes it again and still runs', async () => {
+  const lock = newLock()
+  writeFileSync(lock, lockText())
+  const waiter = start(lock, 'patient', quick)
+  await until(() => /waiting for/.test(waiter.err), 'the waiter waiting')
+  rmSync(`${lock}.queue`, { recursive: true, force: true })
+  await until(() => existsSync(`${lock}.queue`), 'the queue folder made again', 5000)
+  rmSync(lock)
+  const result = await waiter.done
+  assert.equal(result.code, 0)
+  assert.match(result.out, /ran/)
 })

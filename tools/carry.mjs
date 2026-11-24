@@ -19,10 +19,11 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { loadConfig, transcriptsOf, workFolder } from '../src/config.mjs'
+import { expandEnv, loadConfig, settingsFileOf, transcriptsOf, workFolder } from '../src/config.mjs'
+import { chatFile, chatHomeOf, dataOf } from '../src/projectPaths.mjs'
 import { boardsFile, readBoards, readOwnPort, whoseBoard } from '../src/ports.mjs'
 import { LIST_SCRIPT, keepersOf, parseProcessList, powershell } from '../src/keeperStart.mjs'
-import { lockHolder } from '../src/landing.mjs'
+import { landingRestarts, lockHolder } from '../src/landing.mjs'
 import { userCodexHome } from '../src/codex.mjs'
 import { readKey } from '../src/providers/elevenlabs-key.mjs'
 import { gitRunner, line } from '../src/carry/git.mjs'
@@ -50,7 +51,11 @@ export function parseArgs(argv) {
   return { command, flags, anyway }
 }
 
-/** The roots of this board folder: its config (or the first load's --project and --game), store, data, memory, settings. */
+/**
+ * The roots of this board folder: its config (or the first load's --project and --game), store, data, memory, settings. T5.2 A8: and the
+ * two homes the table knows, `chatHome` (the chats' folder: the home files, the memory, the bridge key) and `dataHome` (config `data`,
+ * null today: the store and the goal map), so what travels and where it goes back follow the settings.
+ */
 export async function rootsOf({ boardDir = HERE, flags = {}, env = process.env, git }) {
   const configFile = join(boardDir, 'config.json')
   const hasConfig = await access(configFile).then(() => true, () => false)
@@ -58,8 +63,36 @@ export async function rootsOf({ boardDir = HERE, flags = {}, env = process.env, 
   if (hasConfig) config = await loadConfig(configFile, env)
   else if (flags.project && flags.game) config = { project: resolve(flags.project), gameRepo: resolve(flags.game), work: '.claude/work', pictureRoots: ['pictures'], gamePlan: 'docs/game-plan.md', productPlan: 'docs/product-plan.md' }
   else throw new Error(`${configFile} is missing: on a first load say --project <folder> and --game <folder>`)
-  const project = config.project
-  const gameRepo = config.gameRepo || project
+  // Round 3, review 1: an empty project would resolve to the board folder (a save of the board's own files): refused before any git call.
+  if (typeof config.project !== 'string' || config.project.trim() === '') throw new Error(`${configFile} names no project: say "project" in it (the folder of the game's chats and store) before a save or load`)
+  // The settings file's place comes from config.json's OWN `data` (review 2: loadConfig names it only once the file exists).
+  const rawConfig = hasConfig ? JSON.parse((await readFile(configFile, 'utf8')).replace(/^\uFEFF/, '')) ?? {} : null
+  // Round 3, review 8: `data` and `chatHome` are trimmed and %VAR%-filled as settingsFileOf does; one whose %VAR% this PC does not set
+  // is refused (it would name a folder called %VAR%).
+  const homeSetting = key => {
+    const raw = rawConfig?.[key]
+    if (typeof raw !== 'string' || raw.trim() === '') return null
+    const value = expandEnv(raw.trim(), env)
+    const unset = /%[^%\\/]+%/.exec(value)
+    if (unset !== null) throw new Error(`${configFile} ${key} names ${unset[0]}, which is not set on this PC`)
+    return value
+  }
+  const chatHomeSet = homeSetting('chatHome')
+  const dataSet = homeSetting('data')
+  // Review 5 and a: the homes are made absolute ONCE, from the board folder (config.json's), never from the working folder, and every
+  // root follows the placed config: the store, the bridge key, the pictures and assets (the table reads config), the memory (the transcripts
+  // of the chat home). A first load (no config.json) has the two flags' folders, absolute already.
+  const chatHome = resolve(boardDir, chatHomeSet ?? config.project.trim())
+  const dataHome = dataSet === null ? null : resolve(boardDir, dataSet)
+  const rawHasTranscripts = typeof rawConfig?.transcripts === 'string' && rawConfig.transcripts.trim() !== ''
+  // Review 8: an explicit relative transcripts or picturesHome is the board folder's too.
+  const placed = {
+    ...config, project: resolve(boardDir, config.project.trim()), gameRepo: resolve(boardDir, (config.gameRepo || config.project).trim()), chatHome, data: dataHome ?? '',
+    transcripts: rawHasTranscripts ? resolve(boardDir, config.transcripts.trim()) : transcriptsOf(chatHome, env),
+    picturesHome: typeof config.picturesHome === 'string' && config.picturesHome.trim() !== '' ? resolve(boardDir, config.picturesHome.trim()) : '',
+  }
+  const project = placed.project
+  const gameRepo = placed.gameRepo
   const dataDir = flags.data ? resolve(flags.data) : join(gameRepo, '.workerboard')
   const isExplicitData = Boolean(flags.data)
   const remote = flags.remote ?? line(await git(gameRepo, ['remote', 'get-url', 'origin']))
@@ -67,14 +100,20 @@ export async function rootsOf({ boardDir = HERE, flags = {}, env = process.env, 
   const recordFile = recordFileFor({ boardDir, dataDir, isExplicit: isExplicitData })
   const record = await readRecord(recordFile, fs)
   // T5.2 A7: the pictures home config.json names for this PC (setup's pictures question), else the record's.
-  const picturesFolder = flags.pictures ? resolve(flags.pictures) : typeof config.picturesHome === 'string' && config.picturesHome !== '' ? config.picturesHome : record.picturesHome
+  const picturesFolder = flags.pictures ? resolve(flags.pictures) : placed.picturesHome !== '' ? placed.picturesHome : record.picturesHome
   const keepSetFile = flags['keep-set'] ? resolve(flags['keep-set']) : record.keepSet
-  const memoryDir = join(transcriptsOf(project, env), 'memory')
+  const projectSettingsFile = rawConfig === null ? null : settingsFileOf(rawConfig, boardDir, env)
+  const memoryDir = join(placed.transcripts, 'memory')
+  const bridgeFile = chatFile(placed, 'board.json')
   const userSettingsFile = join(homedir(), '.claude', 'settings.json')
-  return { boardDir, project, config: hasConfig ? config : null, configGiven: config, gameRepo, workDir: workFolder(config), dataDir, isExplicitData, remote, picturesFolder, keepSetFile, memoryDir, userSettingsFile, recordFile }
+  return { boardDir, project, chatHome, dataHome, bridgeFile, projectSettingsFile, config: hasConfig ? placed : null, configGiven: placed, gameRepo, workDir: workFolder(placed), dataDir, isExplicitData, remote, picturesFolder, keepSetFile, memoryDir, userSettingsFile, recordFile }
 }
 
-/** The boards of `project` that answer: the PC's list (boards.json) and this folder's own data/port.json, each asked whose it is. */
+/**
+ * The boards of `project` that answer: the PC's list (boards.json) and this folder's own data/port.json, each asked whose it is. Round 3,
+ * review 3: the board registers in the list, answers /api/board and writes its board.json by its CHAT home, so the carry commands ask
+ * with roots.chatHome (the project folder today).
+ */
 export async function boardsAnswering({ project, boardDir, env = process.env }) {
   const ports = new Set()
   for (const board of await readBoards(boardsFile(env))) if (board.project.toLowerCase() === project.toLowerCase()) ports.add(board.port)
@@ -96,10 +135,10 @@ export async function keepersHere(boardDir) {
   return keepersOf(listed.processes, boardDir)
 }
 
-/** The secret values that must never travel: the bridge key, the Codex token, the ElevenLabs key. `[{ kind, value }]`. */
-export async function secretsOf({ project, env = process.env }) {
+/** The secret values that must never travel: the bridge key (its file in the chat home, `bridgeFile`), the Codex token, the ElevenLabs key. `[{ kind, value }]`. */
+export async function secretsOf({ bridgeFile, env = process.env }) {
   const out = []
-  const bridge = await readFile(join(project, '.claude', 'board.json'), 'utf8').catch(() => null)
+  const bridge = typeof bridgeFile !== 'string' || bridgeFile === '' ? null : await readFile(bridgeFile, 'utf8').catch(() => null)
   if (bridge !== null) for (const value of secretValuesOf({ texts: [bridge] })) out.push({ kind: 'bridge key', value })
   const codex = await readFile(join(userCodexHome(env), 'auth.json'), 'utf8').catch(() => null)
   if (codex !== null) for (const value of secretValuesOf({ texts: [codex] })) out.push({ kind: 'Codex token', value })
@@ -172,10 +211,11 @@ export async function main(argv) {
   const journal = journalTo(flags.journal)
   const deps = {
     git, set, pictures, fs, recordFile: roots.recordFile,
-    boardAnswers: () => boardsAnswering({ project: roots.project, boardDir: roots.boardDir }),
+    boardAnswers: () => boardsAnswering({ project: roots.chatHome, boardDir: roots.boardDir }),
     keepers: () => keepersHere(roots.boardDir),
-    lockAgeMs: async () => lockHolder(join(roots.boardDir, 'data', 'landing.lock'))?.ageMs ?? null,
-    secrets: () => secretsOf({ project: roots.project }),
+    // F39, review 7: only a landing in its 'land' phase whose process runs.
+    lockAgeMs: async () => { const held = lockHolder(join(roots.boardDir, 'data', 'landing.lock')); return landingRestarts(held, { staleMs: Infinity }) ? held.ageMs : null },
+    secrets: () => secretsOf({ bridgeFile: roots.bridgeFile }),
     driveFree: freeBytes,
     lacks: () => lacksOf({ gameRepo: roots.gameRepo, git }),
   }

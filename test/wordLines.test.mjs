@@ -43,7 +43,7 @@ const taken = (command, more = {}) => sentWord(command, { state: 'delivered', ta
 // The server: the commands are tracked
 
 test('every word the Focus and Goals pages send is a person\'s word with a place of its own: Sent, then Picked up, then Done by P3\'s general rule', () => {
-  assert.deepEqual(FOCUS_COMMANDS, ['focus', 'vibe-agreed', 'vibe-there-yes', 'vibe-there-no', 'goal-recheck', 'goal-demo', 'done-when', 'undo'])
+  assert.deepEqual(FOCUS_COMMANDS, ['focus', 'backup', 'vibe-agreed', 'vibe-there-yes', 'vibe-there-no', 'goal-recheck', 'goal-demo', 'done-when', 'undo'])
   const advisor = lane('Advisor')
   const base = { chats: [], supervisorChat: null, advisor }
   for (const command of FOCUS_COMMANDS) {

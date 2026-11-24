@@ -54,12 +54,13 @@ export const newestSender = claims => [...claims.values()].reduce((best, claim) 
  * Whether the hands are gone: no chat that may send (T14) claimed them (`claims`, the server's `codeClaims`, `{ at, can,
  * mod }` by name) within HANDS_GONE_MS. A board younger than that has heard no claim yet from chats that run: then a call
  * of any chat since its start (`calls`, the bridge's `seen.shown`, time by name) says one runs, and the minute's check
- * decides. Signals change 4: "no sender claims", the wake procedure's fact for its order (decision 8).
+ * decides. Signals change 4: "no sender claims", the wake procedure's fact for its order (decision 8). F59 review 2: `quietMs` another
+ * quiet (src/wakeCarry.mjs NO_HANDS_MS: "no hands" for the courier's words).
  */
-export function handsGone({ claims = new Map(), now, startedAt = -Infinity, calls = {} }) {
+export function handsGone({ claims = new Map(), now, startedAt = -Infinity, calls = {}, quietMs = HANDS_GONE_MS }) {
   const newest = newestSender(claims)
-  if (now - newest < HANDS_GONE_MS) return false
-  if (now - startedAt >= HANDS_GONE_MS) return true
+  if (now - newest < quietMs) return false
+  if (now - startedAt >= quietMs) return true
   return !Object.values(calls ?? {}).some(at => Number.isFinite(at) && at >= startedAt)
 }
 

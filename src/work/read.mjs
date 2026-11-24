@@ -8,7 +8,7 @@ import { isHeld } from './askHold.mjs'
 import { askPartsOf } from './askWords.mjs'
 import { DEFAULT_FLOW, nextMoves, statesOf } from './flow.mjs'
 import { isFix, valueOf } from './item.mjs'
-import { withLinks } from './links.mjs'
+import { linksOf, withLinks } from './links.mjs'
 import { migrateBacklog } from './migrate.mjs'
 import { stepWaitsForPartner } from './partnerAnswers.mjs'
 import { effortOf, modelOf } from './effort.mjs'
@@ -160,7 +160,8 @@ export function itemOfStep(work, key) {
     // Your words (2026-10-30): the person's answers, rejections and notes on it, each with what it answered, oldest first.
     yourWords: yourWordsOf(item),
     // Rule 15: the asks held for the person's words stand on no list of theirs; the step's window shows them with their hold line.
-    heldAsks: [...work.items.values()].filter(one => isHeld(one) && valueOf(one, 'Of') === id).map(one => ({ id: valueOf(one, 'Id'), title: askPartsOf(one).title, line: (one.sections.get('Route') ?? []).map(row => row.trim()).filter(row => row.startsWith('held from')).at(-1) ?? 'held for the person’s words' })),
+    // F46: from the rebuild's one index of the asks by their `Of` (work/links.mjs, in the store's order); outside a rebuild, a scan.
+    heldAsks: (linksOf(work.items) === null ? [...work.items.values()] : linksOf(work.items).asks.get(id) ?? []).filter(one => isHeld(one) && valueOf(one, 'Of') === id).map(one => ({ id: valueOf(one, 'Id'), title: askPartsOf(one).title, line: (one.sections.get('Route') ?? []).map(row => row.trim()).filter(row => row.startsWith('held from')).at(-1) ?? 'held for the person’s words' })),
     // The calm window's three lines (Context, Problem, Solution): the step's ## Context lines, and its ## Refined block as written.
     context: section('Context').filter(one => !/^\(the refine block stands/i.test(one)), refinedLines: section('Refined'),
   }

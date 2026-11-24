@@ -43,6 +43,7 @@ import { EFFORTS, MODEL_ID } from './work/effort.mjs'
 import { RESTART_COMMAND } from './work/modRollout.mjs'
 import { ownerFirst } from './talkPartner.mjs'
 import { DOUBT_MS, isInDoubt } from './store.mjs'
+import { SIDE_WORD } from './work/sideWord.mjs'
 
 export { DOUBT_MS, isInDoubt }
 
@@ -203,11 +204,14 @@ export function workerNames(state) {
 /**
  * A word of the outbox that is a hand's to send: a start or a wake, (T14) for a chat that `canSend` (`maySend`; true
  * unless told); (B755) for a chat that `canSet`, a set word code may set (`setOf`); (B766) for one that `canRestart`, a
- * restart for a new mod of one of the `workers`; for one that `canSpawn`, a word for a new worker.
+ * restart for a new mod of one of the `workers`; for one that `canSpawn`, a word for a new worker. B1394: `isFull` (a limit is
+ * full): a side word stays where it is, as it would start a model turn past the person's stop line.
  */
-export function isHandWord(message, { canSend = true, canSet = false, canRestart = false, canSpawn = false, workers = null } = {}) {
+export function isHandWord(message, { canSend = true, canSet = false, canRestart = false, canSpawn = false, workers = null, isFull = false } = {}) {
   // B1160 part 2 (chat 1's decision 4): a set word meant for Main's model (the app refuses a plugin's own set call) is never a hand's.
   if (message?.forModel === true) return false
+  // B1307 (F40): the board's one word to a side chat about a late wait on it, by its app id.
+  if (message?.command === SIDE_WORD) return canSend && !isFull && isSideJob(message)
   if (canSpawn && message?.command === 'spawn') return true
   if (typeof message?.about !== 'string') return false
   if (canSend && HAND_COMMANDS.includes(message.command)) return true
@@ -222,6 +226,8 @@ export function isHandWord(message, { canSend = true, canSet = false, canRestart
  */
 export const isForHandsYet = (message, now, workers = null) =>
   (HAND_COMMANDS.includes(message?.command) && typeof message?.about === 'string')
+  // B1307: a side word is never a model turn's: a hand sends it, or it is given up after SIDE_HAND_MS (the card then comes at once).
+  || message?.command === SIDE_WORD
   || (isHandWord(message, { canSend: true, canSet: true, canRestart: true, canSpawn: true, workers }) && now - message.at < HANDS_FIRST_MS)
   || (isTaskStopWord(message) && now - message.at < STOP_HANDS_MS)
 
@@ -309,6 +315,12 @@ export function handJobs({ caller, taken = [], lanes = [], now, spawn = null, us
       spawning = true
       continue
     }
+    // B1307 (F40): a side word goes to the side chat's own app id, which it carries (work/sideWord.mjs); never to the caller.
+    if (message.command === SIDE_WORD) {
+      if (canSend && isSideJob(message) && message.session !== callerSession(lanes, caller)) jobs.push({ id: message.id, to: message.session, chat: message.about, text: message.text })
+      else back.push(message.id)
+      continue
+    }
     const lane = laneOf(message.about)
     // B986 (X140): the chat its reports name (ownChat.mjs), never the one its title matches; none when not in the app's list.
     const ids = wakeIdsOf(lane)
@@ -328,6 +340,15 @@ export function handJobs({ caller, taken = [], lanes = [], now, spawn = null, us
   // The Product owner (2026-10-31: the person never waits for a talk): its start, wake and resume go before every other job.
   return { jobs: ownerFirst(jobs, first), back }
 }
+
+/**
+ * B1307: whether a side word is a job a hand may send: its app id and text. Chat 1's review 2: never one given back in doubt (`doubtAt`:
+ * its call gave no answer, so it may have landed): a late answer settles it, or the board gives it up and the card comes.
+ */
+const isSideJob = message => isAppId(message?.session) && typeof message?.text === 'string' && message.text !== '' && typeof message?.about === 'string' && !Number.isFinite(message.doubtAt)
+
+/** The caller's own app id among the lanes, or null. */
+const callerSession = (lanes, caller) => lanes.find(lane => lane.name === caller)?.appSession ?? null
 
 /** A spawn word's own routine (`routine`: `{ title, tasks }`, the Product owner's), read safely; null for a worker's spawn. */
 function routineOf(message) {

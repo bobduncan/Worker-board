@@ -413,7 +413,8 @@ foreground call dies after two to ten (DESIGN.md, "Going live: tools/land.ps1").
 such a `work ask` is refused): a step ready to land is told to chat 1 (board dev), which asks the user for their own yes and gives the go.
 A worker that waits for another chat records it (`work block id=B<n> on="chat 1" why="..."`, P1 of the one wait system, 2026-11-09): its
 lane says "waits for chat 1 (its go to land) since HH:MM", the board sends it no "go on" line and gives nothing back; past 90 minutes of
-running time the user sees one Late. You, the holder or the user clear it with `work unblock B<n>`; when you give such a chat its go,
+running time the user sees one Late (a wait on a side chat: the board first sends that chat one word itself and the Late comes only
+30 minutes later if it still waits, B1307; you carry nothing). You, the holder or the user clear it with `work unblock B<n>`; when you give such a chat its go,
 say "unblock first". A wait for the landing ends by itself when its branch lands (F33, B1256): the board clears it with a History line
 and tells the owner once to report it; you need not relay "it's live, report it".
 A step nobody holds yet (new, refined or queued with no owner) that waits on purpose gets a hold in words

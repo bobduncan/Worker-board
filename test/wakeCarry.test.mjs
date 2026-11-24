@@ -163,7 +163,9 @@ test('a carried wake\'s windows: a carrier\'s 10 min; the courier\'s 15 min unta
   assert.equal(nextPath(two, { chat: 'Digger', spell: 1, senderClaims: true, paths: ['message', 'launch'] }), 'launch')
   const untaken = emptyWakes()
   claim(untaken, { chat: 'Digger', spell: 1, path: 'message', by: COURIER, jobId: 'c', now: NOW, paths: ['message'], carry: 'courier' })
-  assert.equal(pass(untaken, NOW + 15 * MIN).length, 1)
+  // F59 review 6: untaken it waits as long as the board counts on the courier (25 minutes): one missed run spends no try.
+  assert.equal(pass(untaken, NOW + 24 * MIN).length, 0)
+  assert.equal(pass(untaken, NOW + 25 * MIN).length, 1)
   // A hand's attempt keeps its own 3 minutes.
   const hand = emptyWakes()
   claim(hand, { chat: 'Digger', spell: 1, path: 'message', by: 'Worker 1', jobId: 'h', now: NOW, paths: ['message'] })

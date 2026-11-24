@@ -10,9 +10,11 @@
 // it to the supervisor as its port `owns`. The runner reads the view, runs the rules over it, and acts only through the
 // ports it is given.
 
+import { BUSY } from '../write.mjs'
 import { browserMemory, watchBrowsers } from './browsers.mjs'
 import { CHECKS, REPAIR_RULES } from './rules/repair.mjs'
 import { buildView } from './view.mjs'
+import { folderKey } from '../testQueue.mjs'
 
 const MIN = 60_000
 
@@ -235,9 +237,14 @@ export function memoryOf(value) {
   // restarted does not try the same browser again (a failed close too); pruned to the browsers still listed.
   const browsers = value?.browsers !== null && typeof value?.browsers === 'object'
     ? Object.entries(value.browsers).filter(([, tried]) => Number.isFinite(tried?.at) && typeof tried?.ok === 'boolean').map(([key, tried]) => [key, { at: tried.at, ok: tried.ok }]) : []
-  return { seen: new Map(seen), repairs, trips: new Map(trips), runs: new Map(runs), browsers: new Map(browsers) }
+  // B1302 (X211): when each folder was last seen in the PC's test queue (folder key → ms), so a step whose run waited there counts its quiet time from the
+  // pass that saw it last, across a board restart; the memory keeps TEST_QUEUE_KEPT_MS of it.
+  const queueSeen = value?.queueSeen !== null && typeof value?.queueSeen === 'object' ? Object.entries(value.queueSeen).filter(([, at]) => Number.isFinite(at)) : []
+  return { seen: new Map(seen), repairs, trips: new Map(trips), runs: new Map(runs), browsers: new Map(browsers), queueSeen: new Map(queueSeen) }
 }
-const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips), runs: Object.fromEntries(memory.runs), browsers: Object.fromEntries(memory.browsers ?? []) })
+/** B1302: how long the memory keeps the time a folder was last seen in the test queue. */
+const TEST_QUEUE_KEPT_MS = 3 * DAY_MS
+const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips), runs: Object.fromEntries(memory.runs), browsers: Object.fromEntries(memory.browsers ?? []), queueSeen: Object.fromEntries(memory.queueSeen ?? []) })
 
 /** Signals change 6: how a rule stood in one run, for the gone clock: it looked (`complete`), it did not (`skipped`), or it threw. */
 const RUN_STATES = ['complete', 'skipped', 'failed']
@@ -309,8 +316,11 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     const observed = []
     const items = await ports.items()
     const assets = typeof ports.assets === 'function' ? await ports.assets() : null
+    // B1302 (X211): the PC's test queue now, and the last time each folder was seen in it (kept in the memory, so a restart keeps it).
+    const queue = await lookTestQueue(ports)
+    memory.queueSeen = queueSeenAfter(memory.queueSeen, queue, now)
     const view = buildView({
-      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), browsers: await lookBrowsers(ports, browsers, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
+      state, items, assets, testQueue: { runs: queue, seen: memory.queueSeen }, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), browsers: await lookBrowsers(ports, browsers, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
       repairs: memory.repairs, mods: typeof ports.mods === 'function' ? await ports.mods() : null, settings: ports.settings ?? {}, now,
     })
     const repairs = runRules(rules, view, { seen, observed })
@@ -482,24 +492,85 @@ function lookLive(ports) {
   return { landing: typeof ports.landing === 'function' ? ask('landing', true) : false, startedAt: ask('startedAt', null), checking: ask('checking', []) }
 }
 
+/** F55: how long the claim file may stand (the step between taking it and writing the lock) before it counts as abandoned. */
+export const CLAIM_STALE_MS = 30_000
+/** F55, review 3: an own lock this fresh is written again without a claim (the heartbeat); an older own one (a PC asleep) claims like a new one. */
+export const FRESH_OWN_MS = LOOP_LOCK_MS / 2
+
 /**
  * B489: the loop's own check, as the server runs it before every list: `read` and `write` (the lock file's text, in and
  * out), `alive(pid)`. Gives true when this process (`pid`) holds the lock after it, with the lock written then.
- * B488: a claim that is new (no lock, a dead owner's, one left to lapse) is written and then read back after `settleMs`:
- * of two processes that claim at once, the one whose write stands is the owner, and the other finds that out.
+ * F55 (2026-11-23; B488's read-back after a settle let two processes own the loops for a moment on a busy PC: the other's
+ * write landed after the read-back, and the loser only learnt at its next check): a claim that is new (no lock, a dead
+ * owner's, one left to lapse) is won through `claim`, the claim file beside the lock: `create(text)` makes it exclusively
+ * (the file system's `wx`: EEXIST when it is there), `read()` gives its text, `remove()` takes it away (nothing there is fine).
+ * One process at a time holds the claim; under it the lock is read again (the other claimant may have written it meanwhile)
+ * and then written, and the claim is removed, whatever happened. A claim left behind (a process gone between claim and write)
+ * is abandoned once its process is dead, or after CLAIM_STALE_MS (a process that hangs there, or a pid Windows gave again),
+ * and is taken away; that round answers no, and the claim is made afresh at the gate's next ask (two processes that both took
+ * an abandoned claim away do not both claim now). Chat 1's review: holding the claim is checked, never assumed: `takeClaim`
+ * keeps the exact text it created, and the claim is this process's only while it reads that text (another may have taken it
+ * away as abandoned and claimed): checked before the lock is written and after it, and only an own claim is removed. The
+ * removal changes no answer (a removal that fails leaves a claim that is abandoned at the next claim). The holder's heartbeat
+ * (its own FRESH lock written again, FRESH_OWN_MS) takes no claim; an own lock older than that goes through the claim.
  */
-export function loopOwner({ read, write, alive, pid, port, now, settleMs = 0, wait = ms => new Promise(done => setTimeout(done, ms)) }) {
+export function loopOwner({ read, write, claim, alive, pid, port, now }) {
+  if (claim === undefined || claim === null) throw new Error('loopOwner needs the claim ports (create, read, remove)')
+  // a lock whose process is gone (a board killed without its exit) is taken over at once
+  const seen = held => (held !== null && Number.isInteger(held.pid) && held.pid !== pid && !alive(held.pid) ? null : held)
+  const stamp = () => JSON.stringify({ pid, port, at: now() })
+  /** Review 2: the claim is this process's only while it reads the text this process put there. */
+  const stillMine = async mine => (await claim.read().catch(() => null)) === mine
   return async () => {
-    const held = await readLoopLock(read)
-    // a lock whose process is gone (a board killed without its exit) is taken over at once
-    const lock = held !== null && Number.isInteger(held.pid) && held.pid !== pid && !alive(held.pid) ? null : held
+    const lock = seen(await readLoopLock(read))
     if (!mayRunLoop(lock, pid, now())) return false
-    await write(JSON.stringify({ pid, port, at: now() }))
-    if (settleMs > 0 && lock?.pid !== pid) {
-      await wait(settleMs)
-      return (await readLoopLock(read))?.pid === pid
+    // Review 3: only a fresh own lock is a heartbeat; an own lock left to age (a PC asleep) claims like a new one, so a takeover under way is seen.
+    if (lock?.pid === pid && Number.isFinite(lock.at) && now() - lock.at <= FRESH_OWN_MS) {
+      await write(stamp())
+      return true
     }
-    return true
+    const mine = await takeClaim()
+    if (mine === null) return false
+    try {
+      const again = seen(await readLoopLock(read))
+      if (!mayRunLoop(again, pid, now())) return false
+      if (!await stillMine(mine)) return false
+      await write(stamp())
+      // Another took the claim away meanwhile (as abandoned) and holds it: its lock follows this one; this process yields now.
+      return await stillMine(mine)
+    } finally {
+      // Review 4: the removal changes no answer: only an own claim goes, and one that cannot go is abandoned at the next claim.
+      try {
+        if (await stillMine(mine)) await claim.remove()
+      } catch {
+        // left behind: taken away as abandoned by the next claimant
+      }
+    }
+  }
+  /** The text of the claim made, or null: another's live claim stands, or an abandoned one was taken away (this round is a no). */
+  async function takeClaim() {
+    const mine = stamp()
+    try {
+      await claim.create(mine)
+      return mine
+    } catch (error) {
+      // Review b: a claim Windows holds for the moment (its removal under way: EPERM, not EEXIST) is the other's this round, no failure.
+      if (BUSY.includes(error?.code)) return null
+      if (error?.code !== 'EEXIST') throw error
+    }
+    // Another claim stands: a live one of this moment is theirs (the gate asks again in a second); one left behind is taken away.
+    // A claim Windows holds for the moment (its removal under way: EPERM, not ENOENT) is theirs too, this round.
+    let other
+    try {
+      other = await readLoopLock(claim.read)
+    } catch (error) {
+      if (BUSY.includes(error?.code)) return null
+      throw error
+    }
+    const abandoned = other === null || !Number.isInteger(other.pid) || !Number.isFinite(other.at) || other.pid === pid
+      || !alive(other.pid) || now() - other.at > CLAIM_STALE_MS
+    if (abandoned) await claim.remove()
+    return null
   }
 }
 
@@ -539,4 +610,25 @@ export function loopGate({ owner, now, holdMs = 1000, onGained, onFailed, onSucc
     })().finally(() => { asking = null })
     return asking
   }
+}
+
+/**
+ * B1302 (X211): the PC's test queue through the runner's port `testQueue()` (src/testQueue.mjs `readTestQueue`): the runs that wait or run,
+ * `[{ cwd, label, state, since, ahead }]`; none without the port, or when the look fails (a rule then sees no queue, as before).
+ */
+export async function lookTestQueue(ports) {
+  if (typeof ports.testQueue !== 'function') return []
+  try {
+    const found = await ports.testQueue()
+    return Array.isArray(found) ? found : []
+  } catch {
+    return []
+  }
+}
+
+/** B1302: the memory of when each folder was last seen in the test queue, this pass's runs added (their folder key → `now`), the old ones past TEST_QUEUE_KEPT_MS gone. PURE. */
+export function queueSeenAfter(before, runs, now) {
+  const next = new Map([...(before ?? new Map())].filter(([, at]) => now - at < TEST_QUEUE_KEPT_MS))
+  for (const run of runs) next.set(folderKey(run.cwd), now)
+  return next
 }
