@@ -35,7 +35,7 @@ function wordsOfFn(name, move, seen = new Set()) {
   for (const call of body.matchAll(/\b(askRecheck|agree|vibeThere|askDoneWhen|askDemo|talkBar|pick|goalDone)\(/g)) words.push(...wordsOfFn(call[1], move, seen))
   return words
 }
-const MOVE_FUNCTION = { focus: 'pick', talk: 'talkBar', 'done-when': 'askDoneWhen', 'goal-demo': 'askDemo', 'goal-done': 'goalDone', 'vibe-there-yes': 'askRecheck' }
+const MOVE_FUNCTION = { focus: 'pick', talk: 'talkBar', 'done-when': 'askDoneWhen', 'goal-demo': 'askDemo', 'goal-done': 'goalDone', 'vibe-there-yes': 'askRecheck', backup: 'setBackupGoal' }
 /** The words one move of the Focus page queues (`focusMove`), from src/focus.mjs: its own function, or its branch in `move()`. */
 function wordsOfMove(move) {
   if (MOVE_FUNCTION[move] !== undefined) return [...new Set(wordsOfFn(MOVE_FUNCTION[move], move))]
@@ -62,7 +62,7 @@ const SERVER_WORDS = {
   again: ['brainstorm', 'brainstorm-answer', 'brainstorm-wrap', 'brainstorm-understood', 'brainstorm-not-quite'].flatMap(command => wordsOfBrainstorm({ command: 'again', word: { command } })),
   'vibe-agree': wordsOfMove('vibe-agree'), 'vibe-not-yet': wordsOfMove('vibe-not-yet'), 'how-not-yet': wordsOfMove('how-not-yet'), 'how-go': wordsOfMove('how-go'),
   'vibe-there-yes': wordsOfMove('vibe-there-yes'), 'vibe-there-no': wordsOfMove('vibe-there-no'), talk: wordsOfMove('talk'), 'done-when': wordsOfMove('done-when'),
-  'goal-demo': wordsOfMove('goal-demo'), focus: wordsOfMove('focus'), state: wordsOfMove('goal-done'),
+  'goal-demo': wordsOfMove('goal-demo'), focus: wordsOfMove('focus'), state: wordsOfMove('goal-done'), backup: wordsOfMove('backup'),
   'note-undo': FOCUS_COMMANDS.filter(word => word === 'undo'),
 }
 // Words whose command is the word itself: the page's name must be in the server's own source (a rename there fails here).

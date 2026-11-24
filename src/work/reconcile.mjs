@@ -79,7 +79,7 @@ const span = ms => {
  * `sent`: not a task whose envelope is in flight, nor one of a worker whose mod is not known yet, for the net's time).
  * `handOutHeld` says whether the hand-out holds now (a pause, a resume, a full limit).
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, wakeable = null }) {
+export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], backup = null, backupGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, wakeable = null }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -312,7 +312,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // decision at a worker's turn end (T8.5, handover.mjs), which hands each worker the list's first task it may take. Here
   // only one more worker is asked of the main chat, when ready tasks wait and no worker is free for them.
   const followUpMs = Math.max(0, Number.isFinite(settings.followUpMinutes) ? settings.followUpMinutes : HAND_OUT_DEFAULTS.followUpMinutes) * MIN
-  const ready = readyList(items, { now, focus, focusGoals, followUpMs, standardHold, routingHeld, prefix, beyondFocus: settings.handOutBeyondFocus === true })
+  const ready = readyList(items, { now, focus, focusGoals, backup, backupGoals, followUpMs, standardHold, routingHeld, prefix, beyondFocus: settings.handOutBeyondFocus === true })
   // B1273: and while the Claude app is on another account (pause.mjs `awayOver`: an `isHolding` state of its own).
   const handOutHeld = isHolding(store.pause) || store.pause?.state === 'resuming' || limitsFull === true
   const handsOut = flowHandsOut(flow)
@@ -336,8 +336,11 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     offAfterMs: Number.isFinite(settings.offAfterMinutes) ? settings.offAfterMinutes * MIN : Infinity,
     // B1279 (X205): who the wake procedure can start now; with it, the start is a wake need, never a start word.
     wakeable })
-  // B1279: the off workers the hand-out passed over (none of them can be woken now) while ready work waits: no start, but the notice.
-  const start = Array.isArray(asked?.passedOver) ? null : asked
+  // B1279: the off workers the hand-out passed over (none of them can be woken now) while ready work waits: the notice, and no start but
+  // a new worker's when the last launch did start a chat (B1304).
   const passedOver = Array.isArray(asked?.passedOver) ? asked.passedOver : []
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, start, retired, stranded, handOutHeld, startsByWake: wakeable !== null, passedOver }
+  const start = asked === null ? null : asked.spawn > 0 ? { spawn: asked.spawn } : Array.isArray(asked.passedOver) ? null : asked
+  // B1304: a new worker asked for in their place (`replaces`), or held as the last launch started nothing (`held`): the notice says which.
+  const replacement = passedOver.length === 0 ? null : asked.replaces === true ? { asked: true } : Number.isFinite(asked.held?.at) ? { heldAt: asked.held.at } : null
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, start, retired, stranded, handOutHeld, startsByWake: wakeable !== null, passedOver, replacement }
 }

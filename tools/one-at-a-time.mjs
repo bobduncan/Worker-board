@@ -36,6 +36,9 @@
 //   moment its work began (land.ps1 starts the gate's clock there, not while the run queues). The word stays with this
 //   helper: the command runs without HEAVY_RUN_FIRST, so the runs the command starts in turn (a test of this helper under
 //   the gate) are ordinary ones (chat 1's check, 2026-11-14: with the word passed on, every gate after F14 refused itself).
+// - B1302 (X211): the board reads the lock, the slot files and the queue folder, read only (src/testQueue.mjs `readTestQueue`, with
+//   this file's lockPath, slotPath, slotCountOf, whyStale and aheadOf), so the watch rule stale-checkpoint knows a worker whose run
+//   waits its turn here is not stuck. A change to the files' shape ({ pid, label, cwd, startedAt }) or names changes that reader too.
 // - F39 (2026-11-21, the person's yes): a run at work keeps its slot. The holder beats: it writes a new `beat` time into its slot
 //   file every minute (HEAVY_RUN_BEAT_MS) while its command runs. A lock is stale when its process is gone, it cannot be read, or
 //   its beat is older than 5 minutes (a reused process id). A lock without a beat (an older copy's) keeps the age rule, now 75
@@ -53,7 +56,7 @@
 //   its command ends with code 124), and its lock is stale past that with a margin. Waiters beat their ticket at every look; a ticket
 //   with an old beat, or an old copy's ticket older than 3 hours, is dropped.
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
+import { appendFileSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -82,6 +85,23 @@ const UNREADABLE_LOOK_MS = 250
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP']
 // After a signal the command gets this long to end before we give the lock back anyway.
 const STOP_WAIT_MS = 5000
+
+/**
+ * The run log (the person, 2026-11-23: "log every wait"): one JSON line per heavy run that queued here, PC-wide, beside the
+ * lock (`<lock>.runs.jsonl`), so the waits and the run times of every chat in both repositories can be counted
+ * (`node tools/run-stats.mjs` in the game). A run started under another one (HEAVY_RUN_HELD) is part of it and not logged.
+ * A log that cannot be written never stops a run. The same lines in both repositories' copies of this helper.
+ */
+export function runLogPath(env = process.env) {
+  return `${lockPath(env)}.runs.jsonl`
+}
+export function logRun(env, record) {
+  try {
+    appendFileSync(runLogPath(env), `${JSON.stringify(record)}\n`)
+  } catch {
+    // no log today
+  }
+}
 
 /** The lock file of this PC. */
 export function lockPath(env = process.env) {
@@ -432,6 +452,9 @@ export async function runOneAtATime({
   let forceExit = () => {}
   let giveLockBack = null
   let capped = false
+  const came = Date.now()
+  let began = null
+  let code = null
 
   const onSignal = (name) => {
     const again = signalled !== null
@@ -451,12 +474,18 @@ export async function runOneAtATime({
     if (env.HEAVY_RUN_HELD !== '1') {
       const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS) }
       giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1', holdMaxMs: positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS) })
-      if (!giveLockBack || signalled) return signalExit(signalled)
+      if (!giveLockBack || signalled) {
+        code = signalExit(signalled)
+        return code
+      }
+      began = Date.now()
     }
+    // The run that holds the slot, for a log under it (tools/vitest-run-log.mjs leaves its own slot out of the PC's other runs).
+    const ownerPid = env.HEAVY_RUN_HELD === '1' && env.HEAVY_RUN_PID ? env.HEAVY_RUN_PID : String(process.pid)
     const exited = new Promise((resolve) => {
       forceExit = () => resolve(signalExit(signalled))
       const { HEAVY_RUN_FIRST: _first, ...plain } = env
-      child = spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, HEAVY_RUN_HELD: '1' } })
+      child = spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, HEAVY_RUN_HELD: '1', HEAVY_RUN_PID: ownerPid } })
       child.on('error', (error) => {
         say(`one-at-a-time: could not start the command: ${error.message}`)
         resolve(127)
@@ -475,8 +504,18 @@ export async function runOneAtATime({
         child.on('exit', () => clearTimeout(cap))
       }
     })
-    return await exited
+    code = await exited
+    return code
   } finally {
+    if (env.HEAVY_RUN_HELD !== '1') {
+      const now = Date.now()
+      const waited = (began ?? now) - came
+      logRun(env, {
+        at: new Date(came).toISOString(), label, cwd, first: env.HEAVY_RUN_FIRST === '1', slots: slotsOf(env),
+        waitedS: Math.round(waited / 1000), ranS: began === null ? 0 : Math.round((now - began) / 1000),
+        exit: code, stopped: began === null ? `before its turn${signalled ? ` (${signalled})` : ''}` : signalled,
+      })
+    }
     giveLockBack?.()
     process.off('exit', onExit)
     for (const [name, listener] of listeners) signals.off(name, listener)

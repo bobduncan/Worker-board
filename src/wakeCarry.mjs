@@ -22,10 +22,17 @@
 // went since the last lift. A refused send spends no message try of the spell (src/wake.mjs `nextPath`): another hand that may send takes
 // it, else a carry word (when every hand that claims is refused), and the launch only when none can. The refusal is never worked around.
 //
+// F59 (2026-11-24): no hand at all (every board chat's process ended, or none claimed in the hands' window) is carried as the refusal is,
+// while the courier calls (`carryingOf`, `courierSends`): one courier word per wake at once, the launch only after its try failed, and a
+// failed launch's spell gets the courier's word at its next call (its message path is still untried). Its review (chat 1, 2026-11-24):
+// "no hands" only after NO_HANDS_MS of quiet; a hand that may send and comes back takes back the courier's words not yet taken; a start or
+// wake word in doubt is never carried; the courier waits as long as the board counts on it (COURIER_WAIT_MS).
+//
 // PURE: the server wires it (server.mjs `wakePass`, the take, the report, the hands route, the two bridge routes, Send again).
 
 import { heardTimeOf } from './chatReport.mjs'
 import { isAppId } from './hands.mjs'
+import { isInDoubt } from './store.mjs'
 import { stoppedOf } from './stopped.mjs'
 import { PROBE_MS } from './work/effort.mjs'
 import { isHolding } from './work/pause.mjs'
@@ -47,9 +54,18 @@ export const CARRY_DUE_MS = 3 * 60_000
  */
 export const CARRY_SEND_MS = 10 * 60_000
 export const CARRY_VERDICT_MS = 5 * 60_000
-export const COURIER_WAIT_MS = 15 * 60_000
 /** The board counts on the courier while it asked for wakes this recently (two of its runs and some). */
 export const COURIER_ALIVE_MS = 25 * 60_000
+/**
+ * F59 review 6 (chat 1, 2026-11-24): as long as the board counts on the courier: one run it missed (a gap of 15-25 minutes) no longer
+ * spends the spell's message try untaken.
+ */
+export const COURIER_WAIT_MS = COURIER_ALIVE_MS
+/**
+ * F59 review 2: no hand is "no hands" for the courier only after this quiet: a live hand holds a call up to two minutes (the Workers
+ * mod's HAND_CALL_MS) and claims every 20 seconds, so a hand pausing just over HANDS_GONE_MS is no hand gone (src/hands.mjs HAND_HOLD_MS).
+ */
+export const NO_HANDS_MS = 3 * 60_000
 /** The probe's line: one send from a hand to a free chat, once a day while the refusal stands. */
 export const PROBE_LINE = 'The worker board checks whether its code may send messages again. Nothing to do: end this turn.'
 /** The probe's job id. */
@@ -119,6 +135,18 @@ export function noteHandRefused(record, hand, at) {
     }
   }
   return (!handWentSinceLift(record) && noteSendRefused(record, at)) || changed
+}
+
+/**
+ * B1307 (chat 1, 2026-11-21): a hand's send the app refused that is no wake (a side word): it marks that hand alone, never the board's
+ * refusal (X205), and no wake attempt counts it. True when the mark changed.
+ */
+export function noteHandRefusedAlone(record, hand, at) {
+  if (!isTime(at) || typeof hand !== 'string' || hand === '' || hand === COURIER) return false
+  const marks = record.refusedHands ?? {}
+  if (isTime(marks[hand]) && marks[hand] >= at) return false
+  record.refusedHands = { ...marks, [hand]: at }
+  return true
 }
 
 /**
@@ -227,6 +255,34 @@ export function freeChatOf(lanes, { target, main = null, now, outbox = [] } = {}
 /** Whether the courier asked for wakes lately (`lastAt`, when it last called wakes-due). */
 export const courierAlive = (lastAt, now) => isTime(lastAt) && isTime(now) && now - lastAt <= COURIER_ALIVE_MS
 
+/**
+ * F59 (2026-11-24, chat 1's spec): at 10:23 the app relaunched itself and every board chat's process ended; no hand ran, the board
+ * launched five chats (10:24-10:44, all "the app did not start it") and the courier, calling at 10:28, 10:34, 10:48 and 10:58, got an
+ * empty list: it got carry words only while the hands' sends were refused. Now no hand at all (`gone`, opener.mjs `handsGone`: none
+ * claimed in the hands' window) is carried as a refusal is, while the courier calls (`courierSends`): every wake due goes to it as ONE
+ * carry word at once, and the courier is the wakes' sender, so the launch (the board-wide one too) waits until its try failed.
+ * Review 2: the server passes `gone` as the quiet of NO_HANDS_MS for the words, and as HANDS_GONE_MS's for the launch's wait (between the
+ * two the launch waits for a hand that may be back, or the courier's words).
+ */
+export const courierSends = ({ gone = false, courierAt = null, now }) => gone === true && courierAlive(courierAt, now)
+
+/**
+ * F59 re-check a (chat 1, 2026-11-24): whether no hand at all answers the board's wake-ups now, for "nobody answers the board's wake-ups"
+ * and the rule nobody-answers-wakes: no hand that may send claims (`senders`), and none is only in a long round (gone from the hands'
+ * window, HANDS_GONE_MS, but not NO_HANDS_MS quiet yet: one slow send). Hands that claim, all refused (not gone), are none, as before.
+ */
+export const noHandsOf = ({ senders = false, gone = false, quiet = false } = {}) => senders !== true && (quiet === true || gone !== true)
+
+/**
+ * What the wake pass carries words for, `{ since }` or null: the app's refusal of the hands' sends (`refused`, `sendsRefusedOf`), every
+ * hand that claims refused (`allRefused`, B1271), or F59's no hand while the courier calls (`{ since, noHands: true }`).
+ */
+export function carryingOf({ refused = null, allRefused = false, gone = false, courierAt = null, now }) {
+  if (refused !== null && refused !== undefined) return refused
+  if (allRefused === true) return { since: now }
+  return courierSends({ gone, courierAt, now }) ? { since: now, noHands: true } : null
+}
+
 /** The words the carrier's model reads: the one tool call, with the target's app session id and the wake's own text; then the turn ends. */
 export const carryText = (target, session, text) => `Wake ${target} for the worker board: the app no longer lets the board's code send to a chat, so make this one call yourself: send_message with session_id "${session}" and message "${text}". Then end this turn; do nothing else.`
 
@@ -248,6 +304,12 @@ export function carryWord({ id, at, need, carrier, of = null }) {
 export const isCarryWord = message => message?.command === CARRY_COMMAND
 
 /**
+ * Review 8: a waiting start or wake word of a chat that a carry word may carry (the carry pass's `of` words). F59 review 3: never one in
+ * doubt (B891, `isInDoubt`): a hand's call that gave no answer may have sent it, and it is not tried again until its doubt ended.
+ */
+export const isCarriedWord = (message, now) => message?.state === 'waiting' && ['start', 'wake'].includes(message.command) && typeof message.about === 'string' && !isInDoubt(message, now)
+
+/**
  * The chats a carry word is open for (waiting or taken): never a second word beside it. F17 check 1: a word that carries a start or wake word
  * (`of`) holds off only another such word (`ofWords`), never a wake need's word, Send again or the launch.
  */
@@ -266,6 +328,11 @@ export function dueOf(outbox, now, { anyRuns = true } = {}) {
 /** The courier's entry of a word. */
 export const dueEntry = message => ({ id: message.id, chat: message.about, session: message.session, text: message.wakeText })
 
+/** F59 re-check b: the why of a courier word given back because the courier no longer calls (COURIER_ALIVE_MS). */
+export const COURIER_GONE_WHY = 'the courier no longer calls: the launch may go'
+/** F59 review 1: the why of a courier word a hand that came back takes over. */
+export const HAND_BACK_WHY = 'a hand that may send is back: it sends the wake'
+
 /**
  * What becomes of the carry words still open (`waiting` or `taken`), `[{ id, state, why, giveBack }]`:
  * - the target woke: delivered when its attempt was sent, else dropped "woke by itself" (review 5);
@@ -274,16 +341,29 @@ export const dueEntry = message => ({ id: message.id, chat: message.about, sessi
  * - a carrier that can no longer carry before it took the word: dropped, and its attempt given back (no try spent; the next pass picks
  *   another), which the server does only when the close applied (review 21).
  * `lanes` the board's lanes; `attemptOf(word)` the record's attempt of the word (its job id), or null.
+ * F59 review 1: `handSends`, a hand that may send by code claims now: a word for the courier that it has not taken yet goes back (its
+ * attempt given back unspent, so that hand takes the message in its claim); a word the courier took (held, sent) stays its own, and so
+ * does one whose message a hand would not take over (`handTakes(word)`, wake.mjs `handMayTakeOver`: B1279's word after a hand's send that
+ * brought no report goes to a model or the courier, never to a hand again).
+ * F59 re-check b: `courierGone`, the courier no longer calls (`courierAlive` false): a word for it that it has not taken yet goes back too
+ * (no try spent), so the launch is no longer held off by a word nobody comes for.
  */
-export function carryCloses({ outbox, lanes, attemptOf, now, paused = false }) {
+export function carryCloses({ outbox, lanes, attemptOf, now, paused = false, handSends = false, handTakes = () => true, courierGone = false }) {
   const out = []
   const laneOf = name => (lanes ?? []).find(lane => lane.name === name) ?? null
   for (const message of (outbox ?? []).filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state))) {
     const target = laneOf(message.about)
     const carrierGone = message.state === 'waiting' && message.to !== COURIER && !canCarry(laneOf(message.to), message.about, now, outbox)
+    const isHandsAgain = handSends === true && message.state === 'waiting' && message.to === COURIER
+    const isCourierGone = courierGone === true && message.state === 'waiting' && message.to === COURIER
     if (typeof message.of === 'string') {
       if (paused && message.state === 'waiting') {
         out.push({ id: message.id, state: 'dropped', why: 'held back while you pause the chats', giveBack: false })
+        continue
+      }
+      // Review 1: the start or wake word it carries is that hand's job again (no attempt to give back).
+      if (isHandsAgain || isCourierGone) {
+        out.push({ id: message.id, state: 'dropped', why: isHandsAgain ? HAND_BACK_WHY : COURIER_GONE_WHY, giveBack: false })
         continue
       }
       // F17 check 1: one its carrier (the courier) took and never said it sent has the verdict's window, then it is closed.
@@ -300,6 +380,14 @@ export function carryCloses({ outbox, lanes, attemptOf, now, paused = false }) {
     // Verifier 6, 10: the person pauses: a word still waiting goes back with its attempt (no try spent); the next pass after the resume plans it again.
     if (paused && message.state === 'waiting' && attempt !== null && attempt.verdict === null) {
       out.push({ id: message.id, state: 'dropped', why: 'held back while you pause the chats', giveBack: true })
+      continue
+    }
+    if (isHandsAgain && attempt !== null && attempt.verdict === null && attempt.sentAt === null && !isTime(attempt.heldAt) && handTakes(message)) {
+      out.push({ id: message.id, state: 'dropped', why: HAND_BACK_WHY, giveBack: true })
+      continue
+    }
+    if (isCourierGone && attempt !== null && attempt.verdict === null && attempt.sentAt === null && !isTime(attempt.heldAt)) {
+      out.push({ id: message.id, state: 'dropped', why: COURIER_GONE_WHY, giveBack: true })
       continue
     }
     if (attempt?.verdict === 'woke') out.push(isTime(attempt.sentAt) && attempt.self !== true ? { id: message.id, state: 'delivered', why: `${message.about} woke`, giveBack: false } : { id: message.id, state: 'dropped', why: `${message.about} woke by itself`, giveBack: false })

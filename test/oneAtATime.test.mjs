@@ -396,6 +396,20 @@ test('a landing\'s gate waits in the same queue: land.ps1 gates with npm test, w
   assert.match(pkg.scripts.test, /^node tools\/one-at-a-time\.mjs /)
 })
 
+test('logs every run beside the lock: its label, folder, wait, run time, exit code and first-class word, but not a run held by another (2026-11-23)', async () => {
+  const lock = newLock()
+  const first = start(lock, 'gate', node('setTimeout(() => process.exit(3), 700)'))
+  await until(() => existsSync(lock), 'the first run to take the lock')
+  assert.equal((await start(lock, 'landing', quick, { HEAVY_RUN_FIRST: '1' }).done).code, 0)
+  assert.equal((await first.done).code, 3)
+  assert.equal((await start(lock, 'inner', quick, { HEAVY_RUN_HELD: '1' }).done).code, 0)
+  const lines = readFileSync(`${lock}.runs.jsonl`, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  assert.deepEqual(lines.map((one) => [one.label, one.exit, one.first, one.stopped]), [['gate', 3, false, null], ['landing', 0, true, null]])
+  assert.equal(lines[1].cwd, process.cwd())
+  assert.equal(typeof lines[1].waitedS, 'number')
+  assert.equal(typeof lines[1].ranS, 'number')
+})
+
 // F39, chat 1's review (2026-11-21).
 const ticketName = (ms, pid = process.pid) => `${String(ms).padStart(15, '0')}-${String(pid).padStart(8, '0')}.json`
 

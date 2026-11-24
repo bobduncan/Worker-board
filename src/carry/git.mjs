@@ -23,10 +23,20 @@ export function blobOf(bytes) {
 
 /** The blob id of a file on disk, or null when it cannot be read. */
 export async function blobOfFile(file, fs = { readFile }) {
+  const bytes = await readIfThere(fs, file)
+  return bytes === null ? null : blobOf(bytes)
+}
+
+/**
+ * Review 6 (A8): the file's bytes (or text with `encoding`), null only when it is not there (ENOENT, ENOTDIR). Any other error (held by
+ * another program, no right to read) is thrown: a load or save must stop, never count the file as absent (no backup, overwritten, pruned).
+ */
+export async function readIfThere(fs, file, encoding = undefined) {
   try {
-    return blobOf(await fs.readFile(file))
-  } catch {
-    return null
+    return encoding === undefined ? await fs.readFile(file) : await fs.readFile(file, encoding)
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null
+    throw error
   }
 }
 

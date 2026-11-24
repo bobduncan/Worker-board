@@ -237,7 +237,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.35.0'
+export const MOD_VERSION = '0.36.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -604,7 +604,7 @@ export function typedWhy(reason: unknown, fallback: string): string {
  * 0.29.0, part C of the asset providers: every chat asks the board for an asset (`asset`: "kind" visual, music or sound
  * effect, "text", "pictures", "of", "follows" an earlier A<n>; a library pick with "id" and "picked").
  */
-export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'close', 'drop', 'refine', 'refined', 'checked', 'definition-draft', 'vibe-draft', 'how-draft', 'list', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix', 'obsolete', 'words', 'asset']
+export const WORK_ACTIONS = ['next', 'take', 'step', 'ask', 'withdraw', 'answered-in-chat', 'note', 'report', 'block', 'unblock', 'new', 'close', 'drop', 'refine', 'refined', 'checked', 'definition-draft', 'vibe-draft', 'how-draft', 'list', 'touches', 'rename', 'partner-answer', 'escalate', 'health', 'incident', 'incident-fix', 'obsolete', 'words', 'asset']
 
 /** B297: the fields a call of the work tool may carry to the board; anything else stays here. */
 export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 'name', 'minutes', 'stepMinutes', 'of', 'kind', 'blocking', 'text', 'options',

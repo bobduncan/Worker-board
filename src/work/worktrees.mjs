@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 
 import { folderHolders, holderWords } from './holders.mjs'
 import { valueOf } from './item.mjs'
+import { namesStep } from './stepNames.mjs'
 import { givenBackOf } from './holderTimers.mjs'
 
 const MIN = 60_000
@@ -77,12 +78,8 @@ const ownBranch = value => {
   return branch === '' || branch === '-' || branch.toLowerCase() === 'none' ? null : branch
 }
 
-/** Whether a folder's name names step `id` as a whole: B410 in "game-b410" and "check-b410-before", not in "game-b4100". */
-export function namesStep(name, id) {
-  const plain = String(id ?? '').trim().toLowerCase()
-  if (!/^[a-z]\d+$/.test(plain)) return false
-  return new RegExp(`(?:^|[^a-z0-9])${plain}(?![0-9])`).test(String(name).toLowerCase())
-}
+// B1302: whether a folder's name names a step is stepNames.mjs's (pure), shared with the test-queue reader.
+export { namesStep }
 
 /** The blocks of `git worktree list --porcelain`, the main checkout first; `branch` null when detached. */
 export function worktreeBlocks(text) {

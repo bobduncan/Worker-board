@@ -153,6 +153,18 @@ to nobody, and its status and your card say "held: waits for <words>" quietly, w
 Clear it with `work unblock id=B<n>`. That is all you block: no `Blocked by`, no step a worker holds; a rethink hold (the user's Stop
 and rethink) stays the user's, and your clear lifts only your own words beside it.
 
+## The backup focus
+
+The user may name a second goal on the Focus page, the backup (the head line `Backup: G<n>` of the goal map, the board's own:
+never write it). It keeps workers busy near the end of the focus: its tasks go out after every fix and the focus goal's, and
+once the focus is ticked the board makes the backup the focus by itself (you then get `focus:` as for any pick).
+
+`backup focus: G<n> <title>`, with its `Done when:`: draft its goal definition (`work definition-draft`) from the goal's
+lines and the plan, without a talk, then, once the user agreed it on the backup card (`goal definition: agreed`), its work
+blocks (`work how-draft`), each with its done-when line. The user's "Not yet" comes as `goal definition: not yet` or `how:
+not yet` with their words, `Thread: none`: change the draft. `how: go` on the backup is the same Go as above: make its
+steps, refined, with `goal` G<n>. Keep the focus first: the backup's drafts never hold up a word about the focus.
+
 ## Planning questions from the main chat
 
 The main chat sends you the planning questions it used to ask the user (what to build, in which order, how big, what
