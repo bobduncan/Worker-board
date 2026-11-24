@@ -20,8 +20,8 @@
 // because a limit was full is no word: once the limit is back the wait is due again (`sideWordOf` skips it). A card shown because a
 // limit is full stays until the one word went: the delivering board's look writes it down per wait, in the outbox so a restart keeps
 // it (`sideKeepOf`: `keepCard` on the word still to go, or a record of its own with no word yet, `sideKeptFor`), and the next word of
-// that wait keeps the card (`sideKeptOf`, overdue). Chat 1's review of F53: a word a hand gave back (in doubt, or `backFrom`) may have
-// landed, so it is never closed as "a limit is full" (it stays the word of its wait, never sent twice); a retry chain counts as one word.
+// that wait keeps the card (`sideKeptOf`, overdue). Chat 1's review of F53: a word a hand gave back in doubt may have landed, so it is
+// never closed as "a limit is full" (it stays the word of its wait, never sent twice); a retry chain counts as one word.
 
 import { plainWhy } from '../wakeCarry.mjs'
 import { TRIES, passesBySelf } from './passing.mjs'
@@ -56,10 +56,12 @@ export const isLimitFull = limits => ['fiveHour', 'week'].some(one => limits?.[o
 const isRetryDue = word => word?.state === 'failed' && word.final !== true && word.retriedAs === undefined && passesBySelf(word.why) && (word.tries ?? 1) < TRIES
 
 /**
- * Chat 1's review of F53, 1: a word a hand gave back (in doubt, `doubtAt`: its call gave no answer; or named by that hand, `backFrom`,
- * whose late "sent" may still come) may have reached its chat: it is never closed as "a limit is full", and never read as no word.
+ * Chat 1's review of F53, 1: a word a hand gave back in doubt (`doubtAt`: its call hung or gave no answer, mods/workers/hooks/hands.ts)
+ * may have reached its chat: it is never closed as "a limit is full", and never read as no word. A side word in doubt is never taken
+ * again (hands.mjs `isSideJob`), so its doubtAt stays. A plain give-back (`backFrom` without doubt) called nothing (a job of a round not
+ * tried, a process with no session, a back before any job): it never landed, so it may be closed so and its wait gets its word.
  */
-const mayHaveLanded = word => Number.isFinite(word?.doubtAt) || (word?.backFrom ?? null) !== null
+const mayHaveLanded = word => Number.isFinite(word?.doubtAt)
 
 /** F53 (a): a record closed because a limit was full (a word given up then, or the mark of a card shown then): no word of its wait. */
 const isFullMark = word => word?.state === 'dropped' && word.why === FULL_WHY && !mayHaveLanded(word)

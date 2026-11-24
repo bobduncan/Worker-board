@@ -392,33 +392,44 @@ test('F53: what the board writes down, and when not: only a card shown because a
   assert.deepEqual(build({ now: at(12, 19), week: 99, outbox: [word({ keepCard: true })] }).sideCardsKept, [])
 })
 
-test('chat 1\'s review of F53, 1: a word given back in doubt, or by its hand, and closed while full stays the word: back, no second word', async () => {
-  for (const doubt of [true, false]) {
-    // 12:19: a hand took the word; its call gave no answer (in doubt) or it gave the word back by name (backFrom). Full from 12:20.
-    const { seen, outbox } = await minutes({
-      from: at(12, 19), to: at(12, 38), isFullAt: now => now >= at(12, 20) && now < at(12, 36), restartAt: at(12, 36),
-      after: async (store, now) => {
-        if (now !== at(12, 19)) return
-        const taken = await store.takeHands('Worker 2', now, KEEP, one => one.command === SIDE_WORD)
-        assert.deepEqual(taken.map(one => one.id), ['w1'])
-        await store.back(['w1'], 'Worker 2', now, doubt ? ['w1'] : [])
-      },
-    })
+test('chat 1\'s review of F53, 1: a word given back in doubt and closed while full stays the word: back, no second word; a plain give-back is none: back, exactly one new word', async () => {
+  // 12:19: a hand took the word and gave it back, in doubt (its call gave no answer) or plain (it called nothing). Full from 12:20.
+  const run = doubt => minutes({
+    from: at(12, 19), to: at(12, 38), isFullAt: now => now >= at(12, 20) && now < at(12, 36), restartAt: at(12, 36), sendAt: doubt ? null : at(12, 37),
+    after: async (store, now) => {
+      if (now !== at(12, 19)) return
+      const taken = await store.takeHands('Worker 2', now, KEEP, one => one.command === SIDE_WORD)
+      assert.deepEqual(taken.map(one => one.id), ['w1'])
+      await store.back(['w1'], 'Worker 2', now, doubt ? ['w1'] : [])
+    },
+  })
+  {
+    const { seen, outbox } = await run(true)
     assert.deepEqual(said(outbox).map(one => one.id), ['w1'], 'no second word to chat 1')
     assert.equal(sideWordOf(outbox, KEY)?.id, 'w1')
     const first = outbox.find(one => one.id === 'w1')
-    assert.deepEqual([first.state, first.why, first.backFrom, Number.isFinite(first.doubtAt)], ['dropped', 'no hand sent it within 10 min', 'Worker 2', doubt])
+    assert.deepEqual([first.state, first.why, first.backFrom, Number.isFinite(first.doubtAt)], ['dropped', 'no hand sent it within 10 min', 'Worker 2', true])
     for (const minute of ['12:36', '12:37', '12:38']) assert.deepEqual(seen[minute], { cards: ['Then the board could not ask chat 1: no hand sent it within 10 min.'], due: 0 }, minute)
   }
-  // Closed so before this review (in the log already): the word all the same.
-  for (const more of [{ doubtAt: at(12, 20) }, { backFrom: 'Worker 2', doubtAt: null }]) {
-    const closed = [word({ state: 'dropped', why: 'a limit is full', closedAt: at(12, 29), ...more })]
-    assert.equal(sideWordOf(closed, KEY)?.id, 'w1')
-    assert.deepEqual(build({ now: at(12, 40), outbox: closed }).sideWordsDue, [])
+  {
+    const { seen, outbox } = await run(false)
+    const first = outbox.find(one => one.id === 'w1')
+    assert.deepEqual([first.state, first.why, first.backFrom, Number.isFinite(first.doubtAt)], ['dropped', 'a limit is full', 'Worker 2', false])
+    const fresh = said(outbox).filter(one => one.id !== 'w1')
+    assert.deepEqual(fresh.map(one => [one.state, one.keepCard]), [['delivered', true]], 'exactly one new word, keeping the card')
+    assert.equal(sideWordOf(outbox, KEY)?.id, fresh[0].id)
+    assert.deepEqual(seen['12:38'], { cards: ['Then the board asked chat 1 at 12:37.'], due: 0 })
   }
-  // The close: "a limit is full" only for a word no hand gave back.
+  // Closed so before this review (in the log already): in doubt, the word all the same; a plain give-back, none (due again, overdue).
+  const inDoubt = [word({ state: 'dropped', why: 'a limit is full', closedAt: at(12, 29), doubtAt: at(12, 20) })]
+  assert.equal(sideWordOf(inDoubt, KEY)?.id, 'w1')
+  assert.deepEqual(build({ now: at(12, 40), outbox: inDoubt }).sideWordsDue, [])
+  const plainBack = [word({ state: 'dropped', why: 'a limit is full', closedAt: at(12, 29), backFrom: 'Worker 2', doubtAt: null })]
+  assert.equal(sideWordOf(plainBack, KEY), null)
+  assert.deepEqual(build({ now: at(12, 40), outbox: plainBack }).sideWordsDue.map(one => [one.id, one.overdue]), [['B1300', true]])
+  // The close: "a limit is full" for every word but one given back in doubt.
   const closes = sideClosesOf({ words: [word({ doubtAt: at(12, 20) }), word({ id: 'w2', backFrom: 'Worker 2', doubtAt: null }), word({ id: 'w3' })], liveKeys: new Set([KEY]), runningMs: () => 10 * MIN, isFull: true })
-  assert.deepEqual(closes.map(one => [one.id, one.why]), [['w1', 'no hand sent it within 10 min'], ['w2', 'no hand sent it within 10 min'], ['w3', 'a limit is full']])
+  assert.deepEqual(closes.map(one => [one.id, one.why]), [['w1', 'no hand sent it within 10 min'], ['w2', 'a limit is full'], ['w3', 'a limit is full']])
 })
 
 test('chat 1\'s review of F53, 2: a word tried again whose copy was closed while full: the chain is no word; back, due and overdue', () => {
