@@ -302,9 +302,9 @@ async function sideLook(store, state, now) {
 /**
  * The board minute by minute from `from` to `to`: `isFullAt(now)` a limit is full then; each minute the state (its late cards and the
  * words due), then the look; a hand sends the waiting word at `sendAt` (never while full); at `restartAt` the board starts anew on the
- * same files. `{ seen: { 'HH:MM': { cards, due } }, outbox }`.
+ * same files; `after(store, now)` what else happens after the look (a hand's take). `{ seen: { 'HH:MM': { cards, due } }, outbox }`.
  */
-async function minutes({ from, to, isFullAt, sendAt, restartAt }) {
+async function minutes({ from, to, isFullAt, sendAt = null, restartAt = null, after = async () => {} }) {
   const dir = await mkdtemp(join(tmpdir(), 'side-full-'))
   try {
     let store = await fileStore(dir, from)
@@ -314,6 +314,7 @@ async function minutes({ from, to, isFullAt, sendAt, restartAt }) {
       const state = build({ now, week: isFullAt(now) ? 99 : 40, outbox: store.outbox().map(one => ({ ...one })) })
       seen[hourMinute(now)] = { cards: lateCards(state).map(card => card.text.match(/Then [^.]*\./)?.[0] ?? 'the card'), due: state.sideWordsDue.length }
       await sideLook(store, state, now)
+      await after(store, now)
       if (now === sendAt) {
         assert.equal(isFullAt(now), false, 'no hand sends while a limit is full')
         const waiting = store.outbox().filter(one => one.command === SIDE_WORD && one.state === 'waiting')
@@ -389,4 +390,49 @@ test('F53: what the board writes down, and when not: only a card shown because a
   assert.deepEqual(build({ now: at(12, 19), week: 99 }).sideCardsKept.map(one => [one.id, one.who, one.chat, one.wait.at]), [['B1300', 'chat 1', 'Worker 1', '2026-11-21 10:49']])
   assert.deepEqual(build({ now: at(12, 19), week: 40 }).sideCardsKept, [])
   assert.deepEqual(build({ now: at(12, 19), week: 99, outbox: [word({ keepCard: true })] }).sideCardsKept, [])
+})
+
+test('chat 1\'s review of F53, 1: a word given back in doubt, or by its hand, and closed while full stays the word: back, no second word', async () => {
+  for (const doubt of [true, false]) {
+    // 12:19: a hand took the word; its call gave no answer (in doubt) or it gave the word back by name (backFrom). Full from 12:20.
+    const { seen, outbox } = await minutes({
+      from: at(12, 19), to: at(12, 38), isFullAt: now => now >= at(12, 20) && now < at(12, 36), restartAt: at(12, 36),
+      after: async (store, now) => {
+        if (now !== at(12, 19)) return
+        const taken = await store.takeHands('Worker 2', now, KEEP, one => one.command === SIDE_WORD)
+        assert.deepEqual(taken.map(one => one.id), ['w1'])
+        await store.back(['w1'], 'Worker 2', now, doubt ? ['w1'] : [])
+      },
+    })
+    assert.deepEqual(said(outbox).map(one => one.id), ['w1'], 'no second word to chat 1')
+    assert.equal(sideWordOf(outbox, KEY)?.id, 'w1')
+    const first = outbox.find(one => one.id === 'w1')
+    assert.deepEqual([first.state, first.why, first.backFrom, Number.isFinite(first.doubtAt)], ['dropped', 'no hand sent it within 10 min', 'Worker 2', doubt])
+    for (const minute of ['12:36', '12:37', '12:38']) assert.deepEqual(seen[minute], { cards: ['Then the board could not ask chat 1: no hand sent it within 10 min.'], due: 0 }, minute)
+  }
+  // Closed so before this review (in the log already): the word all the same.
+  for (const more of [{ doubtAt: at(12, 20) }, { backFrom: 'Worker 2', doubtAt: null }]) {
+    const closed = [word({ state: 'dropped', why: 'a limit is full', closedAt: at(12, 29), ...more })]
+    assert.equal(sideWordOf(closed, KEY)?.id, 'w1')
+    assert.deepEqual(build({ now: at(12, 40), outbox: closed }).sideWordsDue, [])
+  }
+  // The close: "a limit is full" only for a word no hand gave back.
+  const closes = sideClosesOf({ words: [word({ doubtAt: at(12, 20) }), word({ id: 'w2', backFrom: 'Worker 2', doubtAt: null }), word({ id: 'w3' })], liveKeys: new Set([KEY]), runningMs: () => 10 * MIN, isFull: true })
+  assert.deepEqual(closes.map(one => [one.id, one.why]), [['w1', 'no hand sent it within 10 min'], ['w2', 'no hand sent it within 10 min'], ['w3', 'a limit is full']])
+})
+
+test('chat 1\'s review of F53, 2: a word tried again whose copy was closed while full: the chain is no word; back, due and overdue', () => {
+  for (const first of [{ state: 'failed', why: 'session not found', failedAt: at(12, 20), tries: 1 }, { state: 'stopped', why: 'the session was stopped', failedAt: at(12, 20), tries: 0 }]) {
+    const chain = [word({ ...first, retriedAs: 'w2' }), word({ id: 'w2', retryOf: 'w1', state: 'dropped', why: 'a limit is full', closedAt: at(12, 29) })]
+    assert.equal(sideWordOf(chain, KEY), null, first.state)
+    const full = build({ now: at(12, 35), week: 99, outbox: chain })
+    assert.deepEqual([full.sideWordsDue, lateCards(full).map(card => card.text.match(/Then [^.]*\./)?.[0])], [[], [NOT_ASKED]], first.state)
+    const back = build({ now: at(12, 40), outbox: chain })
+    assert.deepEqual(back.sideWordsDue.map(one => [one.id, one.overdue]), [['B1300', true]], first.state)
+    assert.equal(lateCards(back).length, 1)
+  }
+  // A copy still to go stands for its chain, as before: no second word.
+  const going = [word({ state: 'failed', why: 'session not found', failedAt: at(12, 20), tries: 1, retriedAs: 'w2' }), word({ id: 'w2', retryOf: 'w1' })]
+  assert.equal(sideWordOf(going, KEY)?.id, 'w2')
+  assert.deepEqual(build({ now: at(12, 40), outbox: going }).sideWordsDue, [])
 })

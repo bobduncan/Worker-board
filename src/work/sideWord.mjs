@@ -20,7 +20,8 @@
 // because a limit was full is no word: once the limit is back the wait is due again (`sideWordOf` skips it). A card shown because a
 // limit is full stays until the one word went: the delivering board's look writes it down per wait, in the outbox so a restart keeps
 // it (`sideKeepOf`: `keepCard` on the word still to go, or a record of its own with no word yet, `sideKeptFor`), and the next word of
-// that wait keeps the card (`sideKeptOf`, overdue).
+// that wait keeps the card (`sideKeptOf`, overdue). Chat 1's review of F53: a word a hand gave back (in doubt, or `backFrom`) may have
+// landed, so it is never closed as "a limit is full" (it stays the word of its wait, never sent twice); a retry chain counts as one word.
 
 import { plainWhy } from '../wakeCarry.mjs'
 import { TRIES, passesBySelf } from './passing.mjs'
@@ -54,17 +55,26 @@ export const isLimitFull = limits => ['fiveHour', 'week'].some(one => limits?.[o
 /** A failed word the store tries again by itself (store.mjs `retryFailed`), its copy not made yet. */
 const isRetryDue = word => word?.state === 'failed' && word.final !== true && word.retriedAs === undefined && passesBySelf(word.why) && (word.tries ?? 1) < TRIES
 
+/**
+ * Chat 1's review of F53, 1: a word a hand gave back (in doubt, `doubtAt`: its call gave no answer; or named by that hand, `backFrom`,
+ * whose late "sent" may still come) may have reached its chat: it is never closed as "a limit is full", and never read as no word.
+ */
+const mayHaveLanded = word => Number.isFinite(word?.doubtAt) || (word?.backFrom ?? null) !== null
+
 /** F53 (a): a record closed because a limit was full (a word given up then, or the mark of a card shown then): no word of its wait. */
-const isFullMark = word => word?.state === 'dropped' && word.why === FULL_WHY
+const isFullMark = word => word?.state === 'dropped' && word.why === FULL_WHY && !mayHaveLanded(word)
 
 /**
  * The newest side word of `key` in the outbox (any state; a retry's copy keeps its first time and comes later), or null. F53 (a): a
- * record closed because a limit was full is none, so the wait is due again once the limit is back.
+ * record closed because a limit was full is none, so the wait is due again once the limit is back. Chat 1's review of F53, 2: a word
+ * tried again (failed or stopped, `retriedAs` naming its copy of the same key) is none beside its copy, so a chain counts as one.
  */
 export function sideWordOf(outbox, key) {
+  const words = (Array.isArray(outbox) ? outbox : []).filter(word => word?.command === SIDE_WORD && word.key === key)
+  const ids = new Set(words.map(word => word.id))
   let found = null
-  for (const word of Array.isArray(outbox) ? outbox : []) {
-    if (word?.command !== SIDE_WORD || word.key !== key || isFullMark(word)) continue
+  for (const word of words) {
+    if (isFullMark(word) || (typeof word.retriedAs === 'string' && ids.has(word.retriedAs))) continue
     if (found === null || (word.at ?? 0) >= (found.at ?? 0)) found = word
   }
   return found
@@ -189,7 +199,8 @@ export function sideClosesOf({ words, liveKeys, runningMs, isFull = false }) {
     const isLateWord = word?.state === 'expired' && !Number.isFinite(word.closedAt)
     if (word?.command !== SIDE_WORD || !(word.state === 'waiting' || isLateWord || isRetryDue(word))) continue
     if (!liveKeys.has(word.key)) closes.push({ id: word.id, why: 'its wait ended' })
-    else if (isLateWord || runningMs(word.at) >= SIDE_HAND_MS) closes.push({ id: word.id, why: isFull ? FULL_WHY : word.state === 'failed' ? String(plainWhy(word.why) ?? STALE_SIDE_WHY) : STALE_SIDE_WHY })
+    // Chat 1's review of F53, 1: "a limit is full" only for a word that cannot have landed (else it would be due again and go twice).
+    else if (isLateWord || runningMs(word.at) >= SIDE_HAND_MS) closes.push({ id: word.id, why: isFull && !mayHaveLanded(word) ? FULL_WHY : word.state === 'failed' ? String(plainWhy(word.why) ?? STALE_SIDE_WHY) : STALE_SIDE_WHY })
   }
   return closes
 }

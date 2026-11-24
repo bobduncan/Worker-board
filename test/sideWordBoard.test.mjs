@@ -3,7 +3,8 @@
 // Over several looks and a board restart there is exactly one record per wait: one word a hand sends to chat 1's id, one "could not
 // go" record for chat 3 with the card saying why. Fake ids only.
 // F53 (b): while a limit is full the card shown is written down once: keepCard on chat 1's word still to go, and a record of its own for
-// a wait on chat 2 that turns late while full (no word yet); back under the limit, one word to chat 2 that keeps the card, over a restart.
+// a wait on chat 2 that turns late while full (no word yet, not overdue by time), kept over a restart while full; back under the limit,
+// one word to chat 2 that keeps the card (overdue by the record alone), and the same after the last restart.
 
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -146,21 +147,31 @@ test('over two looks and a restart: exactly one word to chat 1 by a hand, exactl
   // and it still waits. Back under the limit, the same word goes.
   const readingsFile = join(project, '.claude', 'limit-readings.json')
   const setWeek = used => writeFile(readingsFile, JSON.stringify([{ at: Date.now(), week: { used, resetsAt: NOW + 3 * 24 * 60 * MIN } }]))
-  const token = /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
-  const isFull = async () => (await (await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } })).json()).limitFull === true
+  // The page's token is the running board's (read anew each time: a restart makes a new one).
+  const pageToken = async () => /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
+  const stateNow = async () => (await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': await pageToken() } })).json()
+  const isFull = async () => (await stateNow()).limitFull === true
   await setWeek(99)
   await until(isFull, 'the board reads the limit as full')
   // F53 (b): the card shows ("did not ask chat 1: a limit is full"): the look writes it down on the word still to go.
-  // The page's token is the running board's (read anew: a restart below makes a new one).
-  const lateCard = async id => (await (await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0] } })).json()).forYou.find(one => one.kind === 'wait late' && one.title.endsWith(` on ${id}`))?.text ?? ''
+  const lateCard = async id => (await stateNow()).forYou.find(one => one.kind === 'wait late' && one.title.endsWith(` on ${id}`))?.text ?? ''
   await until(async () => (await byWho('chat 1'))[0].keepCard === true, 'the card shown while full kept on chat 1\'s word')
-  // A wait that turns late while full has no word: the record of its card, once.
-  await put(join(project, '.claude', 'work', 'B903.md'), step('B903', 'Worker 1', 'chat 2', SINCE - 5 * MIN))
+  // A wait that turns late while full has no word: the record of its card, once. Late at once but under 10 min past the limit, so only
+  // the record (`kept`) makes its word overdue once the limit is back.
+  await put(join(project, '.claude', 'work', 'B903.md'), step('B903', 'Worker 1', 'chat 2', Date.now() - 91 * MIN))
   await until(async () => (await byWho('chat 2')).length > 0, 'the record of the card shown for chat 2')
   await until(async () => /Then the board did not ask chat 2: a limit is full\./.test(await lateCard('B903')), 'the card for B903 while full')
   await looks()
   const kept = await byWho('chat 2')
   assert.deepEqual(kept.map(one => [one.state, one.why, one.keepCard, one.text, one.step]), [['dropped', 'a limit is full', true, '', 'B903']])
+  // A restart while still full: still the one record, and the card stays.
+  await stop(child)
+  ;({ child, key } = await start())
+  await reportAll()
+  await until(isFull, 'the restarted board reads the limit as full')
+  await looks()
+  assert.deepEqual((await byWho('chat 2')).map(one => one.id), [kept[0].id])
+  assert.match(await lateCard('B903'), /Then the board did not ask chat 2: a limit is full\./)
   const whileFull = await call('/api/bridge/hands', { chat: 'Worker 2', session: 'w2-id', mod: '0.27.1', can: ['send'] })
   assert.deepEqual(whileFull.jobs.filter(job => job.id === word.id), [])
   assert.equal((await byWho('chat 1'))[0].state, 'waiting')

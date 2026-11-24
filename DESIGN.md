@@ -7721,7 +7721,7 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   a word still to go is closed when its wait ends; the hand window is running time; a wait that was late before its word keeps its
   card (`keepCard`) with "Then the board asked chat 1 at HH:MM"; the "no word could go" record carries text '' so the log keeps it;
   a word the outbox reads as `expired` is the end of its hand window, so the Late says "a limit is full" or "no hand sent it".
-  F53 (chat 1's core review of B1394): a word closed because a limit was full is no word (`sideWordOf`), so the wait gets its one word once the limit is back; a Late shown because a limit is full stays until that word went, a restart too (the delivering board's look writes it down once: `keepCard` on the word still to go, or a record of its own, state's `sideCardsKept`).
+  F53 (chat 1's core review of B1394): a word closed because a limit was full is no word (`sideWordOf`), so the wait gets its one word once the limit is back; a Late shown because a limit is full stays until that word went, a restart too (the delivering board's look writes it down once: `keepCard` on the word still to go, or a record of its own, state's `sideCardsKept`). A word a hand gave back (in doubt, or `backFrom`) may have landed: never closed as "a limit is full", so never sent twice; a retry chain counts as one word.
 - **The forgotten record**: the answer to `work step` with a checkpoint while a wait stands says "You still wait on chat 1 since
   HH:MM (its go to land): work unblock B<n> once it gave its answer." Chat 1's go messages say "unblock first" (roles/main.md).
 - **Resume all** leaves a step with a standing wait out of its resume list (pause.mjs `isResumed`): a resume would only wake the
