@@ -64,10 +64,10 @@ test('workCtx answers from the kept state: no rebuild of its own, but for an unk
 })
 
 test('the side effects run after the answer, in order: the guard, the supervisor\'s heard, the wake, the main chat\'s pull line', () => {
-  const action = bodyOf('  const workAction = async (body, as) => {')
+  const action = bodyOf('  const workAction = async (body, as, trace = null) => {')
   assert.equal((action.match(/afterAnswer\(\(\) => loops\.run\('guard'/g) ?? []).length, 2)
   assert.doesNotMatch(action, /await loops\.run\('guard'/)
-  const once = bodyOf('  const bridgeWorkOnce = async (body, checked) => {')
+  const once = bodyOf('  const bridgeWorkOnce = async (body, checked, trace = null) => {')
   assert.match(once, /afterAnswer\(\(\) => loops\.run\('supervisor-heard'/)
   assert.match(once, /afterAnswer\(\(\) => loops\.run\('wake-after-answer', \(\) => sendWakes\(done\)\)\)/)
   assert.doesNotMatch(once, /await sendWakes\(done\)/)

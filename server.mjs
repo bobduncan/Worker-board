@@ -25,7 +25,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
 import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
-import { constants as osConstants, setPriority } from 'node:os'
+import { constants as osConstants, cpus as osCpus, setPriority } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -64,6 +64,7 @@ import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { gapsNow, keptSinceJump, readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
+import { callTracer } from './src/callTrace.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
 import { workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
@@ -401,6 +402,8 @@ export function createBoard({
   heardActive = () => {},
   // B934: runs each request, so the stall log (src/stalls.mjs) names the requests that ran during a stall.
   track = (words, fn) => fn(),
+  // B1139: a chat's work call's trace (src/callTrace.mjs `open`), by its request id; null when the board traces none.
+  traceCall = () => null,
 }) {
   // B529: what the page or a chat's mod writes into the project or sends to the chats is taken only by the board process
   // that runs the loops; another one on the project names where that one is. B539: the routes say it in POST_ROUTES.
@@ -431,6 +434,9 @@ export function createBoard({
         if (req.method !== 'POST') return refuse(res, 405, 'Only POST.')
         return mayTake ? refuse(res, 415, 'Send JSON.') : refuse(res, 403, 'Only the Workers mod may take.')
       }
+      // B1139: the work call's trace begins when the board's handler takes it, and ends when its answer is out (or cut off).
+      const trace = pathname === '/api/bridge/work' ? traceCall(typeof req.headers['x-work-request'] === 'string' ? req.headers['x-work-request'] : null) : null
+      if (trace !== null) res.once('close', () => trace.end())
       // B404: a board that restarts takes no more work; the chat is told to try again in a moment.
       if (isClosing()) {
         req.resume()
@@ -438,11 +444,13 @@ export function createBoard({
       }
       // B539: the work tool, a take and a word typed change the store or the outbox: written by the holder only, never twice.
       const notHere = WRITES.has(pathname) ? await mayWrite() : null
+      trace?.mark('lock')
       if (notHere !== null) {
         req.resume()
         return refuse(res, 409, notHere)
       }
       const body = await readBody(req)
+      trace?.mark('body')
       if (body === null) return refuse(res, 413, 'Too large.')
       let parsed
       try {
@@ -460,7 +468,8 @@ export function createBoard({
       parsed = withModHeader(parsed, req.headers['x-workers-mod'])
       const taken = await (pathname === '/api/bridge/take' ? take : pathname === '/api/bridge/work' ? bridgeWork : pathname === '/api/bridge/report' ? report : pathname === '/api/bridge/whoami' ? whoami
         : pathname === '/api/bridge/hands' ? hands : pathname === '/api/bridge/hands-done' ? handsDone
-          : pathname === '/api/bridge/wakes-due' ? wakesDue : pathname === '/api/bridge/wakes-sent' ? wakesSent : typed)(parsed)
+          : pathname === '/api/bridge/wakes-due' ? wakesDue : pathname === '/api/bridge/wakes-sent' ? wakesSent : typed)(parsed, trace)
+      trace?.set({ status: taken.ok ? 200 : taken.status })
       return taken.ok ? json(res, taken.result) : refuse(res, taken.status, taken.why)
     }
 
@@ -876,10 +885,21 @@ async function main(args) {
       },
     }
   }
+  // B1139 (X93): every chat work call cut into its parts, with the loop's and the file system's delay and the CPU, in a local file
+  // (src/callTrace.mjs, data/call-trace.jsonl, the newest day): where a call waits between the chat's send and its answer.
+  const traceFile = isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'call-trace.jsonl')
+  const tracer = traceFile === null ? null : callTracer({
+    now: clock, statProbe: () => stat(join(HERE, 'data')), cpus: osCpus, boardCpu: () => process.cpuUsage(),
+    jobsDuring: (from, to) => stalls.jobsDuring(from, to),
+    append: text => appendFile(traceFile, text), read: () => readFile(traceFile, 'utf8'), rewrite: text => writeUnflushed(traceFile, text),
+  })
   if (!isDemo && historyFrom === undefined) {
     await stalls.load()
     await workCalls.load()
     watchLoop(stalls)
+    // It never throws: a file it cannot cut is cut at the next trim.
+    void tracer?.trim()
+    tracer?.start()
   }
   /**
    * board-fast-answer: what a work call used to await after its store write (the goal guard, a wake, the supervisor's heard, the main
@@ -2014,11 +2034,15 @@ async function main(args) {
   const keepStability = isDemo || isShowOnly || workDir === null ? null : stabilityKeeper({ dir: join(HERE, 'data'), clock })
   const workReads = new Set(['next', 'list', 'pause-state', 'route-state', 'health'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
-  const workAction = async (body, as) => {
+  const workAction = async (body, as, trace = null) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
-    const done = await workApi(body, { ...(await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null, action: body?.action ?? null, of: typeof body?.of === 'string' ? body.of : null, forYou: Array.isArray(body?.forYou) && body.forYou.length > 0 })), ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
+    const ctx = await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null, action: body?.action ?? null, of: typeof body?.of === 'string' ? body.of : null, forYou: Array.isArray(body?.forYou) && body.forYou.length > 0 })
+    // B1139: the call's context is there (a kept state, or the rebuild it waited for).
+    trace?.mark('ctx')
+    const done = await workApi(body, { ...ctx, ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
+    trace?.mark('action')
     // T9.1.1: a result check is a Quality Assurance task the work API makes itself (api.mjs `qaStep`): no word to the Advisor.
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.
     // board-fast-answer: the guard runs after the answer (`afterAnswer`, in order): it is eventual, the store's truth is the call's write.
@@ -2194,10 +2218,10 @@ async function main(args) {
   let callsNow = 0
   let lastLogAt = null
   const loggedAt = new Map()
-  const counted = answer => async body => {
+  const counted = answer => async (body, ...more) => {
     callsNow += 1
     try {
-      return await answer(body)
+      return await answer(body, ...more)
     } finally {
       callsNow -= 1
     }
@@ -3128,10 +3152,10 @@ async function main(args) {
    */
   const checkedOrSide = (fresh, asked, body) => (sideWordsOf(fresh.checked, asked, body, fresh.state) ? { ok: true, chat: body.chat.trim().slice(0, 80), isSide: true } : fresh.checked)
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
-  const bridgeWorkOnce = async (body, checked) => {
+  const bridgeWorkOnce = async (body, checked, trace = null) => {
     // T8.5: the version its mod said with this very call (noteMod keeps it before the call is answered).
     const mod = modOf.get(checked.chat)?.version ?? null
-    const done = await workAction({ ...body, chat: checked.chat }, checked.isSide === true ? 'side' : undefined)
+    const done = await workAction({ ...body, chat: checked.chat }, checked.isSide === true ? 'side' : undefined, trace)
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.
     // B760: by the state the board has, as the check of the call: work health's answer never waits for a whole read.
     if (supervisor !== null && ['health', 'incident', 'turn-ended'].includes(body?.action) && done.ok && laneRole(readState.last() ?? await readState(), checked.chat) === 'supervisor') {
@@ -3147,10 +3171,12 @@ async function main(args) {
     if (body?.action === 'turn-ended' && done.ok && await sequenceLane(checked.chat, mod) !== null) {
       const since = Number(body.since)
       const decided = await decideFor(checked.chat, mod, { kind: 'turn-ended', since })
+      trace?.mark('decide')
       // Change 4 (B.2): the woken chat's first turn end was seen, right after the decision that read it.
       if (wakeTurnEnded(wakes, checked.chat, clock())) wakesChanged()
       if (decided !== null) {
         const envelope = await handOut(store, checked.chat, clock(), keep, { holdClear: inFirstTurn(wakes, checked.chat, reports?.get(checked.chat) ?? null), waiveLine: step => wakeCarriedTake(wakes, checked.chat, step) })
+        trace?.mark('handout')
         if (envelope !== null) readState.reset()
         const { pull: _pull, ...rest } = done.result
         const waits = envelope === null && decided.envelope !== null && typeof decided.envelope.waitsFor === 'string' ? 'set' : null
@@ -3206,6 +3232,7 @@ async function main(args) {
       await reportsSave?.flush()
       // board-fast-answer: the day's work-call figures are on disk before the new board reads them.
       await workCalls.flush()
+      await tracer?.flush()
       await wakesSave?.flush()
       // Gap 2 of the live proof: the page asks every refreshSeconds, so the board keeps answering `leaving` for one refresh
       // and a second before it ends (in parallel with the wait above, not after it).
@@ -3234,6 +3261,7 @@ async function main(args) {
     if (!inTime) console.log('Shut down: the board did not wait longer than 10 s for its running work.')
     await reportsSave?.flush()
     await workCalls.flush()
+    await tracer?.flush()
     await wakesSave?.flush()
     // The page sees `leaving` once before the board ends, as for a restart (Gap 2 of the live proof).
     const wait = exitAt({ leavingAt: leaving.at, workSettledAt: clock(), refreshSeconds: config.refreshSeconds, waitMs: RESTART_WAIT_MS }) - clock()
@@ -3807,6 +3835,7 @@ async function main(args) {
     onError: error => loops.failed('request', error),
     onAnswered: () => loops.succeeded('request'),
     track: (words, fn) => stalls.track('request', words, fn),
+    traceCall: request => tracer?.open({ request, arrived: clock() }) ?? null,
     isClosing: () => isClosing,
     heardActive: header => pagesActive.heard(header, clock()),
     check: async () => {
@@ -3851,29 +3880,40 @@ async function main(args) {
       return done
     },
     // B297: a chat's work tool: only the chat the board shows under that name, with its session, as for taking.
-    bridgeWork: counted(async body => {
+    bridgeWork: counted(async (body, trace = null) => {
       // B412: a call the mod repeats with its request id (its answer was slow or cut off) gets the first answer, before
       // anything else is looked at: right after a restart the board may not show the chat yet. The id is the session's.
       const { request, mod: _mod, ...asked } = body ?? {}
       const session = String(body?.session ?? '')
+      // B1139: the trace names the action at once, and marks each part of the call (src/callTrace.mjs).
+      trace?.set({ action: String(asked.action ?? 'call').slice(0, 30) })
       const kept = await requests.known(session, request)
-      if (kept !== undefined) return kept
+      trace?.mark('known')
+      if (kept !== undefined) {
+        trace?.set({ repeat: true })
+        return kept
+      }
       const stall = callStall(asked.action, session)
+      trace?.mark('begin')
+      const rebuildsAt = rebuilds
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
       try {
         const fresh = await checkFresh(body)
+        trace?.mark('fresh')
         const checked = checkedOrSide(fresh, asked, body)
         if (checked.isSide !== true) noteMod(body, checked)
         if (checked.isSide !== true) noteRefused(body, checked)
         const state = fresh.state
         if (!checked.ok) return checked
         stall.by(checked.chat)
+        trace?.set({ chat: String(checked.chat).slice(0, 80) })
         if (asked.action === 'save-log') return await requests.answer(session, request, () => saveLog(asked, checked, state))
-        if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, checked)
-        return await requests.answer(session, request, () => bridgeWorkOnce(asked, checked))
+        if (isReadAction(asked.action)) return await bridgeWorkOnce(asked, checked, trace)
+        return await requests.answer(session, request, () => bridgeWorkOnce(asked, checked, trace))
       } finally {
         stall.done()
         hearing?.answered(request, clock())
+        trace?.set({ rebuilds: rebuilds - rebuildsAt })
       }
     }),
     take: counted(async body => {
@@ -4900,7 +4940,8 @@ async function main(args) {
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),
         // B1302 (X211): the PC's one-at-a-time test queue, read only (src/testQueue.mjs), so a worker that waits its turn for a test run is no stale checkpoint.
-        testQueue: async () => readTestQueue({ tool: await import('./tools/one-at-a-time.mjs'), now: clock() }),
+        // F56: a run of a landing gate's folder (land-gate-xxxxxxxx) is read as the landing lock's branch, so a worker that waits for its own gate is excused too.
+        testQueue: async () => readTestQueue({ tool: await import('./tools/one-at-a-time.mjs'), now: clock(), landing: lockHolder(join(HERE, 'data', 'landing.lock'), clock()) }),
         recheck: (id, why, more = {}) => workAction({ action: 'recheck-base', id, why, ...more }, 'server'),
         // P2 (T2.11), the rule faults-gone: what stands in each repository now, whether a landing runs (data/landing.lock, a lock not
         // stale), when this board started, and the steps whose check runs now.

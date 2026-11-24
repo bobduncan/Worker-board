@@ -413,7 +413,7 @@ test('review 9: sideWordsOf passes only a session the board does not know under 
   // The server: a side call notes no mod and no sign of life for any name, and reaches the API as `side`.
   const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'server.mjs'), 'utf8')
   assert.match(source, /if \(checked\.isSide !== true\) noteMod\(body, checked\)/)
-  assert.match(source, /workAction\(\{ \.\.\.body, chat: checked\.chat \}, checked\.isSide === true \? 'side' : undefined\)/)
+  assert.match(source, /workAction\(\{ \.\.\.body, chat: checked\.chat \}, checked\.isSide === true \? 'side' : undefined, trace\)/)
 })
 
 test('review 10: roles/main.md says who calls words and that Main does not withdraw another chat\'s ask; the other docs say the same', () => {

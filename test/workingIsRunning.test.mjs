@@ -80,7 +80,8 @@ test('the server notes every accepted call: its bridge routes all go through not
   for (const route of ['    bridgeWork: counted(', '    take: counted(', '    typed: counted(']) {
     const from = server.indexOf(route)
     assert.ok(from > 0, route)
-    assert.ok(server.slice(from, from + 900).includes('noteMod(body, checked)'), route)
+    // B1139: bridgeWork's trace marks stand before it, so the look reaches a little further.
+    assert.ok(server.slice(from, from + 1400).includes('noteMod(body, checked)'), route)
   }
 })
 
