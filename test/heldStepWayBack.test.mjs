@@ -79,30 +79,30 @@ const roleOf = chat => ({ Main: 'main', 'Worker 3': 'worker', 'Worker 4': 'worke
 /** The board's history: off 10:54:31-10:58:12 (the account switch). */
 const LINES = [{ at: at(10, 54, 31), gap: true }, { at: at(10, 58, 12), chat: 'Main', state: 'free' }]
 
-function build({ now, appChatTexts = LIST_1058, appFiles = null, work, outbox = [], reports = reportsAt(now), wakes = null }) {
+function build({ now, appChatTexts = LIST_1058, appFiles = null, work, outbox = [], reports = reportsAt(now), wakes = null, settings = config }) {
   const raw = {
     listText: JSON.stringify({ prefix: PREFIX, main: 'Main' }),
     appChatTexts, ...(appFiles === null ? {} : { appFiles }),
     tails: {}, planLineTexts: {}, work, adviceText: null, folders: null, askTexts: [], pictureLists: {},
   }
   return buildState(raw, {
-    lines: LINES, outbox, runs: [], now, config, seen: { shown: { Main: now, 'Worker 3': now }, other: {} },
+    lines: LINES, outbox, runs: [], now, config: settings, seen: { shown: { Main: now, 'Worker 3': now }, other: {} },
     board: { startedAt: at(10, 58, 12), offSince: at(10, 54, 31) }, reports: new Map(reports), wakes,
   })
 }
 const laneOf = (state, name) => state.chats.find(chat => chat.name === name)
 
 /** One pass of the server's hand-over on a store in a folder, as the board runs it each refresh. */
-async function board(t) {
+async function board(t, settings = config) {
   const dir = await mkdtemp(join(tmpdir(), 'wayback-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   await writeStore(dir, storeWith(), undefined, { now: at(9, 0) })
   const outbox = memoryStore()
   let n = 0
   const pass = async (now, more = {}) => {
-    const state = build({ now, work: { ...await readStore(dir), ok: true }, outbox: outbox.outbox(), ...more })
+    const state = build({ now, work: { ...await readStore(dir), ok: true }, outbox: outbox.outbox(), settings, ...more })
     const apply = body => workApi(body, { dir, now, prefix: PREFIX, roleOf, as: 'server' })
-    await handoverPass({ state, dir, outbox, apply, config, installed: '0.30.0', now, newId: () => `m${++n}` })
+    await handoverPass({ state, dir, outbox, apply, config: settings, installed: '0.30.0', now, newId: () => `m${++n}` })
     return state
   }
   const item = async () => (await readStore(dir)).items.get('B968')
@@ -178,10 +178,22 @@ test('the go on comes after 5 minutes of the board\'s running time and the give-
   assert.equal(goOns(one.outbox).length, 0, 'not before 5 minutes')
   await one.pass(at(11, 5, 10), at1100)
   assert.equal(goOns(one.outbox).length, 1, 'at 5 minutes')
+  assert.equal(goOns(one.outbox)[0].giveBackMs, GIVE_BACK_MINUTES * MIN, 'B1294: the line carries its give-back\'s minutes for rule 8')
   await one.pass(at(11, 5, 10) + 14 * MIN + 50_000, at1100)
   assert.equal(valueOf(await one.item(), 'State'), 'in progress', 'not before 15 minutes after the line')
   await one.pass(at(11, 5, 10) + 15 * MIN, at1100)
   assert.equal(valueOf(await one.item(), 'State'), 'refined', 'at 15 minutes after the line')
+})
+
+test('B1294 review 2: a configured give-back of 30 min reaches the stamp of the go on line (mutant: the stamp ignores the setting)', async t => {
+  const slow = { ...config, giveBackAfterMinutes: 30 }
+  const one = await board(t, slow)
+  const stopped = report('Worker 4', 'ended', at(11, 0), { session: OWN_CLI })
+  const list = [running('Main'), running('Worker 3'), OWN_WORKER4()]
+  const at1100 = { appChatTexts: list, reports: [report('Main', 'idle', at(11, 5, 10)), report('Worker 3', 'idle', at(11, 5, 10)), stopped] }
+  await one.pass(at(11, 5, 10), at1100)
+  assert.equal(goOns(one.outbox).length, 1, 'at 5 minutes')
+  assert.equal(goOns(one.outbox)[0].giveBackMs, 30 * MIN)
 })
 
 test('cases: the pause lifted and the chat back goes on; a closed chat is woken by its own ids; lifted and not back goes on to the give-back', async t => {

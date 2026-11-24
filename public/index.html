@@ -32,6 +32,7 @@
     <span class="grow"></span>
     <button class="waits-button" id="waits-for-you" type="button" title="Open Needs your attention on the Overview" hidden></button>
     <button class="quiet-button" id="pause-all" type="button" title="Before you quit Claude: every chat commits its work, writes its checkpoint and ends its turn" hidden>Pause all</button>
+    <button class="quiet-button" id="shut-down" type="button" title="Close the board for good: every chat is paused first, then the board stops and stays stopped until you start it again (its icon, or npm run resume)" hidden>Shut down</button>
     <details class="settings" id="settings" hidden>
       <summary class="icon-button settings-button" id="settings-button" title="Settings: CPU for Claude, Autopilot, rebuilds, and the board's version" aria-label="Settings: CPU for Claude, Autopilot, rebuilds, and the board's version">⚙</summary>
       <div class="settings-pop">
@@ -71,6 +72,11 @@
           <span class="cpu-label">Approve rebuilds by itself</span>
           <button class="cpu-level" type="button" data-setting="approveRebuilds" data-value="false" title="A rebuild your partner's evaluation proposes waits for your yes">Off</button>
           <button class="cpu-level" type="button" data-setting="approveRebuilds" data-value="true" title="A rebuild your partner's evaluation proposes goes ahead at once, and you get a recap">On</button>
+        </div>
+        <div class="cpu board-setting" id="beyond-focus" role="group" aria-label="Any backlog task when idle" hidden>
+          <span class="cpu-label">Any backlog task when idle</span>
+          <button class="cpu-level" type="button" data-setting="handOutBeyondFocus" data-value="false" title="A free worker takes fixes, the focus, the backup focus and what you queued only">Off</button>
+          <button class="cpu-level" type="button" data-setting="handOutBeyondFocus" data-value="true" title="When none of those is ready, a free worker takes any refined task of the backlog">On</button>
         </div>
         <div class="cpu board-setting" id="max-workers" role="group" aria-label="Workers at most" hidden>
           <span class="cpu-label">Workers at most</span>

@@ -161,7 +161,7 @@ tab) and never on the demo; once closed, the browser keeps that it was seen (`he
   start, "the supervisor's chat did not start: the code rules ran, the sweep did not". Otherwise only cool colours: nothing
   in it asks the person to act. × closes it until something newer; while it shows, the panel's head has no second Check now.
   **Ready for a worker** (redesign Part 2, 2026-10-25), under the rows: the board's one list of the tasks that are
-  refined and held by nothing, in its order (fixes first, then the focus goal's, then by id), each with its id (a link
+  refined and held by nothing, in its order (fixes first, then the focus goal's, then the backup focus's, then by id), each with its id (a link
   to its window), its title and whom it is for ("pinned to Worker 3"; "to Worker 2 first when it is free": a
   follow-up of what that worker built; "not given to Worker 1: <why>" when the board's give was refused, for 15
   minutes); and, folded, **Refined, but held (n)** with why each waits ("blocked by B3 (in
@@ -411,6 +411,14 @@ your partner for another proposal; a question or a proposal waiting is also a li
 of this page), **Suggestions** (the Advisor's open suggestions with their Why, Cost and Unblocks, and when its rounds
 come), **Refine** (the steps by where their refine stands) and **Chat** (a chat with the Advisor, as "Talk to Main").
 
+
+**Backup focus** (the person, 2026-11-24: "too often at the end when the goal is almost finished I have workers who do
+nothing"). Under the focus, a card names the goal that comes next: pick an open goal with a Done when and **Set as backup**
+(the head line `Backup: G<n>`). Your partner drafts its goal definition and work blocks while the focus runs; you agree
+them on the card (**This is the goal definition**, **Go**, or **Not yet** with your words). Its tasks go to free workers
+after every fix and the focus's, before what you queued; once the focus is ticked the backup becomes the focus by itself.
+**Remove** takes it away. In the settings, **Any backlog task when idle** (off by default) lets a free worker take any
+refined task when none of those is ready.
 ## Vision (2026-10-19)
 
 **Where a word to the partner stands (P4c, 2026-11-11).** Every Vision button that sends a word (Start, Go deeper, Get options, Change, Propose standards, Measure, Check the plan, Propose the next focus, Lay the plan, a feature, the preset, the goals into the goal map, the tradeoffs, the strategy, and the follow-up word of a decision) has the one line of the other places where its button was: the tab's list, the card, the open slide, the start card. Sent, Picked up, Done when the partner wrote the plan page after it was PICKED UP (the turn on that word began: a word waiting in a busy partner's queue is not answered by the page the partner writes for the word before; the board's own write of a decision never counts; with no record of the pick-up (the word's `pickedUpAt`, or a turn report that names the word) the line says quietly "plan written HH:MM; not confirmed for this word", also when its turn ended: never the amber Late, and its button is free), Late (also a line that ended after a day, which frees the button as in Focus), all from the records; nothing the page guesses (no "is preparing", no 30-minute "no answer"), and no record, no line. A button waits while its line is Sent or Picked up. A Late or ended line offers Send again with the words the person typed (kept on the word, so an emptied box does not matter, also after a reload; Start again refills from the start word's kept own words, apart from the kind, and picks the kind again). A word about the whole plan names itself in the list ("On the plan check", from the plan module's own label table); the open slide's plan-ask line is not repeated in the list. The way card's "No, because..." has its line under "You said no" until the Advisor's new recommendation card replaces that block: that card is the result the person sees.

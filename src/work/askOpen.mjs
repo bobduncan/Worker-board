@@ -21,14 +21,22 @@ export function removalAsk(message, now, openMs = REMOVE_OPEN_MS) {
   return { at: message.at, state: message.state, isOpen }
 }
 
+/** F46: the newest refine word per step id in `sent`: what `sent.findLast` finds for that step, for one list as it stands now. */
+export function newestRefines(sent) {
+  const newest = new Map()
+  for (const one of sent) if (one.command === 'refine') newest.set(one.about, one)
+  return newest
+}
+
 /**
  * B233: the newest ask to the Advisor to refine a step, open while it is on its way and after it arrived until the
  * step's refine block shows the round it asked for, for half an hour at most (`openMs`). T9.4: the Advisor's waiting list
  * passes Infinity for it: a refine it took and has not written stays in its list (refineWait.mjs `isBlockWritten`).
  */
-export function refineAsk(step, sent, now, openMs = REFINE_OPEN_MS) {
+export function refineAsk(step, sent, now, openMs = REFINE_OPEN_MS, newest = null) {
   if (step.id === null) return null
-  const message = sent.findLast(one => one.command === 'refine' && one.about === step.id)
+  // F46: `newest` (`newestRefines(sent)`, made once per rebuild) saves a walk of the words per step.
+  const message = newest === null ? sent.findLast(one => one.command === 'refine' && one.about === step.id) : newest.get(step.id)
   const ask = removalAsk(message, now, openMs)
   if (ask === null) return null
   const round = Number.isInteger(message.round) ? message.round : 1

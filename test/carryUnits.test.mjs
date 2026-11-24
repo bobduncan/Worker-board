@@ -11,8 +11,13 @@ import { join } from 'node:path'
 
 import { createServer } from 'node:http'
 
-import { boardsAnswering, optionsOf, parseArgs } from '../tools/carry.mjs'
-import { blobOf } from '../src/carry/git.mjs'
+import { boardsAnswering, optionsOf, parseArgs, rootsOf, secretsOf } from '../tools/carry.mjs'
+import { save } from '../src/carry/save.mjs'
+import { load } from '../src/carry/load.mjs'
+import { carriedProjectSettings } from '../src/carry/set.mjs'
+import { PC_KEYS } from '../src/config.mjs'
+import { readFileSync } from 'node:fs'
+import { blobOf, blobOfFile, readIfThere } from '../src/carry/git.mjs'
 import { boardStepsOf, heldStepsOf, heldWordsOf, loadGuards, reviewStepsOf, saveGuards, secretValuesOf, secretsIn, LOCK_FRESH_MS } from '../src/carry/guards.mjs'
 import { parseTimes, restoreTimes, timesOf } from '../src/carry/times.mjs'
 import { parseRecord, readRecord, recordFileFor, writeRecord } from '../src/carry/record.mjs'
@@ -187,4 +192,111 @@ test('the boards of the project that answer: the PC\'s list (boards.json under W
   writeFileSync(join(dir, 'boards.json'), JSON.stringify({ boards: [] }))
   writeFileSync(join(boardDir, 'data', 'port.json'), JSON.stringify({ port }))
   assert.deepEqual(await boardsAnswering({ project, boardDir, env }), [{ port, project }])
+})
+
+test('T5.2 A8: the roots know the chat home and the data home: the memory and the bridge key are the chats\' (the chat home), the data home is config `data`; today both are the project; the secret scan reads the bridge file given', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'carry-roots-'))
+  try {
+    const env = { USERPROFILE: join(root, 'user'), LOCALAPPDATA: join(root, 'local') }
+    const git = async () => ({ out: '', err: '', code: 1 })
+    const flags = { remote: 'https://example.test/game.git' }
+    const [wrap, board] = [join(root, 'wrap'), join(root, 'wrap', 'board')]
+    const game = join(wrap, 'game')
+    mkdirSync(board, { recursive: true }); mkdirSync(join(wrap, '.claude'), { recursive: true }); mkdirSync(join(game, '.claude'), { recursive: true })
+    writeFileSync(join(wrap, '.claude', 'board.json'), JSON.stringify({ key: 'wrapkeywrapkeywrapkey' }))
+    writeFileSync(join(game, '.claude', 'board.json'), JSON.stringify({ key: 'gamekeygamekeygamekey' }))
+    // Today: project only.
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game }))
+    const today = await rootsOf({ boardDir: board, flags, env, git })
+    assert.deepEqual([today.chatHome, today.dataHome, today.bridgeFile], [game, null, join(game, '.claude', 'board.json')])
+    assert.equal(today.memoryDir, join(today.config.transcripts, 'memory'), 'the memory is the chats\' transcripts folder')
+    assert.deepEqual((await secretsOf({ bridgeFile: today.bridgeFile, env })).filter(one => one.kind === 'bridge key').map(one => one.value), ['gamekeygamekeygamekey'])
+    // The settings on: the chat home is the wrapper, the data home the game's .workerboard.
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: wrap, data: join(game, '.workerboard') }))
+    const moved = await rootsOf({ boardDir: board, flags, env, git })
+    assert.deepEqual([moved.chatHome, moved.dataHome, moved.bridgeFile], [wrap, join(game, '.workerboard'), join(wrap, '.claude', 'board.json')])
+    assert.equal(moved.memoryDir, join(moved.config.transcripts, 'memory'))
+    assert.notEqual(moved.config.transcripts, today.config.transcripts, 'the transcripts follow the chat home')
+    assert.deepEqual((await secretsOf({ bridgeFile: moved.bridgeFile, env })).filter(one => one.kind === 'bridge key').map(one => one.value), ['wrapkeywrapkeywrapkey'])
+    assert.equal(moved.dataDir, join(game, '.workerboard'), 'the data folder is the data home: the moved layout')
+    // The moved layout: save refuses in one line before it reads or writes anything.
+    const logs = []
+    const done = await save({ ...moved, config: moved.configGiven }, { log: text => logs.push(text) }, { fs: { readFile: async () => { throw new Error('not read') } }, recordFile: join(board, 'data', 'carry.json') })
+    assert.deepEqual([done.ok, done.refusals.map(one => one.code), logs], [false, ['in-place'], ['Refused: the data lives in the data folder already: saving is a commit (Round C), not a copy']])
+    // The wiring: save carries the project's settings file and the data/ root; load puts the file where this PC's data says and places data/ in the data home.
+    const saveCode = readFileSync(new URL('../src/carry/save.mjs', import.meta.url), 'utf8')
+    const loadCode = readFileSync(new URL('../src/carry/load.mjs', import.meta.url), 'utf8')
+    assert.match(saveCode, /const SET_ROOTS = \['home\/', 'data\/', 'board\/', 'memory\/'\]/)
+    assert.match(saveCode, /settings\[SETTINGS_TO\] = projectSettings$/m)
+    assert.match(saveCode, /secretsIn\(\[\.\.\.files, \.\.\.Object\.entries\(settings\)/, 'review 3: the settings are scanned too')
+    assert.match(saveCode, /chatHome: roots\.chatHome \?\? null, dataHome: roots\.dataHome \?\? null/)
+    assert.match(loadCode, /chatHome: roots\.chatHome \?\? null, dataHome: roots\.dataHome \?\? null/)
+    assert.match(loadCode, /const SET_ROOTS = \['home\/', 'data\/', 'board\/', 'memory\/'\]/, 'review 1: load places data/ back')
+    assert.match(loadCode, /const settingsTarget = roots\.projectSettingsFile \?\? set\.projectSettingsFileOf\?\.\(roots\.config\) \?\? null[^]*?plan\.push\(\{ to: settingsTo, target: settingsTarget/, 'review 2 and c: the settings file is an item of the plan, placed by the roots')
+    // Review 2 and 5: the settings file's place comes from config.json's own `data` before the file exists; a relative `data` is the board folder's.
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: '..', data: '../game/.workerboard-rel' }))
+    const relative = await rootsOf({ boardDir: board, flags, env, git })
+    assert.deepEqual([relative.chatHome, relative.dataHome, relative.projectSettingsFile], [wrap, join(game, '.workerboard-rel'), join(game, '.workerboard-rel', 'board-settings.json')])
+    assert.equal(relative.config.settingsFile, null, 'loadConfig names no file while it does not exist; the roots do')
+    // Review a: every root follows the homes made absolute from the board folder (the working folder plays no part).
+    assert.deepEqual([relative.workDir, relative.bridgeFile, relative.config.data, relative.config.chatHome, relative.config.project],
+      [join(game, '.workerboard-rel', '.claude', 'work'), join(wrap, '.claude', 'board.json'), join(game, '.workerboard-rel'), wrap, game])
+    assert.equal(relative.memoryDir, join(relative.config.transcripts, 'memory'))
+    assert.equal(relative.config.transcripts, moved.config.transcripts, 'the transcripts are the chat home\'s, relative or not')
+    // Review f: load refuses the moved layout as save does, before it fetches anything.
+    const loadLogs = []
+    const refusedLoad = await load({ ...moved, config: moved.configGiven }, { log: text => loadLogs.push(text) }, { fs: { readFile: async () => { throw new Error('not read') } }, recordFile: join(board, 'data', 'carry.json'), boardAnswers: async () => [], keepers: async () => [], lockAgeMs: async () => null })
+    assert.deepEqual([refusedLoad.ok, refusedLoad.refusals.map(one => one.code)], [false, ['in-place']])
+    assert.match(loadLogs.join('\n'), /^Refused: the data lives in the data folder already/m)
+    // Review 3: the project's settings travel without PC keys; a file that is no JSON object is not carried.
+    const carried = JSON.parse(carriedProjectSettings(JSON.stringify({ name: 'Moved', weekStopAt: 90, ...Object.fromEntries(PC_KEYS.map(key => [key, 'x'])) })))
+    assert.deepEqual(carried, { name: 'Moved', weekStopAt: 90 })
+    assert.equal(carriedProjectSettings('{ broken'), null)
+    assert.equal(carriedProjectSettings('[1]'), null)
+    // Round 3, review 1: no project in config.json is refused before any git call (it would resolve to the board folder).
+    const gitCalls = []
+    const countingGit = async (...args) => { gitCalls.push(args); return { out: '', err: '', code: 1 } }
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ gameRepo: game }))
+    await assert.rejects(rootsOf({ boardDir: board, flags, env, git: countingGit }), /names no project/)
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: '  ', gameRepo: game }))
+    await assert.rejects(rootsOf({ boardDir: board, flags, env, git: countingGit }), /names no project/)
+    assert.equal(gitCalls.length, 0, 'refused before git is asked anything')
+    // Round 3, review 8: data and chatHome trimmed and %VAR%-filled as settingsFileOf does; an unset %VAR% is refused; an explicit relative
+    // transcripts or picturesHome is the board folder's.
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, data: ' %A8_NOT_SET%/data ' }))
+    await assert.rejects(rootsOf({ boardDir: board, flags, env, git: countingGit }), /data names %A8_NOT_SET%, which is not set/)
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: '%A8_HOME%\\\\x' }))
+    await assert.rejects(rootsOf({ boardDir: board, flags, env, git: countingGit }), /chatHome names %A8_HOME%, which is not set/)
+    assert.equal(gitCalls.length, 0)
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: ' %A8_HOME%\\\\wrap ', data: ' %a8_home%/wrap/game/.workerboard-rel ', transcripts: 'tx', picturesHome: ' pics ' }))
+    const filled = await rootsOf({ boardDir: board, flags, env: { ...env, A8_HOME: root }, git })
+    assert.deepEqual([filled.chatHome, filled.dataHome, filled.config.transcripts, filled.memoryDir, filled.picturesFolder],
+      [wrap, join(game, '.workerboard-rel'), join(board, 'tx'), join(board, 'tx', 'memory'), join(board, 'pics')])
+    // Round 3, review 2: a chat home that is not the project with no data home: save and load refuse (the store is in neither home).
+    writeFileSync(join(board, 'config.json'), JSON.stringify({ project: game, gameRepo: game, chatHome: wrap }))
+    const half = await rootsOf({ boardDir: board, flags, env, git })
+    const unread = { readFile: async () => { throw new Error('not read') } }
+    const halfSave = await save({ ...half, config: half.configGiven }, { log: () => {} }, { fs: unread, recordFile: join(board, 'data', 'carry.json') })
+    const halfLoad = await load({ ...half, config: half.configGiven }, { log: () => {} }, { fs: unread, recordFile: join(board, 'data', 'carry.json'), boardAnswers: async () => [], keepers: async () => [], lockAgeMs: async () => null })
+    assert.deepEqual([halfSave.ok, halfSave.refusals.map(one => one.code), halfLoad.ok, halfLoad.refusals.map(one => one.code)], [false, ['layout'], false, ['layout']])
+    assert.match(halfSave.refusals[0].text, /chat home but no data home/)
+    assert.equal(halfLoad.refusals[0].text, halfSave.refusals[0].text)
+    // Round 3, review 3 and 7 (the wiring): the running-board check asks by the chat home; the settings file is written atomically.
+    const toolCode = readFileSync(new URL('../tools/carry.mjs', import.meta.url), 'utf8')
+    assert.match(toolCode, /boardAnswers: \(\) => boardsAnswering\(\{ project: roots\.chatHome, boardDir: roots\.boardDir \}\)/)
+    assert.match(loadCode, /if \(one\.to === settingsTo\) await writeAtomic\(one\.target, one\.bytes\)/)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('round 3, review 6: only ENOENT (or ENOTDIR) means absent: blobOfFile and readIfThere answer null for a file that is not there and throw for one that is held', async () => {
+  const held = Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })
+  const gone = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
+  const noDir = Object.assign(new Error('ENOTDIR'), { code: 'ENOTDIR' })
+  const fsOf = error => ({ readFile: async () => { throw error } })
+  assert.equal(await blobOfFile('x', fsOf(gone)), null)
+  assert.equal(await blobOfFile('x', fsOf(noDir)), null)
+  await assert.rejects(blobOfFile('x', fsOf(held)), /EBUSY/)
+  assert.equal(await readIfThere(fsOf(gone), 'x'), null)
+  await assert.rejects(readIfThere(fsOf(held), 'x', 'utf8'), /EBUSY/)
+  assert.equal(await blobOfFile('x', { readFile: async () => Buffer.from('a\n') }), blobOf(Buffer.from('a\n')))
 })

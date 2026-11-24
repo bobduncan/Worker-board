@@ -8,7 +8,7 @@ import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'n
 import { editThread, parseThread, setThreadState } from './brainstorm.mjs'
 import { NO_ROUND, doneWhenText, focusStage, goWaitsForLines, hasDemo, hasDoneWhen, nextGoalId, parseGoals, partOf } from './goals.mjs'
 import { askingOf, evaluateWords, evaluationPartOf, evaluationsDue, goalAttempts, guardStep, partnerModeFor } from './goalGuard.mjs'
-import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
+import { addGoal, addGoalLine, addGoalNote, agreeHow, agreeVibe, changeGoalsFile, raiseLastLine, reopenHow, rewrite, setBackup, setFocus, setGoalLine, setGoalState, setHow, setVibe } from './goalsWrite.mjs'
 import { focusWords } from './say.mjs'
 import { isTalkWord } from './talkPartner.mjs'
 import { absentAs, again } from './write.mjs'
@@ -20,7 +20,26 @@ const files = { readFile, writeFile, rename, rm, mkdir, access, readdir, open }
  * The person's moves: pick a focus, agree the goal definition or not yet, go with the how or not yet; Focus 4: the run's talk bar;
  * B354: ask the partner for a goal's Done when; B358: tick a goal on the Goals part (its re-check first).
  */
-export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-demo', 'goal-done']
+export const FOCUS_MOVES = ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-demo', 'goal-done', 'backup']
+/** The backup focus (2026-11-24): the moves the person makes on the backup goal as on the focus: its goal definition and its how, up to Go. */
+export const BACKUP_MOVES = ['vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet']
+
+/**
+ * The backup focus (the person, 2026-11-24: idle workers near the end of a goal): what the board does with the map's `Backup:`
+ * line now, from the goal map as read (`map`, parseGoals). `{ pick: id }` once the focus is done or gone and the backup can
+ * be the focus (open, with its Done when): the board picks it as the person would. `{ clear: true }` for a backup that is
+ * done or no longer in the map. null otherwise: no backup, the focus still runs, or a backup without a Done when (it waits
+ * for one, and the page says so).
+ */
+export function backupDue(map) {
+  const id = map?.backup ?? null
+  if (id === null) return null
+  const node = map.byId.get(id)
+  if (node === undefined || node.state === 'done') return { clear: true }
+  const focus = map.focus === null ? undefined : map.byId.get(map.focus)
+  if (focus !== undefined && focus.state !== 'done') return null
+  return hasDoneWhen(node) ? { pick: id } : null
+}
 /** The partner's drafts beside the talk: the goal definition's lines and picture, the how's parts. */
 export const FOCUS_DRAFTS = ['vibe-draft', 'how-draft']
 
@@ -137,6 +156,7 @@ async function move(body, ctx) {
   const text = await readMap(ctx.fs, ctx.goalsFile)
   if (text === null) return refuse(404, 'There is no goal map to write into.')
   if (command === 'focus') return pick(body, text, ctx, goalsAt)
+  if (command === 'backup') return setBackupGoal(body, text, ctx, goalsAt)
   if (!isId(body.id)) return refuse(400, 'Name the goal by its id (G12).')
   if (command === 'done-when') return askDoneWhen(parseGoals(text).byId.get(body.id), ctx)
   // B677: the person's button "Ask your partner again" for the goal demo.
@@ -144,11 +164,13 @@ async function move(body, ctx) {
   // B358: the person's tick on the Goals part, routed here by the board while a partner is on it.
   if (command === 'goal-done') return goalDone(parseGoals(text).byId.get(body.id), ctx, goalsAt, body.overturn === true)
   const node = parseGoals(text).byId.get(body.id)
-  if (FOCUS_DRAFTS.includes(command)) return draft(body, node, ctx, goalsAt, parseGoals(text).focus)
+  if (FOCUS_DRAFTS.includes(command)) return draft(body, node, ctx, goalsAt, parseGoals(text).focus, parseGoals(text).backup)
   if (node === undefined) return refuse(409, 'That goal is not in the map.')
   // Focus 3: a second Yes to "Did we reach the goal?" finds the goal ticked and the focus gone: nothing more.
   if (command === 'vibe-there-yes' && node.state === 'done') return { ok: true, result: { unchanged: true }, words: null }
-  if (parseGoals(text).focus !== body.id) return refuse(409, 'That goal is not your focus any more.')
+  // The backup focus (2026-11-24): its goal definition and how are agreed as the focus's are, up to Go.
+  const isBackup = BACKUP_MOVES.includes(command) && parseGoals(text).backup === body.id
+  if (parseGoals(text).focus !== body.id && !isBackup) return refuse(409, 'That goal is not your focus any more.')
   const say = async (kind, words = null) => focusWords(kind, { to: toOf(kind, ctx), goal: node, thread: await talkOf(node, ctx), words })
   const stage = focusStage(node)
   const words = oneLine(body.text, 1000)
@@ -320,6 +342,40 @@ async function pick(body, before, ctx, goalsAt) {
   const after = await readMap(ctx.fs, ctx.goalsFile).catch(error => (console.error(`The goal map could not be read again after ${id} became the focus: ${error.message}`), null))
   const stage = focusStage((after === null ? undefined : parseGoals(after).byId.get(id)) ?? node)
   return { ok: true, result, words: focusWords('focus', { to: toOf('focus', ctx), goal: node, thread, stage: STAGE_WORDS[stage], job: jobOf('focus', ctx) }) }
+}
+
+/**
+ * The backup focus (the person, 2026-11-24): the goal that comes after the focus (`body.id`; null takes the backup away).
+ * Its steps go out after the focus's (src/work/handOut.mjs `readyList`), and it becomes the focus once the focus is done
+ * (`backupDue`). A backup is an open goal with its Done when that is not the focus, on a board with a focus. The partner is
+ * told once to draft its goal definition and its how (`backup focus:`), unless its how is agreed already; a backup set
+ * again types nothing.
+ */
+async function setBackupGoal(body, before, ctx, goalsAt) {
+  const id = body.id ?? null
+  if (id !== null && !isId(id)) return refuse(400, 'Name the goal by its id (G12).')
+  const map = parseGoals(before)
+  if (id !== null) {
+    const node = map.byId.get(id)
+    if (node === undefined) return refuse(409, 'That goal is not in the map.')
+    if (node.state === 'done') return refuse(409, 'That goal is done: pick an open one.')
+    if (map.focus === null || !map.byId.has(map.focus)) return refuse(409, 'Pick a focus first: the backup comes after it.')
+    if (map.focus === id) return refuse(409, 'That goal is your focus already.')
+    if (!hasDoneWhen(node)) return refuse(409, `${id} has no Done when yet: a goal becomes your backup once it says how you check it is done. Ask your partner to write it, or write it on the Goals part.`)
+  }
+  let moved = false
+  const written = await changeGoalsFile(text => {
+    const now = parseGoals(text)
+    moved = now.backup !== id
+    if (!moved) return { ok: true, text }
+    if (id !== null && now.focus === id) return { ok: false, why: 'isFocus' }
+    return setBackup(text, id)
+  }, goalsAt)
+  if (!written.ok) return written.why === 'isFocus' ? refuse(409, 'That goal is your focus already.') : failed(written.why)
+  if (!moved || id === null) return { ok: true, result: { id, ...(moved ? {} : { unchanged: true }) }, words: null }
+  const node = parseGoals(await readMap(ctx.fs, ctx.goalsFile)).byId.get(id) ?? map.byId.get(id)
+  if (node.howAgreed !== null) return { ok: true, result: { id }, words: null }
+  return { ok: true, result: { id }, words: focusWords('backup', { to: toOf('backup', ctx), goal: node, job: jobOf('backup', ctx) }) }
 }
 
 /** Work blocks (2026-10-31): why Go waits, as the server says it (the page says "Every work block needs its done-when line"). */
@@ -827,13 +883,14 @@ const keepsAgreed = (before, after) => agreedOf({ ...after, parts: after.parts.s
  * change. Only the focus goal is drafted; B382: a goal with an agreed how may be drafted when it is not the focus
  * (its parts' steps, and the end of the goal guard's evaluation), since its steps run on after the focus moved.
  */
-async function draft(body, node, ctx, goalsAt, focus) {
-  // The review of Focus 2: a draft is the focus goal's, and a how comes once its goal definition is agreed.
-  const notFocus = () => refuse(409, 'That goal is not the focus: draft only the focus goal.')
+async function draft(body, node, ctx, goalsAt, focus, backup = null) {
+  // The review of Focus 2: a draft is the focus goal's, and a how comes once its goal definition is agreed. The backup focus
+  // (2026-11-24): the backup goal is drafted as the focus is, while the focus runs.
+  const notFocus = () => refuse(409, 'That goal is not the focus or the backup: draft only those.')
   if (body.command === 'vibe-draft') {
     if (!isLines(body.lines) || (body.picture !== undefined && body.picture !== null && typeof body.picture !== 'string')) return refuse(400, 'A goal definition is lines of words, and a picture\'s path or none.')
     if (node === undefined) return failed('gone')
-    if (node.id !== focus) return notFocus()
+    if (node.id !== focus && node.id !== backup) return notFocus()
     if (node.vibeAgreed !== null) return refuse(409, 'The goal definition is agreed: talk about the how now.')
     let late = false
     const done = await changeGoalsFile(text => {
@@ -859,7 +916,7 @@ async function draft(body, node, ctx, goalsAt, focus) {
   if (node === undefined) return failed('gone')
   // B450: a goal whose evaluation runs may be drafted by its outcome, the focus or not, with a how agreed or not.
   const isEvaluating = outcome !== null && (node.evaluationAsked ?? null) !== null
-  if (node.id !== focus && node.howAgreed === null && !isEvaluating) return notFocus()
+  if (node.id !== focus && node.id !== backup && node.howAgreed === null && !isEvaluating) return notFocus()
   if (node.vibeAgreed === null && !isEvaluating) return refuse(409, 'The goal definition is not agreed yet: draft the how once the person agreed it.')
   let changed = false
   let evaluated = false
@@ -869,7 +926,7 @@ async function draft(body, node, ctx, goalsAt, focus) {
     if (now === undefined) return { ok: false, why: 'gone' }
     // B382: read again under the turn: a goal that is not the focus is drafted only while its how is agreed.
     const runs = outcome !== null && (now.evaluationAsked ?? null) !== null
-    if (map.focus !== node.id && now.howAgreed === null && !runs) return { ok: false, why: 'notFocus' }
+    if (map.focus !== node.id && map.backup !== node.id && now.howAgreed === null && !runs) return { ok: false, why: 'notFocus' }
     const next = setHow(text, node.id, how)
     if (!next.ok) return next
     // B450: a goal without an agreed how ends its evaluation with the marked draft too; the draft waits for the person's Go.

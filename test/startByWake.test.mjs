@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { HAND_LINE } from '../src/hands.mjs'
-import { carryAfterSilent, carryPlan, claim, emptyWakes, failedToSend, nextPath, noticeOf, pass, sent, wakeNeeds, wakeableOf } from '../src/wake.mjs'
+import { BOARD_KEY, LAST_LAUNCH_MS, LAUNCH_CUT_WHY, carryAfterSilent, carryPlan, claim, emptyWakes, lastLaunchOf, failedToSend, nextPath, noticeOf, pass, sent, wakeNeeds, wakeableOf } from '../src/wake.mjs'
 import { handRefused, handWentAt, keepHandWent, noteHandRefused, noteSendLifted, sendsRefusedOf } from '../src/wakeCarry.mjs'
 import { workerStart } from '../src/work/handOut.mjs'
 import { START_BY_WAKE_WHY, whyClosed } from '../src/work/outboxSweep.mjs'
@@ -80,8 +80,8 @@ test('X205: the hand-out starts a worker through the wake procedure, never one i
   assert.deepEqual(workerStart({ ...base, lanes, wakeable: { unwakeable: new Set(), waking: new Set() } }), { start: 'Worker 4', byWake: true })
   // Worker 4 failed every way in its spell: the next off worker that can be woken.
   assert.deepEqual(workerStart({ ...base, lanes, wakeable: { unwakeable: new Set(['Worker 4']), waking: new Set() } }), { start: 'Worker 1', byWake: true })
-  // Every off worker failed every way: none (the notice tells the person), never a new one beside them.
-  assert.deepEqual(workerStart({ ...base, lanes, wakeable: { unwakeable: new Set(['Worker 4', 'Worker 1']), waking: new Set() } }), { passedOver: ['Worker 4', 'Worker 1'] })
+  // Every off worker failed every way and the last launch started nothing: none (the notice tells the person).
+  assert.deepEqual(workerStart({ ...base, lanes, wakeable: { unwakeable: new Set(['Worker 4', 'Worker 1']), waking: new Set(), lastLaunch: { verdict: 'failed', at: at(23, 40) } } }), { passedOver: ['Worker 4', 'Worker 1'], held: { at: at(23, 40) } })
   // Worker 4 is being woken for the one ready task: it is on its way, no second worker is asked for.
   assert.equal(workerStart({ ...base, lanes, wakeable: { unwakeable: new Set(), waking: new Set(['Worker 4']) } }), null)
   // Two ready tasks: Worker 4 on its way, Worker 1 for the second.
@@ -115,23 +115,95 @@ test('X205: a worker whose message and launch both failed is unwakeable, the one
   // 23:55 a hand's message for the start, 23:55 sent.
   claim(record, { chat: 'Worker 4', spell, path: 'message', by: 'Main', jobId: 'wake:w4', now: at(23, 55), paths: PATHS })
   sent(record, 'Worker 4', 'wake:w4', at(23, 55, 10))
-  assert.deepEqual(wakeableOf(state.chats, facts), { unwakeable: new Set(), waking: new Set(['Worker 4']) })
+  assert.deepEqual(wakeableOf(state.chats, facts), { unwakeable: new Set(), waking: new Set(['Worker 4']), lastLaunch: null })
   // No report in 2 minutes: failed; the launch is left, so it is not unwakeable yet.
   pass(record, at(23, 58))
-  assert.deepEqual(wakeableOf(state.chats, facts), { unwakeable: new Set(), waking: new Set() })
+  assert.deepEqual(wakeableOf(state.chats, facts), { unwakeable: new Set(), waking: new Set(), lastLaunch: null })
   // The launch, which the app does not start (since the account switch).
   claim(record, { chat: 'Worker 4', spell, path: 'launch', by: 'board', jobId: 'launch:w4', now: at(23, 58), paths: PATHS })
   assert.deepEqual(wakeableOf(state.chats, facts).waking, new Set(['Worker 4']))
   failedToSend(record, 'Worker 4', 'launch:w4', 'the app did not start it', at(0, 1))
   record.wakes.get('Worker 4').at(-1).attempts.at(-1).verdictAt = at(23, 59) + 2 * 60_000
-  assert.deepEqual(wakeableOf(state.chats, facts), { unwakeable: new Set(['Worker 4']), waking: new Set() })
+  assert.deepEqual(wakeableOf(state.chats, facts, at(23, 59) + 3 * 60_000), { unwakeable: new Set(['Worker 4']), waking: new Set(), lastLaunch: { verdict: 'failed', at: at(23, 59) + 2 * 60_000 } })
   const need = wakeNeeds(state, [])[0]
   const notice = noticeOf(record, [{ ...need, need: true }], at(0, 5), time, { senderClaims: true })
   assert.equal(notice.tone, 'attention')
   assert.match(notice.text, /^could not wake Worker 4: no report after the message \(sent 23:55 by Main\); the app did not start it.*; open its chat$/)
   // A chat that ran since its failed wake is no longer unwakeable.
   assert.deepEqual(wakeableOf([{ ...lane, report: { state: 'idle', at: at(0, 10), run: at(0, 9) } }], facts).unwakeable, new Set())
-  assert.deepEqual(wakeableOf(state.chats, { ...facts, record: null }), { unwakeable: new Set(), waking: new Set() })
+  assert.deepEqual(wakeableOf(state.chats, { ...facts, record: null }), { unwakeable: new Set(), waking: new Set(), lastLaunch: null })
+})
+
+test("B1304 (B1279's point 2, chat 1's review 1-3): a new worker in place of ones it cannot wake only when the last launch started a chat; the plain new worker never held", () => {
+  const lanes = [worker('Worker 4', { offSince: at(20, 33) }), { name: 'Worker 3', state: 'working', isRunning: true, report: { state: 'busy', at: at(23, 53) } }]
+  const gone = { unwakeable: new Set(['Worker 4']), waking: new Set() }
+  const started = { verdict: 'started', at: at(23, 30) }
+  const failed = { verdict: 'failed', at: at(23, 40) }
+  // Worker 4's chat is gone (every way failed), but launches do start chats: a replacement, and the notice still names Worker 4.
+  assert.deepEqual(workerStart({ ...base, lanes, wakeable: { ...gone, lastLaunch: started } }), { spawn: 1, passedOver: ['Worker 4'], replaces: true })
+  // The last launch started nothing (X205: since the account switch): none, and the notice says it is held.
+  assert.deepEqual(workerStart({ ...base, lanes, wakeable: { ...gone, lastLaunch: failed } }), { passedOver: ['Worker 4'], held: { at: failed.at } })
+  // No off worker at all: the plain new worker, as before B1279, whatever the last launch did (review 1).
+  const busy = [lanes[1]]
+  for (const lastLaunch of [started, failed, null]) assert.deepEqual(workerStart({ ...base, lanes: busy, wakeable: { unwakeable: new Set(), waking: new Set(), lastLaunch } }), { spawn: 1 })
+  assert.deepEqual(workerStart({ ...base, lanes: busy }), { spawn: 1 })
+  // Review 2, re-check 2: a new worker on its way (its spawn word waits): the notice keeps naming Worker 4 and keeps saying a new one comes.
+  const spawning = [{ id: 's1', command: 'spawn', count: 1, reported: 2, at: base.now - 60_000, state: 'waiting' }]
+  assert.deepEqual(workerStart({ ...base, lanes, sent: spawning, wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'], replaces: true })
+  // Re-check 2: not once the word is closed, nor past its wait.
+  assert.deepEqual(workerStart({ ...base, maxWorkers: 2, lanes, sent: [{ ...spawning[0], state: 'failed' }], wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'] })
+  assert.deepEqual(workerStart({ ...base, maxWorkers: 2, lanes, sent: [{ ...spawning[0], at: base.now - 11 * 60_000 }], wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'] })
+  // Review 3: Worker 4 keeps its place under maxWorkers: with two places and Worker 3 running, no replacement (it may run again).
+  assert.deepEqual(workerStart({ ...base, maxWorkers: 2, lanes, wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'] })
+  assert.deepEqual(workerStart({ ...base, maxWorkers: 3, lanes, wakeable: { ...gone, lastLaunch: started } }), { spawn: 1, passedOver: ['Worker 4'], replaces: true })
+  // ...and so does it for the start of another off worker.
+  const two = [...lanes, worker('Worker 1', { offSince: at(23, 27) })]
+  assert.deepEqual(workerStart({ ...base, maxWorkers: 2, lanes: two, wakeable: { ...gone, lastLaunch: started } }), { passedOver: ['Worker 4'] })
+  assert.deepEqual(workerStart({ ...base, maxWorkers: 3, lanes: two, wakeable: { ...gone, lastLaunch: started } }), { start: 'Worker 1', byWake: true })
+})
+
+test("B1304 (chat 1's re-check 1): a passed-over worker with no report of its own keeps the cap of five, before and after it comes back", () => {
+  const busy = name => ({ name, state: 'working', isRunning: true, report: { state: 'busy', at: at(23, 53) } })
+  const running = [busy('Worker 1'), busy('Worker 2'), busy('Worker 3')]
+  const twoReady = [...ready, { ...ready[0], id: 'B1280' }]
+  const wakeable = { unwakeable: new Set(['Worker 4']), waking: new Set(), lastLaunch: { verdict: 'started', at: at(23, 30) } }
+  // Three run, Worker 4 is held with no report: the first new worker is the fifth chat. Its word counts Worker 4 as reported (deliver.mjs).
+  const lanes = [...running, worker('Worker 4', { report: null })]
+  assert.deepEqual(workerStart({ ...base, ready: twoReady, lanes, wakeable }), { spawn: 1, passedOver: ['Worker 4'], replaces: true })
+  const word = { id: 's1', command: 'spawn', count: 1, reported: 4, at: base.now - 60_000, state: 'waiting' }
+  // Replay 1: with that word on its way a second ready task asks for no sixth chat.
+  assert.deepEqual(workerStart({ ...base, ready: twoReady, lanes, sent: [word], wakeable }), { passedOver: ['Worker 4'], replaces: true })
+  // Replay 2: Worker 4 comes back and reports before the new worker does: its report is not the new worker's, so still no sixth chat.
+  const back = [...running, busy('Worker 4')]
+  assert.equal(workerStart({ ...base, ready: twoReady, lanes: back, sent: [word], wakeable: { ...wakeable, unwakeable: new Set() } }), null)
+})
+
+test("B1304: the last launch is the record's newest launch with a verdict (any chat's, the board-wide spell's), recent, after the app's return, not cut off by a restart", () => {
+  const record = emptyWakes()
+  const now = at(23, 0)
+  assert.equal(lastLaunchOf(record, now), null)
+  const launch = (chat, spell, at0, verdict, verdictAt, why = null) => {
+    claim(record, { chat, spell, path: 'launch', by: 'board', jobId: `launch:${at0}:${chat}`, now: at0, paths: ['launch'] })
+    Object.assign(record.wakes.get(chat).at(-1).attempts.at(-1), { verdict, verdictAt, why })
+  }
+  launch('Worker 4', at(13, 7), at(22, 18), 'failed', at(22, 21), 'the app did not start it')
+  assert.deepEqual(lastLaunchOf(record, now), { verdict: 'failed', at: at(22, 21) })
+  launch('Worker 2', at(20, 0), at(22, 30), 'woke', at(22, 31))
+  assert.deepEqual(lastLaunchOf(record, now), { verdict: 'started', at: at(22, 31) })
+  // A pending launch has no verdict yet: the last one with a verdict stands.
+  claim(record, { chat: 'Worker 1', spell: at(21, 0), path: 'launch', by: 'board', jobId: 'launch:w1', now: at(22, 40), paths: ['launch'] })
+  assert.deepEqual(lastLaunchOf(record, now), { verdict: 'started', at: at(22, 31) })
+  launch(BOARD_KEY, at(22, 45), at(22, 50), 'failed', at(22, 53), 'the app did not start it')
+  assert.deepEqual(lastLaunchOf(record, now), { verdict: 'failed', at: at(22, 53) })
+  assert.deepEqual(wakeableOf([], { record, senderClaims: true, canLaunch: true }, now).lastLaunch, { verdict: 'failed', at: at(22, 53) })
+  // A launch the board's own restart cut off says nothing about the app.
+  launch('Worker 5', at(21, 0), at(22, 55), 'failed', at(22, 58), LAUNCH_CUT_WHY)
+  assert.deepEqual(lastLaunchOf(record, now), { verdict: 'failed', at: at(22, 53) })
+  // The app came back (a new run heard) after that failure: it no longer holds a replacement; the older start stands.
+  record.heardRunAt = at(22, 54)
+  assert.deepEqual(lastLaunchOf(record, now), { verdict: 'started', at: at(22, 31) })
+  // Two hours on, no verdict speaks for the next launch: never a hold without an end.
+  assert.equal(lastLaunchOf(record, at(22, 53) + LAST_LAUNCH_MS + 60_000), null)
 })
 
 test('X205: a start word of the hand-out still waiting is closed once the wake procedure starts workers; another start word stays', () => {

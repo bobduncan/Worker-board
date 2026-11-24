@@ -105,7 +105,7 @@ const TALK_COMMANDS = ['talk', 'vibe-not-yet', 'how-not-yet', 'recheck']
  * Done record of their own yet: P3's general rule (the chat's turn on the word ended) says Done, Late or closed for them. The page draws
  * each where its button was (`wordLineOf`); the board's own demo word (`goal-demo`, asked by the loop) is drawn the same.
  */
-export const FOCUS_COMMANDS = ['focus', 'vibe-agreed', 'vibe-there-yes', 'vibe-there-no', 'goal-recheck', 'goal-demo', 'done-when', 'undo']
+export const FOCUS_COMMANDS = ['focus', 'backup', 'vibe-agreed', 'vibe-there-yes', 'vibe-there-no', 'goal-recheck', 'goal-demo', 'done-when', 'undo']
 /**
  * Reactive board, brief P4c: the Vision tab's words to the partner (src/planMoves.mjs `PLAN_MOVES`, a test keeps the two lists equal): place 'plan',
  * Done by the partner's own write of the plan page after the word (`planDone`). The seven decisions the board writes itself (`PLAN_DECISIONS`)

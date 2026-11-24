@@ -3,14 +3,14 @@
 // local bare remote and fakes for the board checks; nothing here reads boards.json or another checkout by itself.
 
 import * as nodeFs from 'node:fs'
-import { join, basename, dirname, relative } from 'node:path'
+import { join, basename, dirname, relative, resolve } from 'node:path'
 import { hostname } from 'node:os'
 
 import { readStore } from '../work/store.mjs'
-import { assetsFolderOf } from '../assets.mjs'
+import { assetsOf, dataOf, picturesOf } from '../projectPaths.mjs'
 import { parsePause, checkpointOf } from '../work/pause.mjs'
 import { valueOf } from '../work/item.mjs'
-import { aheadOf, blobOf, commitAndPush, ensureDataClone, isAnonymouslyReadable, lines, localBranches, peekDataClone, pushBranch, pushIsFastForward, remoteBranch, trackedChanges, commitsNotOnOrigin } from './git.mjs'
+import { aheadOf, blobOf, commitAndPush, ensureDataClone, isAnonymouslyReadable, lines, localBranches, peekDataClone, pushBranch, pushIsFastForward, readIfThere, remoteBranch, trackedChanges, commitsNotOnOrigin } from './git.mjs'
 import { boardStepsOf, heldStepsOf, heldWordsOf, reviewStepsOf, saveGuards, secretsIn, TEXT_MOST_BYTES } from './guards.mjs'
 import { timesOf } from './times.mjs'
 import { readRecord, writeRecord } from './record.mjs'
@@ -20,7 +20,23 @@ export const PRACTICE_BRANCH = 'workerboard-practice'
 export const branchFor = practice => (practice ? PRACTICE_BRANCH : DATA_BRANCH)
 export const messageFor = practice => (practice ? 'Board data: practice save' : 'Board data: save')
 /** The data folder's places that travel under git and are pruned to the set. */
-const SET_ROOTS = ['home/', 'board/', 'memory/']
+const SET_ROOTS = ['home/', 'data/', 'board/', 'memory/']
+
+/** T5.2 A8: the folder the picture roots stand in (the table's picturesOf once `data` is set; the project today). */
+const picturesBaseOf = roots => (roots.config && dataOf(roots.config) !== null ? picturesOf(roots.config) : roots.project)
+export const samePath = (a, b) => resolve(String(a)).replace(/[\\/]+$/, '').toLowerCase() === resolve(String(b)).replace(/[\\/]+$/, '').toLowerCase()
+/** The moved layout (the data home IS the data folder): neither save nor load copies a folder onto itself; Round C makes the save a commit. */
+export const IN_PLACE_TEXT = 'the data lives in the data folder already: saving is a commit (Round C), not a copy'
+export const isInPlace = roots => typeof roots.dataHome === 'string' && roots.dataHome !== '' && samePath(roots.dataHome, roots.dataDir)
+/** Round 3, review 2: a chat home that is not the project with no data home: the store is in neither home (nothing of it would travel). */
+export const HALF_LAYOUT_TEXT = 'config.json names a chat home but no data home: the store is in neither home and would not travel; Round B sets both together'
+export const isHalfMoved = roots => !(typeof roots.dataHome === 'string' && roots.dataHome !== '') && typeof roots.chatHome === 'string' && roots.chatHome !== '' && !samePath(roots.chatHome, roots.project)
+export const halfLayoutRefusal = () => ({ code: 'layout', text: HALF_LAYOUT_TEXT, who: 'Round B' })
+/** The layout a save was made in, kept in saved.json: 'data' (a data home) or 'project' (the store in the project, today's). */
+export const layoutOf = roots => (typeof roots.dataHome === 'string' && roots.dataHome !== '' ? 'data' : 'project')
+/** Review b: the two layouts never mix: a save of one onto a PC of the other would skip or misplace the store, silently. */
+export const layoutRefusal = (saved, mine) => ({ code: 'layout', who: 'you', text: `the save was made ${saved === 'data' ? 'with' : 'without'} a data home (config.json data) and this PC is ${mine === 'data' ? 'with' : 'without'} one: give both PCs the same layout first` })
+const SETTINGS_TO = 'settings/board-settings.json'
 
 const slashes = path => String(path).replace(/\\/g, '/')
 const two = n => String(n).padStart(2, '0')
@@ -38,8 +54,18 @@ export async function save(roots, options = {}, deps) {
   const noBranches = options.noBranches === true || practice
   const { git, set, pictures, fs } = deps
   const branch = branchFor(practice)
-  const record = await readRecord(deps.recordFile, fs)
   const warnings = []
+  // T5.2 A8, the moved layout (the data home IS the data folder, the design's <game>/.workerboard): copying it onto itself is no save.
+  // Round C makes the save a commit of that folder; until then it is refused in one line.
+  if (isInPlace(roots)) {
+    log(`Refused: ${IN_PLACE_TEXT}`)
+    return { ok: false, refusals: [{ code: 'in-place', text: IN_PLACE_TEXT, who: 'Round C' }], warnings, dryRun }
+  }
+  if (isHalfMoved(roots)) {
+    log(`Refused: ${HALF_LAYOUT_TEXT}`)
+    return { ok: false, refusals: [halfLayoutRefusal()], warnings, dryRun }
+  }
+  const record = await readRecord(deps.recordFile, fs)
 
   // ---- what is here
   // A read of its own (a fresh fs object): readStore shares a listing taken within 1.5 s with no board write between, and the board is off here.
@@ -52,13 +78,22 @@ export async function save(roots, options = {}, deps) {
 
   // ---- the data clone (made now, written later). A dry run makes and switches nothing: it looks. Origin is asked by its URL.
   const clone = dryRun ? await peekDataClone({ git, dir: roots.dataDir, branch, fs }) : await ensureDataClone({ git, dir: roots.dataDir, remote: roots.remote, branch, fs })
+  // Review b: a branch that holds a data home (data/) is never saved onto from a PC without one: this save would prune it. Round 3 (minor): a
+  // dry run with the folder on the other kind's branch looks at this branch's own tree when the folder has it (no fetch: a dry run touches nothing).
+  const dataInBranch = async () => (!dryRun || clone.onBranch === true ? lines(await git(roots.dataDir, ['ls-files', '--', 'data']))
+    : clone.exists ? lines(await git(roots.dataDir, ['ls-tree', '-r', '--name-only', branch, '--', 'data'])) : [])
+  if (layoutOf(roots) === 'project' && (await dataInBranch()).length > 0) {
+    const refusal = layoutRefusal('data', 'project')
+    log(`Refused: ${refusal.text}`)
+    return { ok: false, refusals: [refusal], warnings, dryRun }
+  }
   const originHead = await remoteBranch(git, roots.boardDir, roots.remote, branch)
   // What this PC last synced on this branch (null: never): origin past it means load first.
   const lastHere = record.synced[branch] ?? null
   const originAhead = originHead !== null && lastHere !== originHead ? { branch, origin: originHead, last: lastHere } : null
 
   // ---- the files that travel
-  const carried = await set.carrySet({ config: roots.config, project: roots.project, boardDir: roots.boardDir, memoryDir: roots.memoryDir, userSettingsFile: roots.userSettingsFile, fs })
+  const carried = await set.carrySet({ config: roots.config, project: roots.project, boardDir: roots.boardDir, memoryDir: roots.memoryDir, chatHome: roots.chatHome ?? null, dataHome: roots.dataHome ?? null, userSettingsFile: roots.userSettingsFile, fs })
   const files = []
   const oversized = []
   for (const one of carried.files) {
@@ -87,11 +122,37 @@ export async function save(roots, options = {}, deps) {
     const { count } = await commitsNotOnOrigin(git, repo)
     if (files.length > 0 || count > 0) mainsDirty.push({ repo: basename(repo), files, ahead: count })
   }
+  // The rehearsal of 2026-11-17: config.json's OWN JSON travels, never the parsed config (its defaults, routing and weekStopAt among
+  // them, landed as values on the other PC). The two folder paths are the parsed ones (%ENV% filled) for B2 to write relative.
+  const configText = await fs.readFile(join(roots.boardDir, 'config.json'), 'utf8').catch(() => null)
+  const configRaw = (() => {
+    if (configText === null) return null
+    try {
+      const raw = JSON.parse(configText.replace(/^\uFEFF/, ''))
+      return raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : null
+    } catch {
+      return null
+    }
+  })()
+  const ownConfig = configRaw === null ? roots.config : { ...configRaw, ...(typeof configRaw.project === 'string' ? { project: roots.config.project } : {}), ...(typeof configRaw.gameRepo === 'string' ? { gameRepo: roots.config.gameRepo } : {}) }
+  const settings = { 'settings/config.json': JSON.stringify(set.carriedSettings(ownConfig, { project: roots.project, boardDir: roots.boardDir }), null, 2) + '\n' }
+  const userSettings = await fs.readFile(roots.userSettingsFile, 'utf8').then(text => JSON.parse(text)).catch(() => ({}))
+  settings['settings/user.json'] = JSON.stringify(set.carriedUserSettings(userSettings), null, 2) + '\n'
+  // T5.2 A8: the project's settings file (P4's board-settings.json, only with `data` set) travels without its PC keys; load puts it where
+  // the other PC's `data` says. Without it, config.json's own keys are the project's, as before. The file is named by the roots (config.json's
+  // own `data`, review 2), else by the parsed config.
+  const projectSettingsFile = roots.projectSettingsFile ?? set.projectSettingsFileOf?.(roots.config) ?? null
+  // Review 6: only a file that is not there is absent; one held for a moment stops the save (it would be pruned from the branch otherwise).
+  const projectSettingsBytes = projectSettingsFile === null ? null : await readIfThere(fs, projectSettingsFile)
+  const projectSettingsText = projectSettingsBytes === null ? null : projectSettingsBytes.toString('utf8')
+  const projectSettings = projectSettingsText === null ? null : set.carriedProjectSettings?.(projectSettingsText) ?? null
+  if (projectSettings !== null) settings[SETTINGS_TO] = projectSettings
+  // Review 3: the settings texts are scanned for secrets with the files.
   const secrets = await deps.secrets()
   const facts = {
     pause, boardAnswers: await deps.boardAnswers(), keepers: await deps.keepers(), lockAgeMs: await deps.lockAgeMs(),
     dirtySteps, notFastForward, mainsDirty, originAhead, lastLoadWasPractice: record.last?.command === 'load' && record.last.kind === 'practice',
-    secrets: secretsIn(files, secrets),
+    secrets: secretsIn([...files, ...Object.entries(settings).map(([to, text]) => ({ to, text }))], secrets),
     oversized, remotePublic: await isAnonymouslyReadable(git, roots.boardDir, roots.remote), driveShort: null,
     reviewSteps: reviewStepsOf(items),
     noCheckpointSince: held.filter(step => pause?.state === 'pausing' && !(Number.isFinite(checkpointOf(items.get(step.id))?.at) && checkpointOf(items.get(step.id)).at >= pause.since)).map(step => ({ id: step.id, chat: step.chat })),
@@ -101,12 +162,13 @@ export async function save(roots, options = {}, deps) {
   const keepSet = roots.keepSetFile === null ? null : await fs.readFile(roots.keepSetFile, 'utf8').then(text => JSON.parse(text)).catch(() => null)
   const since = Number.isFinite(keepSet?.made) ? keepSet.made : Number.isFinite(Date.parse(keepSet?.made)) ? Date.parse(keepSet.made) : 0
   const changedTexts = files.filter(one => one.text !== null && one.mtimeMs >= since).map(one => one.text)
-  // The picture roots and the asset folder (B3 reads both), relative to the project.
-  const pictureRoots = [...(roots.config.pictureRoots ?? []), slashes(relative(roots.project, assetsFolderOf(roots.workDir)))].filter(root => root !== '' && !root.startsWith('..'))
+  // The picture roots and the asset folder (B3 reads both), relative to the folder they stand in (T5.2 A8: picturesOf; the project today).
+  const picturesBase = picturesBaseOf(roots)
+  const pictureRoots = [...(roots.config.pictureRoots ?? []), slashes(relative(picturesBase, assetsOf(roots.config)))].filter(root => root !== '' && !root.startsWith('..'))
   // B3 takes the node:fs module (streams, statfs); no keep set means no pictures, said.
   const pictureFs = deps.pictureFs ?? nodeFs
   if (roots.picturesFolder !== null && roots.keepSetFile === null) warnings.push('no keep set (--keep-set <file>): no picture listed; the pictures did not travel')
-  const list = roots.picturesFolder === null || roots.keepSetFile === null ? [] : await pictures.pictureList({ keepSetFile: roots.keepSetFile, project: roots.project, roots: pictureRoots, since, changedTexts, fs: pictureFs })
+  const list = roots.picturesFolder === null || roots.keepSetFile === null ? [] : await pictures.pictureList({ keepSetFile: roots.keepSetFile, project: picturesBase, roots: pictureRoots, since, changedTexts, fs: pictureFs })
   for (const path of list.missing ?? []) warnings.push(`picture ${path}: listed but gone`)
   for (const one of list.skipped ?? []) warnings.push(`picture ${one.path}: ${one.why}`)
   const need = list.reduce((sum, one) => sum + (one.size ?? 0), 0)
@@ -148,25 +210,22 @@ export async function save(roots, options = {}, deps) {
     }
     written.push(one.to)
   }
+  // Review 5b: the record holds the blob of the LOCAL settings file (PC keys and all), never the carried text's: the next load's changed-here
+  // check compares it with the file here.
+  if (projectSettings !== null && projectSettingsBytes !== null) keptBlobs[SETTINGS_TO] = blobOf(projectSettingsBytes)
   // A dry run on a folder not on this branch (none yet, or the other kind's) counts nothing as gone, and says so.
   const dataOnBranch = !dryRun || clone.onBranch === true
   if (!dataOnBranch) warnings.push(`the data folder ${clone.exists ? 'is on the other kind\'s branch' : 'does not exist yet'}: what left the set is not counted in this dry run`)
-  const tracked = dataOnBranch ? lines(await git(roots.dataDir, ['ls-files', '--', ...SET_ROOTS.map(root => root.replace(/\/$/, ''))])).map(slashes) : []
-  const inSet = new Set(files.map(one => one.to))
+  // Review d: the project's settings file is pruned with the set when it is not carried this time (data switched off, the file gone or no JSON).
+  const tracked = dataOnBranch ? lines(await git(roots.dataDir, ['ls-files', '--', ...SET_ROOTS.map(root => root.replace(/\/$/, '')), SETTINGS_TO])).map(slashes) : []
+  const inSet = new Set([...files.map(one => one.to), ...Object.keys(settings)])
   const removed = tracked.filter(path => !inSet.has(path))
   if (!dryRun) for (const path of removed) { await fs.rm(join(roots.dataDir, ...path.split('/')), { force: true }); journal(join(roots.dataDir, ...path.split('/'))) }
-  // The rehearsal of 2026-11-17: config.json's OWN JSON travels, never the parsed config (its defaults, routing and weekStopAt among
-  // them, landed as values on the other PC). The two folder paths are the parsed ones (%ENV% filled) for B2 to write relative.
-  const configText = await fs.readFile(join(roots.boardDir, 'config.json'), 'utf8').catch(() => null)
-  const configRaw = configText === null ? null : JSON.parse(configText)
-  const ownConfig = configRaw === null ? roots.config : { ...configRaw, ...(typeof configRaw.project === 'string' ? { project: roots.config.project } : {}), ...(typeof configRaw.gameRepo === 'string' ? { gameRepo: roots.config.gameRepo } : {}) }
-  const settings = { 'settings/config.json': JSON.stringify(set.carriedSettings(ownConfig, { project: roots.project, boardDir: roots.boardDir }), null, 2) + '\n' }
-  const userSettings = await fs.readFile(roots.userSettingsFile, 'utf8').then(text => JSON.parse(text)).catch(() => ({}))
-  settings['settings/user.json'] = JSON.stringify(set.carriedUserSettings(userSettings), null, 2) + '\n'
+  // (The settings texts stand above, before the secret scan.)
 
   // ---- pictures to the Drive folder
   const copied = roots.picturesFolder === null ? { copied: 0, same: 0, missing: [], bytes: 0, record: [] }
-    : await pictures.toDrive({ list, project: roots.project, folder: roots.picturesFolder, name: basename(roots.project), dryRun, fs: pictureFs })
+    : await pictures.toDrive({ list, project: picturesBase, folder: roots.picturesFolder, name: basename(roots.project), dryRun, fs: pictureFs })
   if (roots.picturesFolder === null) warnings.push('no Drive folder (--pictures): the pictures did not travel')
 
   // ---- times, held words, board steps, the save's own record
@@ -185,7 +244,7 @@ export async function save(roots, options = {}, deps) {
   const mains = {}
   for (const [name, repo] of [['game', roots.gameRepo], ['board', roots.boardDir]]) mains[name] = (await git(repo, ['rev-parse', 'HEAD'])).out.trim() || null
   const saved = {
-    pc: hostname(), at: now, kind: practice ? 'practice' : 'final', branch, mains, counts: { files: files.length, written: written.length, removed: removed.length, pictures: list.length },
+    pc: hostname(), at: now, kind: practice ? 'practice' : 'final', branch, layout: layoutOf(roots), mains, counts: { files: files.length, written: written.length, removed: removed.length, pictures: list.length },
     branchesPushed: toPush.map(one => ({ branch: one.branch, repo: basename(one.repo), step: one.step, commit: one.commit })), boardSteps, heldWords: heldWords.length, noWorktree,
   }
   const own = {

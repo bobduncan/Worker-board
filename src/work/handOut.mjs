@@ -5,6 +5,7 @@
 // (handover.mjs `decide`, which calls `match` for that one worker); the take-back and stuck clocks are gone. The code
 // says "step"; the person reads "task".
 
+import { heardTimeOf } from '../chatReport.mjs'
 import { chatEffort, effortOf, familyOf, modelOf } from './effort.mjs'
 import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
 import { isFix, sinceMs, valueOf } from './item.mjs'
@@ -68,6 +69,9 @@ export function followUpOf(item, items, { now, followUpMs, prefix = '' }) {
   return found.sort((a, b) => b.at - a.at)[0] ?? null
 }
 
+/** The ready list's rank of a task of the backup focus: after the focus goal's (1), before the rest (2). */
+export const BACKUP_RANK = 1.5
+
 /** The Backlog tab's blocks (2026-10-25): why a refined task outside the focus goal waits, until the person adds it. */
 export const CHOICE_WHY = 'outside the focus goal: waits until you add it to the queue or switch the focus'
 
@@ -112,8 +116,9 @@ function staleQaWhy(item, items, now) {
  * its kind's standard does not hold it (`standardHold(item)`, a why or null) and its routing record does not
  * (`routingHeld`, ids); else held, `{ id, why }` in one line. `ready` in the board's order: a Quality Assurance task first
  * (rank -1, T9.1.1: the person, 2026-10-27, "checks go before new steps"), then a fix (rank 0), then a
- * task of the focus goal (1), then the rest (2): the tasks the person added to the queue (`added`, its stamp) in the
- * order they were added, then the others by id; ranks -1, 0 and 1 each by id. With the worker it is kept for (`keptFor`: its
+ * task of the focus goal (1), then a task of the backup focus (1.5: `backup` and the goals under it, `backupGoals`; the person,
+ * 2026-11-24, "i prefer to pick up fix items from the backlog before focusing on the backup focus"), then the rest (2): the tasks the person added to the queue (`added`, its stamp) in the
+ * order they were added, then the others by id; ranks -1, 0, 1 and 1.5 each by id. With the worker it is kept for (`keptFor`: its
  * pin, else, with `followUpMs` above 0, the worker it is a follow-up of, until `keptUntil`), its pin (`pinned`), and
  * (`followUpMs` 0, the default: a preference only) the worker it goes to when that one is idle at the give (`prefers`).
  * A task of rank 2 neither pinned nor added is held for the person's choice (`choice: true`, CHOICE_WHY) unless
@@ -130,11 +135,12 @@ function staleQaWhy(item, items, now) {
  * left to make pass, so its fix waits like an unpicked step. Only a step of an unrelated goal that nobody picked waits
  * for "Add to queue" (CHOICE_WHY).
  */
-export function readyList(items, { now, focus = null, focusGoals = [], followUpMs = HAND_OUT_DEFAULTS.followUpMinutes * 60_000, standardHold = null, routingHeld = new Set(), prefix = '', beyondFocus = true }) {
+export function readyList(items, { now, focus = null, focusGoals = [], backup = null, backupGoals = [], followUpMs = HAND_OUT_DEFAULTS.followUpMinutes * 60_000, standardHold = null, routingHeld = new Set(), prefix = '', beyondFocus = true }) {
   const ready = []
   const held = []
   const ctx = { store: { items } }
   const inFocus = new Set([...(focus === null ? [] : [focus]), ...focusGoals])
+  const inBackup = new Set([...(backup === null ? [] : [backup]), ...backupGoals].filter(one => !inFocus.has(one)))
   const steps = [...items.values()].filter(item => kindOf(item) === 'step' && stateOf(item) === 'refined' && typeof idOf(item) === 'string')
   for (const item of steps.sort((a, b) => byId(idOf(a), idOf(b)))) {
     const id = idOf(item)
@@ -156,7 +162,7 @@ export function readyList(items, { now, focus = null, focusGoals = [], followUpM
     const isQa = isQaTask(item)
     const follow = pinned === null && !isQa ? followUpOf(item, items, { now, followUpMs: isKept ? followUpMs : Infinity, prefix }) : null
     const chain = fixChain(item, items)
-    const rank = isQa ? -1 : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : 2
+    const rank = isQa ? -1 : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : chain.some(one => inBackup.has(valueOf(one, 'Goal'))) ? BACKUP_RANK : 2
     const added = addedStamp(item)
     // B691: a fix goes out as its root does: the person's pick (added or pinned) of any step down its chain is its own.
     // A dropped root has nothing left to make pass: its pick does not carry the fix.
@@ -340,6 +346,12 @@ export function match({ ready = [], idle = [], items, prefix = '', mayTake = () 
   return given
 }
 
+/** A start or spawn word of the last START_WAIT_MS that did not fail. */
+const isStartOpen = (word, now) => Number.isFinite(word.at) && now - word.at < START_WAIT_MS && !['failed', 'expired', 'dropped'].includes(word.state)
+const isSpawnWord = word => word.command === 'spawn' && Number.isFinite(word.reported)
+/** How many of a spawn word's new workers have not reported yet, by how many workers had reported when it went (`word.reported`). */
+const spawnsLeft = (word, reported) => Math.max(0, (Number(word.count) || 1) - Math.max(0, reported - word.reported))
+
 /**
  * The workers on their way (the review of 2026-10-25: one ready task made two spawns): a worker of the list the main
  * chat was asked to start in the last START_WAIT_MS that has not reported since, and the board's own asks for new
@@ -349,12 +361,13 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
   const reported = workers.filter(lane => lane.report != null).length
   let pending = 0
   for (const word of sent) {
-    if (!Number.isFinite(word.at) || now - word.at >= START_WAIT_MS || ['failed', 'expired', 'dropped'].includes(word.state)) continue
-    if (word.command === 'spawn' && Number.isFinite(word.reported)) pending += Math.max(0, (Number(word.count) || 1) - Math.max(0, reported - word.reported))
+    if (!isStartOpen(word, now)) continue
+    if (isSpawnWord(word)) pending += spawnsLeft(word, reported)
     if (word.command === 'start') {
       const lane = workers.find(one => plain(one.name, prefix) === plain(word.about, prefix))
       // T13 part 3: an asleep worker's start (its task's line wakes it) is counted as the worker it is already, not twice.
-      if (lane !== undefined && lane.asleep !== true && !(lane.report?.at > word.at)) pending += 1
+      // F48: answered by a report really heard after the word; a board start moves a kept report's `at`, not its `heardAt`.
+      if (lane !== undefined && lane.asleep !== true && !(heardTimeOf(lane.report) > word.at)) pending += 1
     }
   }
   return pending
@@ -362,7 +375,7 @@ function startsPending({ workers, sent = [], now, prefix = '' }) {
 
 /**
  * Whether the board asks for one more worker now: `{ start: name }` (a worker of the list whose chat is off, the one off
- * longest first), `{ spawn: 1 }` (a new one), or null. `maxWorkers` left out is 5 (B-max); null when it is given as no
+ * longest first), `{ spawn: 1 }` (a new one; B1304: in place of workers it cannot wake only when the wake record's last launch did not fail), or null. `maxWorkers` left out is 5 (B-max); null when it is given as no
  * number (the board starts none),
  * while held (the person pauses, a limit is full), while an idle worker is left after this pass's gives, or when the
  * workers not off are `maxWorkers` already. Only tasks a new worker could take count: ready, kept for nobody (a pinned
@@ -377,12 +390,12 @@ export function workerStart({ ready = [], gives = [], idle = [], lanes = [], max
   // B1279 (X205): with the wake record (`wakeable`, wake.mjs `wakeableOf`) the one wake procedure starts the worker (`byWake`), and the
   // hand-out never asks for one it cannot wake (every path failed in its spell) nor counts one it is waking as off (it is on its way).
   const start = wakeable === null ? startFor : args => withWake(startFor(args))
-  return start({ ready, gives, idle, lanes, maxWorkers, items, sent, now, prefix, refused, offAfterMs, unwakeable: wakeable?.unwakeable ?? new Set(), waking: wakeable?.waking ?? new Set() })
+  return start({ ready, gives, idle, lanes, maxWorkers, items, sent, now, prefix, refused, offAfterMs, unwakeable: wakeable?.unwakeable ?? new Set(), waking: wakeable?.waking ?? new Set(), lastLaunch: wakeable?.lastLaunch ?? null })
 }
 
 const withWake = start => (start !== null && typeof start.start === 'string' ? { ...start, byWake: true } : start)
 
-function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, prefix, refused, offAfterMs, unwakeable, waking }) {
+function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, prefix, refused, offAfterMs, unwakeable, waking, lastLaunch = null }) {
   const handed = new Set(gives.map(one => one.id))
   const scratch = new Map(items)
   for (const one of gives) {
@@ -400,10 +413,14 @@ function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, pre
   // The person, 2026-10-25: "ensure the board can't make more than the allowed limit": the workers on their way count
   // toward `maxWorkers` too, so a start word sent before the last one reported never makes one too many. A worker on
   // its way may already show as a lane with no report yet: those and the pending starts are the same chats, counted once.
+  // B1304 (chat 1's review 3): an off worker the board cannot wake now still holds its place under `maxWorkers`: it may run again (the app's
+  // return, the person opening it as the notice says), and a replacement beside it would then make one too many.
+  // Counted apart (chat 1's re-check 1): one with no report of its own is never "the same chat" as a new worker on its way.
   const isFull = (others = workers) => {
+    const held = others.filter(lane => isOff(lane) && unwakeable.has(lane.name)).length
     const running = others.filter(lane => !isOff(lane))
     const reporting = running.filter(lane => lane.report != null).length
-    return reporting + Math.max(running.length - reporting, pending) >= maxWorkers
+    return held + reporting + Math.max(running.length - reporting, pending) >= maxWorkers
   }
   const pinnedTo = pinnedStart({ ready, handed, refusedIds, workers: workers.filter(mayStart), scratch, items, sent, now, prefix, offAfterMs, isOff })
   if (pinnedTo !== null) return isFull(workers.filter(lane => lane !== pinnedTo.lane)) ? null : { start: pinnedTo.lane.name, pinned: pinnedTo.id }
@@ -420,14 +437,24 @@ function startFor({ ready, gives, idle, lanes, maxWorkers, items, sent, now, pre
     givable += 1
     if (item !== undefined) scratch.set(one.id, { ...item, head: new Map(item.head).set('State', 'queued') })
   }
-  if (givable - pending <= 0) return null
-  if (isFull()) return null
+  if (givable <= 0) return null
   const offs = workers.filter(isOff)
+  // B1279: off workers that cannot be woken now are named (`passedOver`), so the board's notice "could not wake ...; open its chat"
+  // stands for them for as long as the ready work waits (never "nothing waits for it"); B1304 (chat 1's review 2): also while a start
+  // or a new worker is on its way, or the workers are full.
+  const passedOver = offs.filter(lane => unwakeable.has(lane.name)).map(lane => lane.name)
+  // B1304 (chat 1's re-check 2): while the new worker asked for in their place is on its way, the notice keeps saying so.
+  const reportedNow = workers.filter(lane => lane.report != null).length
+  const isReplacing = sent.some(word => isStartOpen(word, now) && isSpawnWord(word) && spawnsLeft(word, reportedNow) > 0)
+  const none = passedOver.length === 0 ? null : isReplacing ? { passedOver, replaces: true } : { passedOver }
+  if (givable - pending <= 0 || isFull()) return none
   const off = offs.filter(mayStart).sort((a, b) => (a.offSince ?? 0) - (b.offSince ?? 0) || byId(a.name, b.name))[0]
-  // B1279: off workers that cannot be woken now: none is asked for, and they are named (`passedOver`), so the board's notice
-  // "could not wake ...; open its chat" stands for them for as long as the ready work waits (never "nothing waits for it").
-  if (off === undefined && offs.some(lane => unwakeable.has(lane.name))) return { passedOver: offs.filter(lane => unwakeable.has(lane.name)).map(lane => lane.name) }
-  return off === undefined ? { spawn: 1 } : { start: off.name }
+  if (off !== undefined) return { start: off.name }
+  if (passedOver.length === 0) return { spawn: 1 }
+  // B1304 (B1279's point 2, chat 1's review 1): a new worker in place of the ones it cannot wake only when the last launch did start a
+  // chat (wake.mjs `lastLaunchOf`: recent, after the app's return): while launches start nothing it would be one more chat that never
+  // runs. Held, the notice says so (`held`); it holds the replacement only, never the plain new worker above.
+  return lastLaunch?.verdict === 'failed' ? { passedOver, held: { at: lastLaunch.at } } : { spawn: 1, passedOver, replaces: true }
 }
 
 /**

@@ -68,7 +68,7 @@ async function inVibe() {
 }
 
 test("the moves and the drafts it knows; the Vision tab's moves take a way of their own, with no focus on it", async () => {
-  assert.deepEqual(FOCUS_MOVES, ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-demo', 'goal-done'])
+  assert.deepEqual(FOCUS_MOVES, ['focus', 'vibe-agree', 'vibe-not-yet', 'how-go', 'how-not-yet', 'vibe-there-yes', 'vibe-there-no', 'talk', 'done-when', 'goal-demo', 'goal-done', 'backup'])
   assert.deepEqual(FOCUS_DRAFTS, ['vibe-draft', 'how-draft'])
   assert.deepEqual(PLAN_MOVES, ['plan-confirm', 'plan-change', 'plan-ask', 'plan-deeper', 'plan-marks', 'plan-feature-add', 'plan-goals-confirm', 'plan-goals-change', 'plan-goals-agree', 'plan-settled', 'plan-standards', 'plan-standards-confirm', 'plan-standards-change', 'plan-standards-agree', 'plan-measure', 'plan-check', 'plan-focus', 'plan-tradeoffs', 'plan-tradeoff', 'plan-start', 'plan-strategy', 'plan-not-now'])
   // 2026-10-24: the focus way takes no plan word, and the plan's way no focus move.
@@ -295,7 +295,7 @@ test('a how drafted in the tool\'s words: each part "<title> · <size> · steps 
 test('the review\'s findings: a draft is for the focus goal only, and a how only once the goal definition is agreed', async () => {
   const fs = await inVibe()
   const other = await focusMove({ command: 'vibe-draft', id: 'G4', lines: ['bright'] }, ctx(fs))
-  assert.deepEqual([other.status, other.why], [409, 'That goal is not the focus: draft only the focus goal.'])
+  assert.deepEqual([other.status, other.why], [409, 'That goal is not the focus or the backup: draft only those.'])
   assert.deepEqual(mapOf(fs).byId.get('G4').vibe, [])
   const early = await focusMove({ command: 'how-draft', id: 'G2', parts: [{ title: 'Draw the bench' }] }, ctx(fs))
   assert.deepEqual([early.status, early.why], [409, 'The goal definition is not agreed yet: draft the how once the person agreed it.'])

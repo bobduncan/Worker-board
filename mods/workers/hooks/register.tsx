@@ -3208,6 +3208,7 @@ const WORK_TOOL = {
     + 'the partner (the Advisor) keeps its draft of the focus goal\'s goal definition and how on the board; each call takes the place '
     + 'of the draft the goal had. "list": every item. "rename" ("from", "to"): the main chat: every open item naming the old '
     + 'name of a chat moves to its new name, for a rename the board could not follow itself (a chat replaced by a new one). '
+    + '"touches" ("id", "text", "why"): the main chat replaces the Touches of a step not done or dropped, when the line was written too wide; the next hand-out reads it. '
     + '"partner-answer" ("id", "text", "why"): the partner answers an ask the board routed to it for the person ("text" its '
     + 'answer, normally the advice; "why" one line); the asking chat is woken as with the person\'s answer, and the answer '
     + 'stands in the partner\'s daily note with an Undo. "escalate" ("id", "why"): the partner hands a routed ask to the person. '

@@ -133,6 +133,23 @@ export function storedOfChatPath(config, chatPath) {
 }
 
 /**
+ * F49: a whole path a check or a chat wrote for a picture, read as the stored path it stands for when it lies inside the project (or the
+ * data home's pictures folder). Anything else stays as given, so the picture route's own checks refuse it: a path outside, or one with a
+ * `.` or `..` part. PURE.
+ */
+export function storedOfWholePath(config, value) {
+  if (typeof value !== 'string' || !isAbsolute(value)) return value
+  const pieces = slashes(value).split('/')
+  if (pieces.includes('..') || pieces.includes('.')) return value
+  const bases = [dataOf(config) === null ? null : picturesOf(config), config.project].filter(isSet)
+  for (const base of bases) {
+    const rel = relative(resolve(base), resolve(value))
+    if (rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)) return slashes(rel)
+  }
+  return value
+}
+
+/**
  * A real path in the words to a chat: relative to the chat home, written with / (`.claude/work/B12.md` today); a path outside the
  * chat home, or one that is not absolute, stays as it is (with /).
  */

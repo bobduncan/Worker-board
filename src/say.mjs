@@ -184,7 +184,7 @@ const syncWords = (to, lane, state) => {
 }
 /** Focus 2: the first line of each word of the Focus page to the partner (spec 2026-10-18, section 6). */
 const FOCUS_HEADS = { 'vibe-agreed': 'goal definition: agreed', 'vibe-not-yet': 'goal definition: not yet', 'how-go': 'how: go', 'how-not-yet': 'how: not yet', 'vibe-there-yes': 'goal definition there: yes', 'vibe-there-no': 'goal definition there: no', undo: 'undo:', talk: 'talk:', 'done-when': 'done when:', 'goal-recheck': 'goal re-check:', 'goal-demo': 'goal demo:' }
-export const FOCUS_COMMANDS = ['focus', ...Object.keys(FOCUS_HEADS)]
+export const FOCUS_COMMANDS = ['focus', 'backup', ...Object.keys(FOCUS_HEADS)]
 
 /**
  * Focus 2 (spec 2026-10-18, sections 3 and 6): the person's word from the Focus page to the partner (the chat the
@@ -201,6 +201,8 @@ export function focusWords(command, { to, goal, thread, stage = null, words = nu
   const lines = command === 'focus'
     ? [`focus: ${about}`, `Thread: ${thread}`, `Stage: ${stage}`, `Your job: ${job}, "The focus"`]
     // Focus 3: the person's Undo of a line of the partner's daily note `note`.
+    // The backup focus (2026-11-24): draft the goal definition and the how of the goal that comes after the focus, for the person's Go.
+    : command === 'backup' ? [`backup focus: ${about}`, `Done when: ${doneWhenText(goal).replace(/\s+/g, ' ').trim()}`, `Your job: ${job}, "The backup focus"`]
     : command === 'undo' ? [`undo: ${String(words).replace(/\s+/g, ' ').trim()}`, `Goal: ${about}`, `Note: ${note}`]
     // Focus 4: the person's words from the run's talk bar while the partner has the turn.
     : command === 'talk' ? [`talk: ${String(words).replace(/\s+/g, ' ').trim()}`, `Goal: ${about}`, `Thread: ${thread}`]

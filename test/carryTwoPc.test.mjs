@@ -14,8 +14,9 @@ import { join, relative, dirname, basename } from 'node:path'
 import { blobOf, gitRunner, line, lines } from '../src/carry/git.mjs'
 import { save, DATA_BRANCH, PRACTICE_BRANCH } from '../src/carry/save.mjs'
 import { load } from '../src/carry/load.mjs'
-import { recordFileFor, readRecord } from '../src/carry/record.mjs'
+import { recordFileFor, readRecord, writeRecord } from '../src/carry/record.mjs'
 import * as realSet from '../src/carry/set.mjs'
+import { rootsOf } from '../tools/carry.mjs'
 import * as realPictures from '../src/carry/pictures.mjs'
 import { cp } from 'node:fs/promises'
 
@@ -546,4 +547,122 @@ test('a load whose branch origin lacks (no save of that kind yet) touches nothin
   const p = sideOf(e, { remote, dataDir, picturesFolder: null, state: { now: 1794850000000 } })
   assert.deepEqual((await load(p.roots, { ...p.options, practice: true }, p.deps)).refusals.map(one => one.code), ['empty'])
   assert.ok(p.logs.some(one => /origin has no workerboard-practice yet \(no practice save/.test(one)))
+})
+
+test('T5.2 A8, the switched-on layout for real (chat 1\'s review 1-4): a data home that is not the carry folder: its store travels as data/ and lands in B\'s data home; board-settings.json travels without PC keys and lands where B\'s own `data` says before the file exists; a secret in it refuses the save; B\'s raw config.json keys stay', LONG, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'carry-a8-on-'))
+  t.after(() => rm(root, { recursive: true, force: true }).catch(() => {}))
+  const a = await pc(root, 'A')
+  const b = await pc(root, 'B')
+  const remote = await makeRemote(root, a.git)
+  await fillA(a, remote)
+  // A's data home, beside the project (not the carry folder <game>/.workerboard): the store, a goal file, the project's settings.
+  const dataA = join(a.project, 'data-home')
+  await mkdir(join(dataA, '.claude', 'work'), { recursive: true })
+  await writeFile(join(dataA, '.claude', 'work', 'B7.md'), 'Id: B7\nKind: step\nTitle: Moved step\nState: ready\nOwner: -\nSince: 2026-11-21 10:00\nBranch: none\n')
+  await writeFile(join(dataA, '.claude', 'work', 'pause.json'), JSON.stringify({ state: 'pausing', since: 1794820000000, by: 'you' }))
+  await writeFile(join(dataA, '.claude', 'goals.md'), '# Goals\n')
+  await writeFile(join(dataA, 'board-settings.json'), JSON.stringify({ name: 'Moved project', weekStopAt: 90, port: 4399, data: 'never', token: KEY }))
+  await writeFile(join(a.boardDir, 'config.json'), JSON.stringify({ project: a.project, gameRepo: a.gameRepo, data: dataA, work: '.claude/work', goals: '.claude/goals.md', pictureRoots: ['pictures'], port: 4399 }))
+  const env = { ...a.env }
+  const depsOf = side => ({
+    git: side.git, set: realSet, pictures: picturesFake, fs,
+    boardAnswers: async () => [], keepers: async () => [], lockAgeMs: async () => null,
+    secrets: async () => [{ kind: 'bridge key', value: KEY }], driveFree: async () => 1e12, lacks: async () => [],
+  })
+  const rootsA = await rootsOf({ boardDir: a.boardDir, flags: { remote }, env, git: a.git })
+  assert.deepEqual([rootsA.dataHome, rootsA.dataDir === rootsA.dataHome], [dataA, false], 'the data home is not the carry folder: no in-place refusal')
+  const logsA = []
+  let done = await save({ ...rootsA, config: rootsA.configGiven }, { log: text => logsA.push(text), now: 1794831000000 }, { ...depsOf(a), recordFile: rootsA.recordFile })
+  assert.ok(!done.ok && done.refusals.some(one => /secret/i.test(one.code) || /secret/i.test(one.text)), `the secret in board-settings.json refuses the save: ${JSON.stringify(done.refusals)}`)
+  await writeFile(join(dataA, 'board-settings.json'), JSON.stringify({ name: 'Moved project', weekStopAt: 90, port: 4399, data: 'never' }))
+  done = await save({ ...rootsA, config: rootsA.configGiven }, { log: text => logsA.push(text), now: 1794831000000 }, { ...depsOf(a), recordFile: rootsA.recordFile })
+  assert.equal(done.ok, true, `${JSON.stringify(done.refusals)}\n${logsA.join('\n')}`)
+  const inBranch = lines(await a.git(rootsA.dataDir, ['ls-files']))
+  assert.ok(inBranch.includes('data/.claude/work/B7.md') && inBranch.includes('data/.claude/goals.md') && inBranch.includes('settings/board-settings.json'), inBranch.join('\n'))
+  const carriedSettings = JSON.parse(await readFile(join(rootsA.dataDir, 'settings', 'board-settings.json'), 'utf8'))
+  assert.deepEqual(carriedSettings, { name: 'Moved project', weekStopAt: 90 }, 'no PC key travels in the project\'s settings')
+  // Round 3, review 5b: the record holds the blob of A's LOCAL settings file (with its PC keys), not the carried text's.
+  const recordedA = await readRecord(rootsA.recordFile, fs)
+  assert.equal(recordedA.last.blobs['settings/board-settings.json'], blobOf(await readFile(join(dataA, 'board-settings.json'))), 'the local file\'s blob')
+  assert.notEqual(recordedA.last.blobs['settings/board-settings.json'], blobOf(await readFile(join(rootsA.dataDir, 'settings', 'board-settings.json'))), 'not the carried text\'s')
+
+  // B: a fresh clone, its own data home named in config.json (the file not there yet), and raw keys of its own.
+  await b.ok(b.project, ['clone', '-q', remote, b.gameRepo])
+  await mkdir(join(b.boardDir, 'data'), { recursive: true })
+  const dataB = join(b.project, 'data-home')
+  await writeFile(join(b.boardDir, 'config.json'), JSON.stringify({ project: b.project, gameRepo: b.gameRepo, data: dataB, port: 4398, label: 'the B PC', codex: 'C:/tools/codex.exe' }))
+  const rootsB = await rootsOf({ boardDir: b.boardDir, flags: { remote }, env: { ...b.env }, git: b.git })
+  assert.equal(rootsB.projectSettingsFile, join(dataB, 'board-settings.json'), 'named before it exists')
+  const logsB = []
+  done = await load({ ...rootsB, config: rootsB.configGiven }, { log: text => logsB.push(text), now: 1794832000000 }, { ...depsOf(b), recordFile: rootsB.recordFile })
+  assert.equal(done.ok, true, `${JSON.stringify(done.refusals)}\n${logsB.join('\n')}`)
+  assert.equal(await readFile(join(dataB, '.claude', 'work', 'B7.md'), 'utf8'), await readFile(join(dataA, '.claude', 'work', 'B7.md'), 'utf8'), 'review 1: data/ lands in B\'s data home')
+  assert.equal(existsSync(join(dataB, '.claude', 'goals.md')), true, 'the goal file landed in the data home too')
+  assert.deepEqual(JSON.parse(await readFile(join(dataB, 'board-settings.json'), 'utf8')), { name: 'Moved project', weekStopAt: 90 }, 'review 2: placed where B\'s data says')
+  assert.ok(done.warnings.every(one => !/stays in the data folder/.test(one)), done.warnings.join('\n'))
+  const configB = JSON.parse(await readFile(join(b.boardDir, 'config.json'), 'utf8'))
+  assert.deepEqual([configB.label, configB.codex, configB.data, configB.port, configB.project], ['the B PC', 'C:/tools/codex.exe', dataB, 4398, b.project], 'review 4: B\'s raw keys stay')
+  assert.equal(configB.work, '.claude/work', 'a project key came with the carried config')
+  // Review c: the settings file this load created is in the backup manifest, so --undo takes it away again.
+  assert.ok(typeof done.stamp === 'string', 'a stamp: the created settings file is backed up as created')
+  const undone = await load({ ...rootsB, config: rootsB.configGiven }, { log: () => {}, undo: done.stamp }, { ...depsOf(b), recordFile: rootsB.recordFile })
+  assert.equal(undone.ok, true)
+  assert.equal(existsSync(join(dataB, 'board-settings.json')), false, 'undo removed the settings file the load created')
+  // Review b: the layouts never mix. A PC without a data home loading this save is refused; saving onto the branch from one too.
+  const c = await pc(root, 'C')
+  await c.ok(c.project, ['clone', '-q', remote, c.gameRepo])
+  await mkdir(join(c.boardDir, 'data'), { recursive: true })
+  await writeFile(join(c.boardDir, 'config.json'), JSON.stringify({ project: c.project, gameRepo: c.gameRepo, port: 4397 }))
+  const rootsC = await rootsOf({ boardDir: c.boardDir, flags: { remote }, env: { ...c.env }, git: c.git })
+  const mixedLoad = await load({ ...rootsC, config: rootsC.configGiven }, { log: () => {} }, { ...depsOf(c), recordFile: rootsC.recordFile })
+  assert.deepEqual([mixedLoad.ok, mixedLoad.refusals.map(one => one.code)], [false, ['layout']])
+  assert.match(mixedLoad.refusals[0].text, /made with a data home .* this PC is without one/)
+  // Round 3, review 4: --pictures-only is refused by the layout check too (it ran before it); C has loaded once (else the never-loaded guard speaks first).
+  await writeRecord(rootsC.recordFile, { ...(await readRecord(rootsC.recordFile, fs)), last: { kind: 'final', command: 'load', at: 1794829000000, branch: DATA_BRANCH, commit: 'x', blobs: {} } }, fs)
+  const mixedPictures = await load({ ...rootsC, config: rootsC.configGiven }, { log: () => {}, picturesOnly: true }, { ...depsOf(c), recordFile: rootsC.recordFile })
+  assert.deepEqual([mixedPictures.ok, mixedPictures.refusals.map(one => one.code)], [false, ['layout']])
+  assert.equal(existsSync(join(c.project, '.claude', 'work', 'B7.md')), false, 'nothing of the store was misplaced into the project')
+  await mkdir(join(c.project, '.claude', 'work'), { recursive: true })
+  await writeFile(join(c.project, '.claude', 'work', 'pause.json'), JSON.stringify({ state: 'pausing', since: 1794820000000, by: 'you' }))
+  const mixedSave = await save({ ...rootsC, config: rootsC.configGiven }, { log: () => {}, now: 1794833000000 }, { ...depsOf(c), recordFile: rootsC.recordFile })
+  assert.deepEqual([mixedSave.ok, mixedSave.refusals.map(one => one.code)], [false, ['layout']], 'a PC without a data home never saves onto a branch that holds data/')
+  assert.ok(lines(await c.git(rootsC.dataDir, ['ls-files', '--', 'data'])).includes('data/.claude/work/B7.md'), 'the branch keeps its data/')
+  // Review d: A no longer carries the settings file (deleted): the next save takes it off the branch.
+  await rm(join(dataA, 'board-settings.json'))
+  done = await save({ ...rootsA, config: rootsA.configGiven }, { log: () => {}, now: 1794834000000 }, { ...depsOf(a), recordFile: rootsA.recordFile })
+  assert.equal(done.ok, true, JSON.stringify(done.refusals))
+  assert.equal(lines(await a.git(rootsA.dataDir, ['ls-files', '--', 'settings'])).includes('settings/board-settings.json'), false, 'the stale settings file is pruned')
+  assert.equal(JSON.parse(await readFile(join(rootsA.dataDir, 'saved.json'), 'utf8')).layout, 'data', 'saved.json names the layout')
+  // Round 3, review 5a: C switches its layout on. Its record is from the project layout (home/ keys): the store file C changed here since its
+  // last sync is found under the other root, and the load is refused as changed-here (not silently replaced).
+  const dataC = join(c.project, 'data-home')
+  await mkdir(join(dataC, '.claude', 'work'), { recursive: true })
+  await writeFile(join(dataC, '.claude', 'work', 'B7.md'), 'Id: B7\nKind: step\nTitle: Changed on C\nState: ready\nOwner: -\nSince: 2026-11-21 10:00\nBranch: none\n')
+  await writeFile(join(c.boardDir, 'config.json'), JSON.stringify({ project: c.project, gameRepo: c.gameRepo, data: dataC, port: 4397 }))
+  const rootsC2 = await rootsOf({ boardDir: c.boardDir, flags: { remote }, env: { ...c.env }, git: c.git })
+  const recordC = await readRecord(rootsC2.recordFile, fs)
+  await writeRecord(rootsC2.recordFile, { ...recordC, last: { kind: 'final', command: 'load', at: 1794830000000, branch: DATA_BRANCH, commit: 'x', blobs: { 'home/.claude/work/B7.md': blobOf(Buffer.from('what C had at its last sync\n')) } } }, fs)
+  const switched = await load({ ...rootsC2, config: rootsC2.configGiven }, { log: () => {} }, { ...depsOf(c), recordFile: rootsC2.recordFile })
+  assert.deepEqual([switched.ok, switched.refusals.map(one => one.code)], [false, ['changed-here']], JSON.stringify(switched.refusals))
+  assert.match(switched.refusals[0].text, /data\/\.claude\/work\/B7\.md/)
+  assert.match(await readFile(join(dataC, '.claude', 'work', 'B7.md'), 'utf8'), /Changed on C/, 'nothing replaced')
+  // Round 3, review 6: a file held for a moment stops the load (no backup, nothing written) and the save (nothing pruned).
+  const heldError = Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })
+  const holding = file => ({ ...fs, readFile: async (path, ...rest) => { if (slashes(path).toLowerCase() === slashes(file).toLowerCase()) throw heldError; return readFile(path, ...rest) } })
+  await rm(rootsC2.recordFile, { force: true })
+  await assert.rejects(load({ ...rootsC2, config: rootsC2.configGiven }, { log: () => {} }, { ...depsOf(c), fs: holding(join(dataC, '.claude', 'work', 'B7.md')), recordFile: rootsC2.recordFile }), /EBUSY/)
+  assert.match(await readFile(join(dataC, '.claude', 'work', 'B7.md'), 'utf8'), /Changed on C/, 'the held file was not replaced')
+  assert.equal(existsSync(join(c.boardDir, 'data', 'carry-backup')), false, 'no backup was begun')
+  await writeFile(join(dataA, 'board-settings.json'), JSON.stringify({ name: 'Moved project', weekStopAt: 91 }))
+  await assert.rejects(save({ ...rootsA, config: rootsA.configGiven }, { log: () => {}, now: 1794835000000 }, { ...depsOf(a), fs: holding(join(dataA, 'board-settings.json')), recordFile: rootsA.recordFile }), /EBUSY/)
+  done = await save({ ...rootsA, config: rootsA.configGiven }, { log: () => {}, now: 1794835000000 }, { ...depsOf(a), recordFile: rootsA.recordFile })
+  assert.equal(done.ok, true, JSON.stringify(done.refusals))
+  assert.ok(lines(await a.git(rootsA.dataDir, ['ls-files', '--', 'settings'])).includes('settings/board-settings.json'), 'released, the settings file travels again')
+  // Round 3 (minor): a dry-run save from a PC without a data home, its folder on the other kind's branch, still sees this branch's data/.
+  await writeFile(join(c.boardDir, 'config.json'), JSON.stringify({ project: c.project, gameRepo: c.gameRepo, port: 4397 }))
+  const rootsC3 = await rootsOf({ boardDir: c.boardDir, flags: { remote }, env: { ...c.env }, git: c.git })
+  await c.ok(rootsC3.dataDir, ['checkout', '-q', '--orphan', PRACTICE_BRANCH])
+  const dryMixed = await save({ ...rootsC3, config: rootsC3.configGiven }, { log: () => {}, dryRun: true, now: 1794836000000 }, { ...depsOf(c), recordFile: rootsC3.recordFile })
+  assert.deepEqual([dryMixed.ok, dryMixed.refusals.map(one => one.code)], [false, ['layout']], 'the dry run looks at the branch\'s tree')
 })

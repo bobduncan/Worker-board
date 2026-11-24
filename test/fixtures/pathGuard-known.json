@@ -20,7 +20,7 @@
     "project: to: inProject(config.project, picture),"
   ],
   "src/assets.mjs": [
-    "claude: /** The folder of the asset requests: `assets` beside the work store's folder (`.claude/work` → `.claude/assets`). */",
+    "claude: /** The folder of the asset requests: `assets` beside the work store's folder (`.claude/work` \u2192 `.claude/assets`). */",
     "claude: // request in a folder of its own, `.claude/assets/A<n>/` of the project (beside the work store's `.claude/work`):"
   ],
   "src/bridge.mjs": [
@@ -40,13 +40,9 @@
   "src/carry/set.mjs": [
     "claude: /** `.claude` folders that travel whole. */",
     "claude: /** `.claude`'s top-level files that are runtime files of this PC (board.json holds the bridge key). */",
-    "claude: const claudeDir = join(project, '.claude')",
     "claude: const workDir = placed('work', config.work ?? '.claude/work')",
     "claude: for (const [key, fallback, folder] of [['goals', '.claude/goals.md', false], ['goalsHistory', '.claude/goals.history', true], ['brainstorms', '.claude/brainstor",
-    "project: const absolute = (project, path) => (isAbsolute(path) ? resolve(path) : resolve(project, ...String(path).split('/')))",
-    "project: const claudeDir = join(project, '.claude')",
-    "project: for (const entry of await list(fs, project)) if (entry.isFile()) await addHome(join(project, entry.name), 'home')",
-    "project: for (const file of await walk(fs, join(project, '.codex'))) await addHome(file, 'home')"
+    "project: const absolute = (project, path) => (isAbsolute(path) ? resolve(path) : resolve(project, ...String(path).split('/')))"
   ],
   "src/chatLogs.mjs": [
     "claude: export const LOGS_FOLDER = '.claude/chat-logs'",
@@ -130,8 +126,6 @@
     "claude: return join(env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'plugins', 'known_marketplaces.json')"
   ],
   "src/sources.mjs": [
-    "claude: const claude = join(config.project, '.claude')",
-    "project: const claude = join(config.project, '.claude')",
     "project: dir ??= isAbsolute(folder) ? folder : join(project, ...folder.split('/'))"
   ],
   "src/talkPicture.mjs": [
@@ -154,14 +148,9 @@
     "project: found.push({ path: folder.path, kind: 'folder', repo: null, what: 'a folder named as a worktree\\'s, with files and no git', clean: true, why: null, moveTo: join",
     "project: return entries === null ? null : entries.filter(entry => entry.isDirectory() && !entry.isSymbolicLink()).map(entry => ({ name: entry.name, path: join(project, e"
   ],
-  "start-board.mjs": [
-    "project: const { port } = await resolvePort({ here: HERE, given, configured: config.port, run: gitRunner(), project: config.project ? resolve(HERE, config.project) : nul"
-  ],
   "tools/carry.mjs": [
-    "claude: const bridge = await readFile(join(project, '.claude', 'board.json'), 'utf8').catch(() => null)",
     "claude: const userSettingsFile = join(homedir(), '.claude', 'settings.json')",
     "claude: else if (flags.project && flags.game) config = { project: resolve(flags.project), gameRepo: resolve(flags.game), work: '.claude/work', pictureRoots: ['pictures'",
-    "project: const bridge = await readFile(join(project, '.claude', 'board.json'), 'utf8').catch(() => null)",
     "project: else if (flags.project && flags.game) config = { project: resolve(flags.project), gameRepo: resolve(flags.game), work: '.claude/work', pictureRoots: ['pictures'"
   ],
   "tools/spending-count.mjs": [

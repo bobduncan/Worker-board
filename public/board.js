@@ -219,7 +219,7 @@ function wordLineOf(part, goal, commands) {
 }
 
 /** P4b: the commands of the Focus and Goals clicks, by the card that draws their line (`wordLineOf`). */
-const FOCUS_LINE_COMMANDS = { pick: ['focus'], agreed: ['vibe-agreed'], there: ['vibe-there-yes', 'vibe-there-no', 'goal-demo', 'goal-recheck', 'done-when'], doneWhen: ['done-when'], undo: ['undo'], goals: ['goal-recheck', 'done-when'] }
+const FOCUS_LINE_COMMANDS = { backup: ['backup', 'vibe-agreed', 'how-go'], pick: ['focus'], agreed: ['vibe-agreed'], there: ['vibe-there-yes', 'vibe-there-no', 'goal-demo', 'goal-recheck', 'done-when'], doneWhen: ['done-when'], undo: ['undo'], goals: ['goal-recheck', 'done-when'] }
 
 /** T22 wave 2, place 5: the line of the answer that overturned a recap (its `ask` is `work:<the recap's id>`), as drawn under the recap's status; null for none. */
 function overturnWaitLine(recap, state) {
@@ -367,6 +367,8 @@ let timer = null
 let awaySince = null
 /** True while the person is asked whether they really want to pause all chats. */
 let isAskingPause = false
+/** Shut down (src/shutdown.mjs): the page asks before it shuts the board down. */
+let isAskingShutdown = false
 
 // Small helpers
 
@@ -881,9 +883,10 @@ function drawBoardSettings(state) {
   $('settings-note').hidden = problem === null
   if (problem !== null) $('settings-note').textContent = problem
   const autopilot = shown === null || typeof shown.autopilot !== 'boolean' ? null : settingPending !== null && settingPending.key === 'autopilot' ? settingPending.value : shown.autopilot
-  for (const id of ['autopilot', 'approve-rebuilds', 'max-workers']) {
+  for (const id of ['autopilot', 'approve-rebuilds', 'beyond-focus', 'max-workers']) {
     const group = $(id)
     group.hidden = shown === null || (id === 'max-workers' && !Number.isInteger(shown.maxWorkers)) || (id === 'autopilot' && autopilot === null)
+      || (id === 'beyond-focus' && typeof shown.handOutBeyondFocus !== 'boolean')
       || (id === 'approve-rebuilds' && autopilot === true)
     group.title = shown === null || shown.canSet ? '' : shown.whyNot ?? ''
   }
@@ -1025,7 +1028,7 @@ $('settings').addEventListener('click', async event => {
   if (button === null || button.disabled || board === null || sending.has('setting') || board.boardSettings?.canSet !== true) return
   const key = button.dataset.setting
   // B-max: "Workers at most" sends a number (the stepper's `data-value`), the others a word or a flag.
-  const value = key === 'approveRebuilds' || key === 'autopilot' ? button.dataset.value === 'true' : key === 'maxWorkers' ? Number(button.dataset.value) : button.dataset.value
+  const value = key === 'approveRebuilds' || key === 'autopilot' || key === 'handOutBeyondFocus' ? button.dataset.value === 'true' : key === 'maxWorkers' ? Number(button.dataset.value) : button.dataset.value
   if (board.boardSettings[key] === value) return
   settingPending = { key, value }
   sending.add('setting')
@@ -2623,12 +2626,11 @@ function drawRestart(state) {
   const pauseAll = $('pause-all')
   pauseAll.hidden = restart === null || restart.main === null || pause?.state === 'pausing'
   pauseAll.disabled = sending.has('restart')
+  const shutdown = state.shutdown ?? null
+  const shutDown = $('shut-down')
+  shutDown.hidden = state.canShutdown !== true || shutdown !== null
+  shutDown.disabled = sending.has('restart')
   const line = (className, text) => el('p', className, text)
-  // Signals change 4 (2026-11-02): the opener's line went into the one wake notice under Needs your attention (`state.wakeNotice`).
-  if (restart === null || restart.main === null) {
-    box.hidden = true
-    return
-  }
   const button = (label, className, command) => {
     const node = el('button', `button ${className}`, label)
     node.type = 'button'
@@ -2636,7 +2638,27 @@ function drawRestart(state) {
     node.disabled = sending.has('restart')
     return node
   }
-  const parts = []
+  // Shut down: its question, and the shutdown on its way, said with or without a main chat.
+  const shutdownParts = []
+  if (shutdown !== null) {
+    const row = el('div', 'restart-ask')
+    const why = shutdown.isNow ? 'The board is shutting down now.' : `Shutting down: every chat is paused, and the board stops once each has ended its turn, at ${clock(shutdown.until)} at the latest.`
+    row.append(line('', `${why} It stays stopped until you start it again (its icon, or npm run resume).`))
+    if (!shutdown.isNow) row.append(button('Shut down now', 'is-quiet', 'shutdown-now'))
+    shutdownParts.push(row)
+  } else if (isAskingShutdown) {
+    const ask = el('div', 'restart-ask')
+    ask.append(line('', 'Shut down the board? Every chat is paused first (each writes its checkpoint and ends its turn), then the board stops and stays stopped: no chat, hook or watcher starts it again. Start it again with its icon, or npm run resume; then Resume all.'), button('Shut down', '', 'shutdown'), button('Shut down now', 'is-quiet', 'shutdown-now'), button('No', 'is-quiet', 'cancel'))
+    shutdownParts.push(ask)
+  }
+  // Signals change 4 (2026-11-02): the opener's line went into the one wake notice under Needs your attention (`state.wakeNotice`).
+  if (restart === null || restart.main === null) {
+    if (problems.has('restart') && shutdownParts.length > 0) shutdownParts.push(line('problem', problems.get('restart')))
+    box.hidden = shutdownParts.length === 0
+    if (shutdownParts.length > 0) fill(box, shutdownParts)
+    return
+  }
+  const parts = [...shutdownParts]
   // P5: each chat it names opens that chat's window.
   for (const text of stoppedLines(restart, state.chats ?? [])) {
     const node = line('alert', '')
@@ -7122,6 +7144,8 @@ function focusPageView(state, ui) {
   return {
     ...cards,
     focus: state.focus ?? null,
+    // The backup focus (2026-11-24): the goal after the focus, for its card.
+    backup: state.backup ?? null,
     clicksUnsent: state.clicksUnsent ?? null,
     goals: state.goals ?? null,
     brainstorms: state.brainstorms ?? null,
@@ -7132,12 +7156,14 @@ function focusPageView(state, ui) {
     // Autopilot (2026-10-31): the switch it covers, and the asks that wait for the goal's recap.
     autopilot: state.autopilot ?? null,
     routedAway: (state.routedAway ?? []).filter(one => one.route === 'recap'),
+    // F61: the asks of other goals that stand with the person, by goal (the one line under the focus head).
+    elsewhere: otherGoalsAsks(state),
     // 2026-11-01: the recap card (src/recapCard.mjs): the parts of the goal's recap that wait for the person's verdict.
     recapCard: state.recapCard ?? null,
     // T17.1: the same while round N+1 of the recap is being made.
     recapMaking: state.recapMaking ?? null,
     // T22: the wait line of the focus goal's last recap Send, for the card "feedback sent" while no verdict waits.
-    waitPart: waitsPart(state, [...(typeof state.focus?.id === 'string' ? [newestWaitId(state, 'recap-feedback', state.focus.id), ...FOCUS_WAIT_PLACES.map(place => placeWaitIds(state, place, { goal: state.focus.id })[0])] : []), ...focusWordIds(state), ...recapWaitIds(state)]),
+    waitPart: waitsPart(state, [...(typeof state.focus?.id === 'string' ? [newestWaitId(state, 'recap-feedback', state.focus.id), ...FOCUS_WAIT_PLACES.map(place => placeWaitIds(state, place, { goal: state.focus.id })[0])] : []), ...focusWordIds(state), ...(typeof state.backup?.id === 'string' ? placeWaitIds(state, 'go', { goal: state.backup.id }).slice(0, 1) : []), ...recapWaitIds(state)]),
     ui,
   }
 }
@@ -7172,6 +7198,28 @@ const rethinkUiView = () => ({ on: rethinkBox.on, topic: rethinkBox.topic, pictu
  * keeps), and what is picked, sent, refused or open on its cards (the switches, the gathered recaps and asks).
  */
 const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, dropping: focusUi.dropping, partsOpen: { ...focusUi.partsOpen }, blocksView: focusUi.blocksView, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting], rethink: rethinkUiView() })
+// elsewhere:start
+/**
+ * F61: the open asks of OTHER goals' steps that stand with the person (the cards of Needs your attention), for one line under the
+ * focus head: `[{ goal, title, count, ids }]` by goal, most asks first; the focus goal's own are not in it (its recap card has them).
+ */
+function otherGoalsAsks(state) {
+  const focusId = state?.focus?.id ?? null
+  const nodes = state?.goals?.nodes ?? []
+  const goalOf = step => nodes.find(node => (node.steps ?? []).includes(step)) ?? null
+  const byGoal = new Map()
+  for (const need of state?.forYou ?? []) {
+    if (typeof need?.workId !== 'string' || !/^Q\d+$/.test(need.workId) || need.isClosed === true || typeof need.of !== 'string') continue
+    const node = goalOf(need.of)
+    if (node === null || node.id === focusId) continue
+    const one = byGoal.get(node.id) ?? { goal: node.id, title: node.title, count: 0, ids: [] }
+    one.count += 1
+    one.ids.push(need.workId)
+    byGoal.set(node.id, one)
+  }
+  return [...byGoal.values()].sort((a, b) => b.count - a.count || a.goal.localeCompare(b.goal, 'en', { numeric: true }))
+}
+// elsewhere:end
 // redraw:end
 
 /** B408: Needs your attention, drawn from its view when that changed. */
@@ -7266,11 +7314,22 @@ takeAnswers($('details'))
 takeAnswers($('advisor-focus'))
 $('pause-all').addEventListener('click', () => {
   isAskingPause = true
+  isAskingShutdown = false
+  redrawNeeds()
+})
+$('shut-down').addEventListener('click', () => {
+  isAskingShutdown = true
+  isAskingPause = false
   redrawNeeds()
 })
 $('restart').addEventListener('click', event => {
   const button = event.target.closest('[data-restart]')
-  if (button === null || board === null || board.restart.main === null) return
+  if (button === null || board === null) return
+  // Shut down (src/shutdown.mjs): also without a main chat.
+  if (['shutdown', 'shutdown-now', 'cancel'].includes(button.dataset.restart)) isAskingShutdown = false
+  if (button.dataset.restart === 'shutdown') return sendWork({ action: 'shutdown' }, 'restart')
+  if (button.dataset.restart === 'shutdown-now') return sendWork({ action: 'shutdown', now: true }, 'restart')
+  if ((board.restart?.main ?? null) === null) return button.dataset.restart === 'cancel' ? redrawNeeds() : undefined
   isAskingPause = false
   if (button.dataset.restart === 'cancel') return redrawNeeds()
   // Pause and resume (spec 2026-10-18): both write pause.json; the board types "resume" into a main chat that runs.
@@ -12480,6 +12539,26 @@ function goalTreeDrop(goals, layout, fromId, x, y) {
   if (layout.frame !== null && hit(layout.frame)) return { place: 'into', over: layout.frame.id, target: goalDropTarget(goals, fromId, layout.frame.id, 'into') }
   return null
 }
+/**
+ * F61 (the person, 2026-11-24: "you say there are questions but i dont see anything"; G40's four looks moved to Needs your attention
+ * when the focus left it): the open asks of a goal's steps that stand with the person (`state.forYou`, the cards of Needs your
+ * attention) or wait for the goal's recap (`state.routedAway`, route recap), for its frame on the Goals part: `[{ id, title, step,
+ * stand, ask }]`, `stand` 'yours' (its card's window answers it) or 'recap' (the recap panel's buttons), oldest id first.
+ */
+function goalForYouRows(state, node) {
+  if (node === null || node === undefined) return []
+  const steps = new Set(node.steps ?? [])
+  const rows = new Map()
+  for (const need of state?.forYou ?? []) {
+    if (typeof need?.workId !== 'string' || !/^Q\d+$/.test(need.workId) || need.isClosed === true || !steps.has(need.of)) continue
+    rows.set(need.workId, { id: need.workId, title: need.question ?? need.title ?? need.workId, step: need.of, stand: 'yours', ask: { id: need.workId, title: need.question ?? need.title ?? need.workId, of: need.of, ofTitle: need.ofTitle ?? null, pictures: need.pictures ?? [], route: 'person' } })
+  }
+  for (const ask of state?.routedAway ?? []) {
+    if (ask?.route !== 'recap' || rows.has(ask.id) || !(ask.goal === node.id || steps.has(ask.of))) continue
+    rows.set(ask.id, { id: ask.id, title: ask.title ?? ask.id, step: ask.of ?? null, stand: 'recap', ask })
+  }
+  return [...rows.values()].sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
+}
 // goals:end
 
 // goalsteps:start
@@ -12742,6 +12821,15 @@ function drawGoals(state) {
     const parts = [head, summary, goalsLinesOpen && lines.length > 0 ? fill(el('ul', 'goals-frame-lines'), lines.map(line => el('li', '', line))) : null]
     // Rule 15: the person's words said in any chat, one quiet line each, with the chat and the time.
     for (const words of goalWordsRows(focus.yourWords)) parts.push(el('p', 'muted goals-words', words))
+    // F61: the goal's open asks that are the person's (their cards' windows) or wait for its recap (the recap panel's buttons), here too,
+    // so a goal that is not the focus still shows what waits for them.
+    const forYou = goalForYouRows(state, focus)
+    if (forYou.length > 0) {
+      const block = el('div', 'goals-for-you')
+      block.append(el('h4', 'focus-recap-head', `For you (${forYou.length})`))
+      block.append(recapAsksList(forYou.map(row => row.ask), { stands: new Map(forYou.map(row => [row.id, row.stand])) }))
+      parts.push(block)
+    }
     if (canEdit) {
       // The links it has, each with its ×.
       const links = [...focus.enables.map(target => ['Enables', target]), ...focus.alsoPartOf.map(target => ['Also part of', target])]
@@ -16523,6 +16611,53 @@ function focusView(focus, goals, can = null, ui = {}) {
 }
 
 /**
+ * The backup focus (the person, 2026-11-24: idle workers near the end of a goal): its card on the Focus page while a focus
+ * runs, from the state's `backup` (null: none) and the goal map (`goals`). None: the open goals with a Done when, other than
+ * the focus, to pick one from. One: its id and title, Remove, and where it stands, as the focus goes: the goal definition
+ * your partner drafts (agree it, or Not yet), the work blocks (Go, or Not yet), then how many of its tasks are made.
+ */
+function backupView(backup, focus, goals, can = null) {
+  if (focus === null || focus === undefined || focus.stage === 'done') return null
+  const allowed = can?.canWrite === true
+  const why = allowed ? null : can?.whyNot ?? 'This board only shows.'
+  const button = (label, act, isEnabled, title) => ({ label, act, isEnabled: allowed && isEnabled, title: allowed ? title : why })
+  const title = 'Backup focus'
+  const note = 'Idle workers take its tasks once the focus has none ready. It becomes your focus when this one is done.'
+  if (backup === null || backup === undefined) {
+    const seen = new Set()
+    const options = (goals?.nodes ?? []).filter(node => node.state !== 'done' && node.id !== focus.id && hasDoneWhenLine(node) && !seen.has(node.id) && seen.add(node.id))
+      .map(node => ({ id: node.id, label: `${node.id} · ${node.title}` }))
+    return {
+      title, note, goal: null, options,
+      empty: options.length === 0 ? 'No other open goal has a Done when yet.' : null,
+      set: button('Set as backup', 'backup-set', options.length > 0, 'Its tasks go to idle workers after the focus\'s; your partner drafts its goal definition and how now'),
+    }
+  }
+  const view = { title, note, goal: { id: backup.id, title: backup.title }, stage: backup.stage, remove: button('Remove', 'backup-clear', true, 'No backup: idle workers wait for the focus again'), lines: [], buttons: [], empty: null }
+  if (backup.stage === 'vibe') {
+    const has = backup.vibe.length > 0 || backup.vibePicture !== null
+    view.head = 'Goal definition'
+    view.lines = backup.vibe
+    view.empty = has ? null : 'Your partner drafts its goal definition.'
+    view.buttons = [
+      button('This is the goal definition', 'backup-vibe-agree', has, has ? 'Agreed: your partner proposes its work blocks next' : 'Your partner drafts it first'),
+      button('Not yet', 'backup-vibe-not-yet', has, 'Say what is missing: your partner changes it'),
+    ]
+  } else if (backup.stage === 'how') {
+    const has = backup.parts.length > 0
+    const lacks = backup.goWaitsForLines === true
+    view.head = 'Work blocks'
+    view.lines = backup.parts.map(part => (blockLineOf(part) === '' ? part.title : `${part.title} · done when: ${blockLineOf(part)}`))
+    view.empty = has ? null : 'Your partner drafts its work blocks.'
+    view.buttons = [
+      button('Go', 'backup-how-go', has && !lacks, !has ? 'Your partner drafts the work blocks first' : lacks ? 'Every work block needs its done-when line' : 'Agreed: your partner makes its tasks, idle workers take them after the focus\'s'),
+      button('Not yet', 'backup-how-not-yet', has, 'Say what does not fit: your partner changes the work blocks'),
+    ]
+  } else view.empty = backup.steps > 0 ? `${backup.steps} task${backup.steps === 1 ? '' : 's'} made: idle workers take them after the focus's.` : 'Go is given: your partner makes its tasks.'
+  return view
+}
+
+/**
  * "Change this goal" (2026-10-31): the focus goal's objective and its Done when bullets, each met (its steps all done) or
  * not, with its step ids; null for a goal without an objective, which shows nothing new. Work blocks (2026-10-31): the
  * page draws the objective and "Not in it" in the head; the bullets of an old change are read, no longer drawn as a card
@@ -17083,10 +17218,10 @@ function drawAdvisorParts(state) {
 // B354: `asked`, the goals whose Done when the person asked the partner for on this page.
 // B680: `dropping`, the title of the Stopped part whose reason the person is writing.
 // Work blocks (2026-10-31): `blocksView`, the run's switch: 'all' (All work blocks) or 'open' (Open now), kept across a reload.
-const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, dropping: null, partsOpen: {}, blocksView: 'all', words: { talk: '', notYet: '', new: '', bar: '', drop: '', rethink: '' } }
+const focusUi = { busy: false, note: null, notYet: null, picked: null, picking: false, dropping: null, partsOpen: {}, blocksView: 'all', backupPick: null, words: { talk: '', notYet: '', new: '', bar: '', drop: '', rethink: '', backup: '' } }
 // Work blocks: the switch as the person left it (localStorage), else All work blocks.
 try { if (localStorage.getItem('focus-blocks-view') === 'open') focusUi.blocksView = 'open' } catch { /* a browser without storage: All work blocks */ }
-const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar', 'focus-drop-words': 'drop', 'focus-rethink-words': 'rethink' }
+const FOCUS_BOXES = { 'focus-talk-words': 'talk', 'focus-not-yet-words': 'notYet', 'focus-new-words': 'new', 'focus-bar-words': 'bar', 'focus-drop-words': 'drop', 'focus-rethink-words': 'rethink', 'focus-backup-words': 'backup' }
 
 // rethink:start
 // Stop and rethink (docs/stop-and-rethink.md): the switch beside the Focus talk bar. On, the bar names a topic of the focus goal, takes
@@ -17389,6 +17524,52 @@ function focusTalkCard(state, can) {
 }
 
 /** The box of "Not yet" under the buttons: what is missing, in the person's words, sent to the partner. */
+/**
+ * The backup focus (2026-11-24): its card under the focus (backupView). None: a list of the open goals to pick one from, and
+ * Set as backup. One: its goal, Remove, its draft with the buttons of its stage, a box for Not yet, and the line of the last word.
+ */
+function focusBackupCard(view, state, can) {
+  const card = el('section', 'focus-card focus-backup')
+  card.append(el('h3', '', view.goal === null ? view.title : `${view.title}: ${view.goal.id} · ${view.goal.title}`), el('p', 'focus-sub', view.note))
+  if (view.goal === null) {
+    if (view.empty !== null) card.append(el('p', 'muted', view.empty))
+    else {
+      const row = el('div', 'focus-backup-pick')
+      const select = el('select', '')
+      select.dataset.backupPick = 'goal'
+      select.setAttribute('aria-label', 'The goal after the focus')
+      select.disabled = !view.set.isEnabled || focusUi.busy
+      for (const option of view.options) {
+        const one = el('option', '', option.label)
+        one.value = option.id
+        select.append(one)
+      }
+      if (view.options.some(option => option.id === focusUi.backupPick)) select.value = focusUi.backupPick
+      row.append(select, focusButton(view.set, 'goals-action'))
+      card.append(row)
+    }
+    return card
+  }
+  card.append(focusButton(view.remove, 'focus-change'))
+  if (view.head !== undefined) card.append(el('h4', '', view.head))
+  if (view.lines.length > 0) {
+    const list = el('ul', 'focus-ticks')
+    for (const line of view.lines) list.append(el('li', '', line))
+    card.append(list)
+  }
+  if (view.empty !== null) card.append(el('p', 'muted', view.empty))
+  if (view.buttons.length > 0) {
+    // Quieter than the focus's own buttons: the focus stays what the page is about.
+    const buttons = el('div', 'focus-backup-pick')
+    for (const one of view.buttons) buttons.append(focusButton(one, 'goals-action'))
+    card.append(buttons)
+  }
+  if (focusUi.notYet === 'backup') card.append(focusSay(view.stage === 'vibe' ? 'What is missing from its goal definition?' : 'What does not fit in its work blocks?', 'focus-say', { box: 'focus-backup-words', act: 'backup-send-not-yet', label: 'Send to your partner', isEnabled: can.canWrite, title: can.whyNot }))
+  const line = wordLineOf(state.waitPart, view.goal.id, FOCUS_LINE_COMMANDS.backup)
+  if (line !== null) card.append(drawWaitLine(line))
+  return card
+}
+
 function focusNotYet(stage, can) {
   const box = el('div', 'focus-not-yet')
   box.append(focusSay(stage === 'vibe' ? 'What is missing from the goal definition?' : stage === 'there' ? 'What is missing? Your partner changes the how.' : 'What does not fit in the how?', 'focus-say', { box: 'focus-not-yet-words', act: 'send-not-yet', label: 'Send to your partner', isEnabled: can.canWrite, title: can.whyNot }))
@@ -19277,7 +19458,7 @@ function autopilotLineText(autopilot) {
 }
 
 /** Autopilot: one line per ask that waits for the recap: its question, its picture, its step; each opens the ask's window. */
-function recapAsksList(asks) {
+function recapAsksList(asks, { stands = new Map() } = {}) {
   const list = el('ul', 'focus-recap-asks')
   for (const ask of asks) {
     const item = el('li', '')
@@ -19293,6 +19474,9 @@ function recapAsksList(asks) {
       item.append(' ', see)
     }
     if (ask.of !== null && ask.of !== undefined) item.append(el('small', 'muted', ` ${[ask.of, ask.ofTitle].filter(Boolean).join(' ')}`))
+    // F61: on a goal's frame an ask that is the person's says so (its window has the buttons); one for the recap keeps its buttons below.
+    if (stands.get(ask.id) === 'yours') item.append(el('small', 'muted', ' · yours: answer it in its window'))
+    else if (stands.get(ask.id) === 'recap') item.append(el('small', 'muted', ' · waits for the goal\'s recap'))
     const row = recapRowAnswer(lookAnswerOf(ask), { isSending: sending.has(`look:${ask.id}`), problem: problems.get(`look:${ask.id}`) ?? null })
     if (row !== null) item.append(row)
     list.append(item)
@@ -19465,6 +19649,15 @@ function drawFocus(state) {
     }
     head.append(title, side)
     parts.push(head)
+    // F61: asks of another goal that stand with the person (G40's looks after the focus moved to G106) are named here, with the way to them.
+    for (const other of state.elsewhere ?? otherGoalsAsks(state)) {
+      const line = el('p', 'muted focus-elsewhere')
+      const open = el('a', 'focus-recap-ask', `${other.goal} · ${other.title}`)
+      open.href = `#advice/goals/${other.goal}`
+      open.title = `Open ${other.goal} on Goals: its asks are listed there`
+      line.append(`${other.count} ask${other.count === 1 ? '' : 's'} of `, open, ` wait${other.count === 1 ? 's' : ''} for you in Needs your attention (its recap will not come: it is not the focus).`)
+      parts.push(line)
+    }
   }
   // T22 wave 2: what Go and Change this goal asked of the partner, with where it stands.
   const waitStrip = focusWaitStrip(state, view)
@@ -19520,6 +19713,9 @@ function drawFocus(state) {
       body.append(focusTalkCard(state, can), right)
     }
     parts.push(body)
+    // The backup focus (2026-11-24): its card under the focus, in every stage but done.
+    const backup = view.back === undefined ? backupView(state.backup ?? null, state.focus ?? null, state.goals ?? null, can) : null
+    if (backup !== null) parts.push(focusBackupCard(backup, state, can))
   }
   // B360: without a run on the page (or while the focus is being changed), the gathered recaps stand under it.
   if (!recapsDrawn) parts.push(...gatheredCards(state))
@@ -19605,6 +19801,12 @@ async function focusAct(act, goal = null, extra = null) {
     focusUi.note = null
     return redrawFocus()
   }
+  // The backup focus (2026-11-24): Not yet opens its box, a second click closes it.
+  if (act === 'backup-vibe-not-yet' || act === 'backup-how-not-yet') {
+    focusUi.notYet = focusUi.notYet === 'backup' ? null : 'backup'
+    redrawFocus()
+    return $('focus-backup-words')?.focus()
+  }
   // B680: "Drop this part" opens the box for the reason under that part; a second click closes it.
   if (act === 'part-drop') {
     focusUi.dropping = focusUi.dropping === goal ? null : goal
@@ -19638,6 +19840,18 @@ async function focusAct(act, goal = null, extra = null) {
       const id = goal ?? focus?.id ?? null
       if (id !== null) await sendFocus({ command: 'done-when', id }, '')
     } else if (act === 'goal-demo' && focus !== null) await sendFocus({ command: 'goal-demo', id: focus.id }, '')
+    else if (act === 'backup-set') {
+      const id = document.querySelector('#advisor-focus [data-backup-pick]')?.value ?? null
+      if (id !== null && id !== '' && await sendFocus({ command: 'backup', id }, '') !== null) focusUi.backupPick = null
+    } else if (act === 'backup-clear') await sendFocus({ command: 'backup', id: null }, '')
+    else if ((act === 'backup-vibe-agree' || act === 'backup-how-go') && board?.backup?.id) await sendFocus({ command: act === 'backup-vibe-agree' ? 'vibe-agree' : 'how-go', id: board.backup.id }, '')
+    else if (act === 'backup-send-not-yet' && board?.backup?.id) {
+      if (words('backup') === '') focusUi.note = { isProblem: true, text: 'Say what is missing, in your words.' }
+      else if (await sendFocus({ command: board.backup.stage === 'vibe' ? 'vibe-not-yet' : 'how-not-yet', id: board.backup.id, text: words('backup') }, '') !== null) {
+        focusUi.words.backup = ''
+        focusUi.notYet = null
+      }
+    }
     else if (act === 'vibe-agree' && focus !== null) await sendFocus({ command: 'vibe-agree', id: focus.id }, '')
     else if (act === 'how-go' && focus !== null) await sendFocus({ command: 'how-go', id: focus.id }, '')
     else if (act === 'send-not-yet' && focus !== null && focusUi.notYet !== null) {
@@ -19734,6 +19948,8 @@ $('advisor-focus').addEventListener('click', event => {
 })
 // Partner answers (2026-10-19): the switch kept in the store, as the person's change.
 $('advisor-focus').addEventListener('change', event => {
+  // The backup focus: the goal picked stays picked while the page is drawn anew.
+  if (event.target.dataset?.backupPick !== undefined) focusUi.backupPick = event.target.value
   if (event.target.dataset?.partnerAnswers === 'switch') sendWork({ action: 'partner-answers', on: event.target.checked }, 'partner-answers')
 })
 // The words typed stay while the page is drawn anew; Enter sends a box's words, Shift+Enter makes a new line.
@@ -21506,7 +21722,7 @@ function backlogBlocks(list, readyList, { showDone = false } = {}) {
       const kept = one.pinned ?? pinned
       const isAdded = (one.added ?? null) !== null || base.isAdded
       rows.queue.push({
-        ...base, n: one.n, isFix: one.rank === 0 || base.isFix, isFocus: one.rank === 1, isAdded, pinned: kept,
+        ...base, n: one.n, isFix: one.rank === 0 || base.isFix, isFocus: one.rank === 1, isBackup: one.rank === 1.5, isAdded, pinned: kept,
         // T9.1.1: a Quality Assurance task goes to any free worker but the ones that built the step it checks (`notBy`).
         who: kept !== null ? `for ${kept} only` : (one.keptFor ?? null) !== null ? `kept for ${one.keptFor}` : (one.notBy ?? []).length > 0 ? `any free worker but ${one.notBy.join(', ')}` : 'any free worker',
         note: [(one.refused ?? null) === null ? null : `not given to ${one.refused.chat}: ${one.refused.why}`, one.note ?? null].filter(Boolean).join(' · '),
@@ -22111,6 +22327,7 @@ function blockLine(row, key) {
   const title = el('span', 'block-title')
   if (row.isFix) title.append(fixChip(), ' ')
   if (row.isFocus === true) title.append(blockChip('focus', 'focus', 'A task of the focus goal: the board hands it out by itself'), ' ')
+  if (row.isBackup === true) title.append(blockChip('backup', 'focus', 'A task of the backup focus: a free worker takes it once nothing of the focus is ready'), ' ')
   if (row.isAdded) title.append(blockChip('added by you', 'you', 'You added it to the queue'), ' ')
   title.append(step.title)
   // B543: a step in review says what it waits for: its first check, its fix B<n>, the person's answer.
@@ -23564,6 +23781,7 @@ function clockSeconds(ms) {
 function bannerOf({ good, failure, leaving, back, openedAt, now }) {
   const demo = good?.isDemo === true ? ' · demo data' : ''
   if (failure !== null) {
+    if (leaving?.why === 'shutdown') return { text: `Shut down at ${clock(leaving.at)} · start it again with its icon, or npm run resume`, tone: 'quiet' }
     if (leaving !== null && now - failure.since < RESTART_GIVE_UP_MS) return { text: 'Restarting · a new version starts, usually back within 30 s', tone: 'quiet' }
     if (leaving !== null) return { text: `Off since ${clock(leaving.at)}`, tone: 'attention' }
     if (failure.kind === 'slow') {
@@ -23598,7 +23816,7 @@ function bannerAnswered(state) {
   const tick = state.board?.loop?.lastTickAt
   banner.good = { at: now, boardNow, loopAt: Number.isFinite(tick) ? tick : null, isDemo: state.isDemo === true }
   banner.failure = null
-  banner.leaving = state.board?.restart?.state === 'leaving' ? { at: Number.isFinite(state.board.restart.at) ? state.board.restart.at : boardNow } : null
+  banner.leaving = state.board?.restart?.state === 'leaving' ? { at: Number.isFinite(state.board.restart.at) ? state.board.restart.at : boardNow, why: state.board.restart.why ?? null } : null
   const stop = state.board?.lastStop
   if (stop !== null && stop !== undefined && stop.to !== banner.explained) {
     banner.explained = stop.to

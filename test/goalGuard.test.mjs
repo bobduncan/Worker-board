@@ -290,9 +290,9 @@ test('B382: a goal that is not the focus ends its evaluation with its own marked
 test('B382: a goal that is not the focus and has no agreed how is not drafted', async () => {
   const fs = fakeFs({ [FILE]: latin(MAP.replace('Focus: G2', 'Focus: G3').replace('  How agreed: 2026-10-19 08:00\n', '')) })
   const how = await focusMove({ command: 'how-draft', id: 'G2', parts: ['Stone benches · 3 h'], partnerDecides: [], youDecide: [] }, ctx(fs))
-  assert.deepEqual([how.ok, how.why], [false, 'That goal is not the focus: draft only the focus goal.'])
+  assert.deepEqual([how.ok, how.why], [false, 'That goal is not the focus or the backup: draft only those.'])
   const vibe = await focusMove({ command: 'vibe-draft', id: 'G2', lines: ['a', 'b', 'c'] }, ctx(fs))
-  assert.deepEqual([vibe.ok, vibe.why], [false, 'That goal is not the focus: draft only the focus goal.'])
+  assert.deepEqual([vibe.ok, vibe.why], [false, 'That goal is not the focus or the backup: draft only those.'])
 })
 
 test('B382: the evaluations that run, the focus or not, keep the partner on high effort', async () => {

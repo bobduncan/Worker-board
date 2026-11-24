@@ -15,6 +15,12 @@ const NOT_A_GOAL = 'is not a goal in the form "- [ ] G<n> <title>"'
 export const LAST_LINE = /^Last (id|ask):\s*[GA](\d+)\s*$/
 /** Focus 1: the focus goal, a head line before the first goal: "Focus: G6"; "Focus:" alone is none. */
 export const FOCUS_LINE = /^Focus:\s*(G\d+)?\s*$/
+/**
+ * The backup focus (the person, 2026-11-24: "too often at the end when the goal is almost finished I have workers who do
+ * nothing"): a head line before the first goal, "Backup: G7"; "Backup:" alone is none. Its steps go out after the focus's,
+ * and it becomes the focus once the focus is done.
+ */
+export const BACKUP_LINE = /^Backup:\s*(G\d+)?\s*$/
 
 /** B677: whether a goal has its Demo line (`Demo: <picture path> · <a few words>`): the picture the person sees before they answer "Did we reach the goal?". */
 export const hasDemo = node => typeof node?.demo === 'string' && node.demo.trim() !== ''
@@ -245,6 +251,7 @@ export function parseGoals(text) {
   let lastAsk = 0
   // Focus 1: the focus is a head line, read before the first goal only.
   let focus = null
+  let backup = null
   let isHead = true
   ;(text ?? '').replace(/^﻿/, '').split('\n').forEach((raw, index) => {
     let line = raw.replace(/\r$/, '')
@@ -285,6 +292,11 @@ export function parseGoals(text) {
       focus = focused[1] ?? null
       return
     }
+    const backed = isHead ? line.match(BACKUP_LINE) : null
+    if (backed !== null) {
+      backup = backed[1] ?? null
+      return
+    }
     if (!/^\s/.test(line)) return
     // An indented line belongs to the deepest open goal less indented than it, so nothing is lost.
     const indent = line.length - line.trimStart().length
@@ -292,7 +304,7 @@ export function parseGoals(text) {
     if (owner === undefined) return problems.push(`line ${index + 1}: a line under no goal`)
     takeLine(owner, line.trim())
   })
-  return { nodes, byId, roots, problems, lastGoal, lastAsk, focus }
+  return { nodes, byId, roots, problems, lastGoal, lastAsk, focus, backup }
 }
 
 /**
