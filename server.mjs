@@ -4930,7 +4930,8 @@ async function main(args) {
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),
         // B1302 (X211): the PC's one-at-a-time test queue, read only (src/testQueue.mjs), so a worker that waits its turn for a test run is no stale checkpoint.
-        testQueue: async () => readTestQueue({ tool: await import('./tools/one-at-a-time.mjs'), now: clock() }),
+        // F56: a run of a landing gate's folder (land-gate-xxxxxxxx) is read as the landing lock's branch, so a worker that waits for its own gate is excused too.
+        testQueue: async () => readTestQueue({ tool: await import('./tools/one-at-a-time.mjs'), now: clock(), landing: lockHolder(join(HERE, 'data', 'landing.lock'), clock()) }),
         recheck: (id, why, more = {}) => workAction({ action: 'recheck-base', id, why, ...more }, 'server'),
         // P2 (T2.11), the rule faults-gone: what stands in each repository now, whether a landing runs (data/landing.lock, a lock not
         // stale), when this board started, and the steps whose check runs now.

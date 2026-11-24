@@ -9161,6 +9161,11 @@ read-back, both answered yes, and the loser learnt it only at its next check. No
   something other than EEXIST or a held file: the claim is then written under its own name with `wx` (exclusive still, only no longer
   never-empty), so a board on such a folder runs its loops at all. (b) A `create` that meets a claim Windows holds for the moment (EPERM,
   its removal under way) is the other's this round, no loop-lock failure, as the read path already had it.
+- **F58 (2026-11-24, chat 1's finding)**: on Linux and macOS a folder without hard links answers `link` with EPERM, which the port read as a
+  held claim: that board never got its loops. Now a held code from `link` is a held claim only while the claim is there (`read`: only ENOENT
+  says it is not; a read that is itself held counts the claim as there), and then the answer is EEXIST, a claim stands, so loopOwner reads
+  it and judges whether it is abandoned on such a folder too; with no claim there the code is the folder's and the claim is written with
+  `wx`. Windows keeps its behaviour. test/supervisor/claimFile.test.mjs (the fake fs; the two-process race still green); 4 mutants red.
 
 ## F61: a goal's open asks on its own page (2026-11-24, chat 3, chat 1's finding)
 
@@ -9179,3 +9184,14 @@ named them. Page code only; the store is unchanged:
 - Tests: goalsPage (the rows: by goal, closed cards and step cards left out, a recap wait keeps the state's object), focusPage (the line's
   view by goal, the focus goal's own left out), redrawKeys (the view's field). Pictures: .claude/plans/f61-before-*.jpg and f61-after-*.jpg
   (a board copy on a made-up project).
+
+## F56: a worker that waits for its own landing gate is no stale checkpoint (2026-11-24, chat 3, chat 1's finding)
+
+The stale-checkpoint rule reads the PC's test queue (B1302) and excuses a step whose own folder waits or runs there, by the folder's
+name (`isFolderOf`, `namesStep`). A landing's gate (tools/land.ps1) runs its queue ticket in `<temp>/land-gate-xxxxxxxx`, which names no
+step, so a worker that waits for its own landing was still reported. Now (src/testQueue.mjs): `readTestQueue` takes the landing lock as
+`lockHolder` reads it (`landing`, from the server's port: data/landing.lock), and `asLandingRun` reads a run of a land-gate folder as the
+lock's `branch` (its `cwd` becomes the branch, `gate` keeps the folder), so b1442-sandbox is B1442's; a lock that is not there, or a branch
+that is unknown, leaves the run as it was, and a branch without a step id stays unmatched. The memory of the last pass keys the branch as
+it keys a folder. Tests: test/supervisor/testQueueWait.test.mjs (the reading, the rule at 130 minutes of quiet, the memory, the server's
+wiring); 4 mutants red.
