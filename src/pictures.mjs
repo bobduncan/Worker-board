@@ -184,12 +184,13 @@ export async function pictureProblem(project, roots, value) {
  * person can open it (2026-10-24: Q311, filed from a chat's For you block, named one in a worktree). Only a picture
  * inside the project's folder is copied; the copy's path, or null.
  */
-export async function adoptPicture(project, folder, subject, value) {
+export async function adoptPicture(project, folder, subject, value, from = project) {
   const path = picturePath(value)
   if (path === null || typeof folder !== 'string' || !/^[\w.-]+$/.test(subject)) return null
   try {
-    const top = await realpath(rootOf(project))
-    const real = await realpath(absOf(project)(path))
+    // T5.2 A6a: `from` is where the chat's path is read (the project, or with the data moved the chat home: a worker's worktree).
+    const top = await realpath(rootOf(from))
+    const real = await realpath(absOf(from)(path))
     if (!real.toLowerCase().startsWith(`${top.toLowerCase()}${sep}`)) return null
     const info = await stat(real)
     if (!info.isFile() || info.size > PICTURE_BYTES) return null

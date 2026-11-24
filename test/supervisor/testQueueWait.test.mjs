@@ -14,7 +14,7 @@ import { healthSummary } from '../../src/supervisor/health.mjs'
 import { memoryOf, queueSeenAfter } from '../../src/supervisor/loop.mjs'
 import { WATCH_RULES, checkpointLate, testQueueOf } from '../../src/supervisor/rules/watch.mjs'
 import { buildView } from '../../src/supervisor/view.mjs'
-import { folderKey, isFolderOf, readTestQueue } from '../../src/testQueue.mjs'
+import { asLandingRun, folderKey, isFolderOf, readTestQueue } from '../../src/testQueue.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 import * as tool from '../../tools/one-at-a-time.mjs'
 
@@ -132,20 +132,26 @@ test('readTestQueue: the lock, its slot files and the tickets, live pids only, i
     put('000000000000003-00000055.json', { pid: 55, label: 'test', cwd: 'C:\\Work\\other-b9', startedAt: iso(at(11, 5)) })
     put('000000000000001-00000066.json', { pid: 66, label: 'test', cwd: 'C:\\Work\\dead-b8', startedAt: iso(at(10, 0)) })
     put('000000000000004-00000077.json', 'not json')
+    // F56: a landing gate's ticket, read as the landing lock's branch when one is given
+    put('000000000000005-00000088.json', { pid: 88, label: 'test', cwd: 'C:\\Users\\x\\AppData\\Local\\Temp\\land-gate-697acf36', startedAt: iso(at(11, 10)) })
     const alive = pid => pid !== 66
     const found = readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: alive })
     assert.deepEqual(found.map(one => [one.cwd, one.state, one.ahead]), [
       ['C:\\Work\\worker-board-b1300', 'running', 0],
       [FOLDER, 'waiting', 1],
       ['C:\\Work\\other-b9', 'waiting', 2],
+      ['C:\\Users\\x\\AppData\\Local\\Temp\\land-gate-697acf36', 'waiting', 3],
     ], 'the dead pid\'s ticket and the unreadable one are none; each waiting run counts the one that runs and the tickets before it')
+    const landed = readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: alive, landing: { by: 'chat 3', branch: 'b1442-sandbox', phase: 'gate' } })
+    assert.deepEqual(landed.map(one => [one.cwd, one.gate ?? null]).at(-1), ['b1442-sandbox', 'C:\\Users\\x\\AppData\\Local\\Temp\\land-gate-697acf36'], 'F56: the gate\'s ticket reads as the lock\'s branch')
+    assert.deepEqual(landed.slice(0, 3).map(one => one.cwd), found.slice(0, 3).map(one => one.cwd), 'the other runs are as they were')
     assert.equal(found[1].since, at(10, 58))
     // a lock whose process is gone, or older than 75 minutes without a beat (F39), is stale: not running
     assert.deepEqual(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now: at(13, 45), runs: alive }).filter(one => one.state === 'running'), [])
     assert.equal(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: pid => pid !== 11 && alive(pid) }).filter(one => one.state === 'running').length, 0)
     // nothing was written or removed (read only): the dead ticket still stands
     assert.equal(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: path.join(dir, 'none.lock') }, now }).length, 0)
-    assert.deepEqual(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: alive }).length, 3)
+    assert.deepEqual(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: alive }).length, 4)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -186,4 +192,45 @@ test('the memory of the last pass per folder: set by a pass that saw a run, prun
   assert.equal(after.get('c:/work/check-b1279'), at(12, 0), 'a folder not seen this pass keeps its last time')
   assert.deepEqual([...memoryOf({ queueSeen: { 'c:/x': 5, 'c:/y': 'no' } }).queueSeen], [['c:/x', 5]])
   assert.equal(memoryOf(null).queueSeen.size, 0)
+})
+
+// F56: a worker that waits for its OWN landing gate: the gate's queue ticket runs in <temp>/land-gate-xxxxxxxx, which no step's folder
+// names; read as the landing lock's branch (b1442-sandbox), the ticket is B1442's and its quiet checkpoint is no case.
+const GATE = 'C:\\Users\\x\\AppData\\Local\\Temp\\land-gate-697acf36'
+const landingStep = () => item({
+  Id: 'B1442', Kind: 'step', Title: 'Paint the Sandbox in Warm-up Isle\'s look', State: 'in progress', Since: stamp(at(10, 4)), Owner: 'Picker',
+  Checkpoint: `a1b2c3d4 · landing runs (land.ps1) · ${stamp(at(10, 18))}:00`,
+})
+
+test('F56: asLandingRun reads a landing gate\'s run as the lock\'s branch, keeps the folder as `gate`, and leaves every other run and an unknown branch alone', () => {
+  const run = { cwd: GATE, label: 'test', state: 'waiting', since: at(10, 58), ahead: 1 }
+  assert.deepEqual(asLandingRun(run, { by: 'chat 3', branch: 'b1442-sandbox', phase: 'gate' }), { ...run, cwd: 'b1442-sandbox', gate: GATE })
+  assert.deepEqual(asLandingRun(run, { by: 'chat 3', branch: ' qa/b866-x ' }), { ...run, cwd: 'qa/b866-x', gate: GATE })
+  for (const landing of [null, undefined, {}, { branch: 'unknown' }, { branch: '' }, { branch: 7 }]) assert.equal(asLandingRun(run, landing), run, `no lock to read: ${JSON.stringify(landing)}`)
+  for (const cwd of [FOLDER, 'C:\\Work\\land-gate-xyz', 'C:\\Work\\land-gate-697acf36-more']) assert.equal(asLandingRun({ ...run, cwd }, { branch: 'b1442-sandbox' }).cwd, cwd, `not a gate folder: ${cwd}`)
+  assert.equal(asLandingRun(null, { branch: 'b1442-sandbox' }), null)
+})
+
+test('F56: a waiting land-gate ticket while the lock names b1442-sandbox: no case for B1442 at 130 minutes of quiet, and the health line says it waits; a branch without a step id, or no lock, keeps the case', () => {
+  const landing = { by: 'chat 3', branch: 'b1442-sandbox', phase: 'gate' }
+  const gateTicket = (lock = landing) => asLandingRun(ticket(GATE, at(10, 58), { ahead: 1 }), lock)
+  const quiet = at(12, 28)
+  const board = view(quiet, { queue: [gateTicket()], store: items(landingStep()) })
+  assert.deepEqual(check(board), [], 'the gate\'s ticket is B1442\'s run: excused')
+  assert.equal(checkpointLate(landingStep(), board), null)
+  assert.match(healthSummary(board, quiet).split('\n').find(one => /B1442 in progress/.test(one)) ?? '', /waits in the test queue since 10:58, 1 ahead/)
+  // the same ticket with no lock, a lock of a branch without a step id, or another step's branch: the case stands
+  for (const lock of [null, { branch: 'unknown' }, { branch: 'f55-loop-claim' }, { branch: 'main' }, { branch: 'b1443-other' }]) {
+    assert.deepEqual(check(view(quiet, { queue: [gateTicket(lock)], store: items(landingStep()) })).map(one => one.subject), ['B1442'], `lock ${JSON.stringify(lock)}`)
+  }
+  // the memory of the last pass keys the branch, as it keys a folder: the ticket gone at 12:40 is no case until 120 min after that pass
+  const seen = queueSeenAfter(new Map(), [gateTicket()], at(12, 28))
+  assert.deepEqual([...seen.keys()], ['b1442-sandbox'])
+  assert.deepEqual(check(view(at(12, 40), { queue: [], seen, store: items(landingStep()) })), [])
+})
+
+test('F56: the server reads the queue with the landing lock beside it', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /testQueue: async \(\) => readTestQueue\(\{ tool: await import\('\.\/tools\/one-at-a-time\.mjs'\), now: clock\(\), landing: lockHolder\(join\(HERE, 'data', 'landing\.lock'\), clock\(\)\) \}\)/)
 })
