@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { claimFileOf, claimPorts } from '../../src/supervisor/claimFile.mjs'
 import { loopOwner } from '../../src/supervisor/loop.mjs'
 import { writeAtomic } from '../../src/write.mjs'
 
@@ -118,6 +119,7 @@ export async function startBoard(prepare) {
     const holder = loopOwner({
       read: () => readFile(lock, 'utf8'),
       write: text => writeAtomic(lock, text),
+      claim: claimPorts(claimFileOf(lock)),
       alive: () => true,
       pid: process.pid,
       port: 1,

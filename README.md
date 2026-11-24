@@ -205,7 +205,8 @@ and the briefings for the main chat and the workers.
    three times an hour: `node start-board.mjs --stop` stops a board on purpose (the sign first, then its processes; /stop-app does
    the same through the `"stop"` words of the worker-board entry in `.claude/launch.json`, which `node server.mjs --launch-entry`
    writes); `npm run setup -- --watcher off` removes the task and keeps it off until `--watcher on`; `node tools/watch-boards.mjs
-   --dry` says what the watcher would do.
+   --dry` says what the watcher would do. Such a stop (and the page's Shut down) holds against the chats' own starts too: every
+   `start-board.mjs` without `--resume`, `--open` or `--anew` says the board was stopped on purpose and starts nothing.
    **Without the Workers mod** (B211): `node start-board.mjs` starts the board in the background when it does not run
    yet and prints where it runs (its own words go to `data\board.log`); a second call says it runs already. To have
    it start with every chat of the project, copy `examples\settings.json` to `<project>\.claude\settings.json` (or add
@@ -247,6 +248,12 @@ and the briefings for the main chat and the workers.
   when over 10 seconds ("Working · 25 s ago"); Free means the board would give it work now (DESIGN.md, "One status per chat").
 - Before you quit the app: "Pause all" on the board (each chat writes its checkpoint and stops; the board says when
   it is safe), and "Resume all" after it is open again (open the main chat when the board says so).
+- **Shut down** (2026-11-21), to close the app and the board for good: "Shut down" in the board's header pauses every chat
+  first (as Pause all), then stops the board once each chat ended its turn (5 minutes at the latest; "Shut down now" does
+  not wait). The board stays down: while its stop sign is there, no chat's Workers mod, chat-open hook or watcher starts it
+  again. `npm run stop` (or `node start-board.mjs --stop`, /stop-app) stops it at once, and holds the same way. Start it
+  again with the board's desktop icon or `npm run resume` (`node start-board.mjs --resume`); the chats are still paused
+  then, so nothing is woken until you press Resume all. Without Shut down everything starts again by itself as before.
 - When no chat runs (after an app or PC restart, or once every chat went idle) and work waits for one, the board opens
   one chat of the project in the Claude app by itself (Windows; T13 part 4), the main chat first: its Workers mod then
   wakes the rest. At most once in 3 minutes; when two opens bring no chat back, it stops and asks you to open a chat.
@@ -264,11 +271,15 @@ and the briefings for the main chat and the workers.
   `check` in `/api/state` and `data/check.json`. The account in use is a guess (the folder with the newest chat) and can flip
   right after a switch. DESIGN.md, "The start-up check".
 - "CPU for Claude" in the head (B311, B735, Windows only): two choices you pick, no game detection. Full: everything
-  the project started runs at normal priority on all cores. Low: the chats and what they started, the board itself and
-  its keeper, the vite servers, codex and a headless browser run at the lowest priority on the last two cores, in
-  efficiency mode where Windows has it, so a game or any other program never slows (tests and builds run slower). The
+  the project started runs at normal priority on all cores. Low: what the chats and the board start, the vite servers,
+  codex and a headless browser run at the lowest priority on the last two cores, in efficiency mode where Windows has
+  it, so a game keeps the rest of the PC (tests and builds run slower). The chats' own processes run just below normal
+  priority on all cores, since a chat starved at the lowest priority loses its Workers mod (F44); what they start is born
+  below a game too and is limited at the board's next refresh, also when what started it has ended. A game that loads
+  every core can still starve a chat. The board and its keeper stay at normal priority on all cores. Going back to Full
+  also gives back what Low left behind with its parent gone. The
   board keeps applying it at every refresh, also to what starts later, and a restart of the board keeps it limited;
-  it remembers the choice in `data\cpu.json`. Never the Claude app itself, your own Edge or another program. Under
+  it remembers the choice in `data\cpu.json`. Never the Claude app itself, your own Edge or a game. Under
   Full the board gives itself normal priority and all cores back at its start. The last two cores count all of the
   PC's cores, not the ones the board may use. A level saved before (Strong) reads as Low, Off and Gentle as Full.
 - "✕ Remove" on a worker's lane asks the main chat to close that worker; a worker that is not free gets a warning
@@ -534,6 +545,10 @@ the Design tab's ideas and the level of "CPU for Claude" (`cpu.json`). Outside i
 pictures Codex makes in the Design tab's ideas folder (`ideas` in the project's picture folder), the evidence pictures of `tools/evidence.mjs` (under the step in the picture folder), and the work store
 (`work`, `.claude\work` unless set), on the chats' `work` calls and your clicks, with `backlog.md` written from it as a
 view (see "The work store" above).
+
+It reads one file of yours beside its runtime files, never in git: `<project>\.claude\side-chats.json` (B1307), the app ids of
+your side chats, `{ "chat 1": ["local_..."], "chat 2": ["local_..."] }` (one id per Claude account you use). A worker's wait on
+such a chat that runs late goes to that chat first, as one word; without its id the Late comes to you at once, saying so.
 
 ## Safety
 

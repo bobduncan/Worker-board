@@ -23,7 +23,7 @@ import { expandEnv, loadConfig, settingsFileOf, transcriptsOf, workFolder } from
 import { chatFile, chatHomeOf, dataOf } from '../src/projectPaths.mjs'
 import { boardsFile, readBoards, readOwnPort, whoseBoard } from '../src/ports.mjs'
 import { LIST_SCRIPT, keepersOf, parseProcessList, powershell } from '../src/keeperStart.mjs'
-import { lockHolder } from '../src/landing.mjs'
+import { landingRestarts, lockHolder } from '../src/landing.mjs'
 import { userCodexHome } from '../src/codex.mjs'
 import { readKey } from '../src/providers/elevenlabs-key.mjs'
 import { gitRunner, line } from '../src/carry/git.mjs'
@@ -213,7 +213,8 @@ export async function main(argv) {
     git, set, pictures, fs, recordFile: roots.recordFile,
     boardAnswers: () => boardsAnswering({ project: roots.chatHome, boardDir: roots.boardDir }),
     keepers: () => keepersHere(roots.boardDir),
-    lockAgeMs: async () => lockHolder(join(roots.boardDir, 'data', 'landing.lock'))?.ageMs ?? null,
+    // F39, review 7: only a landing in its 'land' phase whose process runs.
+    lockAgeMs: async () => { const held = lockHolder(join(roots.boardDir, 'data', 'landing.lock')); return landingRestarts(held, { staleMs: Infinity }) ? held.ageMs : null },
     secrets: () => secretsOf({ bridgeFile: roots.bridgeFile }),
     driveFree: freeBytes,
     lacks: () => lacksOf({ gameRepo: roots.gameRepo, git }),

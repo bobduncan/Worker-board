@@ -26,7 +26,7 @@ const DEFAULT_KEEP = Object.freeze({ messageMs: 10 * 60_000, answerMs: 48 * 60 *
  * their own `wake` (how its wake stands: `{ state, final, need, spell, attempts }`). `check`: the start-up check's newest result
  * (`{ at, running, elsewhere, restartNeeded, nowhere, tooSlow, ... }`), or null.
  */
-export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, browsers, bases = [], branches = [], live = {}, repairs = [], mods = null, settings = {}, seen = null, assets = null, now }) {
+export function buildView({ state = {}, items = new Map(), outbox = [], keep = null, limits, pause, refused = [], leftovers, browsers, bases = [], branches = [], live = {}, repairs = [], mods = null, settings = {}, seen = null, assets = null, testQueue = null, now }) {
   const lanes = state.chats ?? []
   const timeline = Array.isArray(state.today) ? state.today : []
   return Object.freeze({
@@ -100,6 +100,12 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     lateCalls: Object.freeze((Array.isArray(state.lateCalls) ? state.lateCalls : []).filter(one => Number.isFinite(one?.at) && Number.isFinite(one?.ms)).map(one => Object.freeze({ at: one.at, ms: one.ms, ...(typeof one.popup === 'string' ? { popup: one.popup } : {}) }))),
     since: statesSince(timeline, lanes),
     repairs: Object.freeze([...repairs]),
+    // B1302 (X211): the PC's test queue (src/testQueue.mjs): `runs` `[{ cwd, label, state, since, ahead }]` that wait or run now, and `seen`
+    // (a Map: folder key → the last pass that saw a run of it there), so a worker waiting its turn is no stale checkpoint. None given: none.
+    testQueue: Object.freeze({
+      runs: Object.freeze((Array.isArray(testQueue?.runs) ? testQueue.runs : []).filter(one => typeof one?.cwd === 'string' && Number.isFinite(one.since)).map(one => Object.freeze({ ...one }))),
+      seen: new Map(testQueue?.seen instanceof Map ? testQueue.seen : []),
+    }),
     // B664: since when the watch rules first saw each key (the supervisor's memory), so the health summary times a
     // review wait as they do; empty when not given.
     seen: new Map(seen instanceof Map ? seen : []),

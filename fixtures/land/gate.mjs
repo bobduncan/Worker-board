@@ -20,6 +20,22 @@ const board = fails => {
   console.log('ℹ cancelled 0')
 }
 if (mode === 'board-pass') board(0)
+// F39: a gate that takes a while, so a second landing can start beside it.
+// F39 (a): what tools/test.mjs writes when its stall watchdog ends a run: no summary, the open files as `test at` lines.
+else if (mode === 'board-stalled') {
+  console.error('one-at-a-time: test runs now (waited 1 s)')
+  console.log('✔ a made-up test (0.1ms)')
+  console.log('\nstalled: no test output for 15 minutes; files still open: test/alpha.test.mjs (waits for a page)')
+  process.exitCode = 1
+}
+else if (mode === 'board-slow-pass') setTimeout(() => board(0), Number(process.env.GATE_SLOW_MS ?? 8000))
+// F39 (part 6): a gate that leaves a process behind outside its tree, its folder in its command line (a WMI-started board's way).
+else if (mode === 'board-pass-leave-sleeper') {
+  const sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)', process.cwd()], { detached: true, stdio: 'ignore', windowsHide: true })
+  sleeper.unref()
+  writeFileSync(process.env.GATE_PID_FILE, String(sleeper.pid))
+  board(0)
+}
 else if (mode === 'print-env') {
   console.log(`env NO_COLOR=${process.env.NO_COLOR ?? 'unset'} FORCE_COLOR=${process.env.FORCE_COLOR ?? 'unset'}`)
   board(0)

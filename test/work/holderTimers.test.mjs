@@ -30,7 +30,7 @@ import { reconcile } from '../../src/work/reconcile.mjs'
 import { HANDOVER_COMMAND, HANDOVER_MOD, STATES, contractOf, decide, lineFor, notOfferedAgain } from '../../src/work/handover.mjs'
 import { carryable, handOver } from '../../src/work/handoverBoard.mjs'
 import {
-  GIVEN_BACK, RESUME_KIND, continuationLine, goneWords, continuationOf, giveBackWords, givenBackFrom, givenBackRefusal, goOnLine, goOnWords, hourMinute, resumeMarker,
+  GIVEN_BACK, GIVE_BACK_MINUTES, RESUME_KIND, continuationLine, goneWords, continuationOf, giveBackWords, givenBackFrom, givenBackRefusal, goOnLine, goOnWords, hourMinute, resumeMarker,
 } from '../../src/work/holderTimers.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
@@ -69,7 +69,7 @@ test('a holder idle for 4 min: nothing; at 5 min one "go on" line, built from it
   assert.deepEqual([early.state, early.step, early.envelope, early.asked, early.giveBack, early.goOn], [STATES.WORKING, 'B12', null, null, null, null])
   const due = decideAt(5)
   assert.equal(due.state, STATES.WORKING)
-  assert.deepEqual(due.envelope, { kind: RESUME_KIND, step: null, clear: null, restart: false, set: null, line: LINE, back: null, resume: resumeMarker('B12', T0) })
+  assert.deepEqual(due.envelope, { kind: RESUME_KIND, step: null, clear: null, restart: false, set: null, line: LINE, back: null, resume: resumeMarker('B12', T0), giveBackMs: GIVE_BACK_MINUTES * MIN })
   assert.deepEqual(due.goOn, { step: 'B12', chat: 'Worker 1', since: T0 })
   assert.equal(due.envelope.line, goOnLine(held()))
 })

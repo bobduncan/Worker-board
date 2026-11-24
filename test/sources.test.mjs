@@ -250,3 +250,25 @@ test('T5.2 P3 (chat 1\'s review): the threads keep their stored path (`.claude/b
   const raw = await readSources({ ...moved, appSessions: join(root, 'none'), transcripts: join(root, 'none') }, async () => null, NOW)
   assert.deepEqual(raw.threadTexts.map(one => one.path), ['.claude/brainstorms/moved.md'])
 })
+
+test('T5.2 A5 (chat 1\'s review, finding 8): the chats\' list is read from the chat home when one is set, from the project as before when not', async t => {
+  const root = await mkdtemp(join(DATA, 'chat-home-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const wrap = join(root, 'wrap')
+  const project = join(wrap, 'game')
+  await mkdir(join(wrap, '.claude', 'chats'), { recursive: true })
+  await mkdir(join(project, '.claude', 'chats'), { recursive: true })
+  await writeFile(join(wrap, '.claude', 'chats', 'list.json'), JSON.stringify({ prefix: 'Wrap · ', main: 'Main', workers: ['Worker 1'] }))
+  await writeFile(join(project, '.claude', 'chats', 'list.json'), JSON.stringify({ prefix: 'Game · ', main: 'Main', workers: ['Worker 9'] }))
+  const none = { appSessions: join(root, 'none'), transcripts: join(root, 'none') }
+  const today = { ...parseConfig(JSON.stringify({ project }), {}), ...none }
+  const here = await readSources(today, async () => null, NOW)
+  assert.equal(JSON.parse(here.listText).prefix, 'Game · ', 'chat home empty: the project\'s list, as before')
+  const moved = { ...parseConfig(JSON.stringify({ project, chatHome: wrap }), {}), ...none }
+  const there = await readSources(moved, async () => null, NOW)
+  assert.equal(JSON.parse(there.listText).prefix, 'Wrap · ', 'chat home set: its list, not the project\'s')
+  // start-board.mjs keys its port by the same home as the server (finding 9), through the table.
+  const script = await (await import('node:fs/promises')).readFile(new URL('../start-board.mjs', import.meta.url), 'utf8')
+  assert.match(script, /const home = config\.project \? resolve\(HERE, chatHomeOf\(config\)\) : null\n\s*const \{ port \} = await resolvePort\(\{ here: HERE, given, configured: config\.port, run: gitRunner\(\), project: home,/)
+  assert.doesNotMatch(script, /resolve\(HERE, config\.project\)/)
+})

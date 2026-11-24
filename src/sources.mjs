@@ -8,7 +8,7 @@ import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mj
 import { readAsks } from './asks.mjs'
 import { allWords, forYou, queue } from './backlog.mjs'
 import { projectFile } from './config.mjs'
-import { chatHomeOf, pictureHomeOf } from './projectPaths.mjs'
+import { chatFile, chatHomeOf, pictureHomeOf } from './projectPaths.mjs'
 import { readHead } from './files.mjs'
 import { listPictures, mentionedPaths } from './pictures.mjs'
 import { movedTo, ownCard, ownCardKey } from './planLines.mjs'
@@ -168,7 +168,9 @@ export function productPlanFile(config) {
 export async function readSources(config, readFolders, now = Date.now(), readBranches = async () => null, readWork = async () => undefined, readAccount = async () => null) {
   // B1273: the Claude app's account and the board's (src/appAccount.mjs): the board's chats are read in the board's account.
   const account = await Promise.resolve(readAccount()).catch(() => null)
-  const claude = join(config.project, '.claude')
+  // T5.2 A5 (chat 1's review, finding 8): the chats' things (their list, their cards and moves, the legacy asks the chats write) are in the
+  // CHAT home's dot-claude folder, where the chats run and the Workers mod writes; today the project's.
+  const claude = chatFile(config)
   // B173: the Advice & Chat tab shows the game plan, which the Advisor keeps in the game's repository. The trial's gap 2
   // (2026-10-24): a fresh project has no game folder yet, so its plans stand in the project's own folder, where the
   // partner writes them then (roles/partner.md, "The plan interview").

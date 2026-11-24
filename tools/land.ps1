@@ -4,7 +4,8 @@
 #
 # RUN IT IN THE BACKGROUND (the Bash or PowerShell tool's run_in_background) and wait for its notice: the gate takes about ten
 # minutes, and a foreground call of a chat dies after two to ten. A call that dies in the middle runs no `finally`: the next run of
-# this script sweeps what it left (a gate worktree with a live junction), and a lock left behind is broken after 15 minutes.
+# this script sweeps what it left (a gate worktree with a live junction, and what it left running there), and a lock left behind
+# is broken at once once its land.ps1 process is gone (F39), else after 15 minutes.
 #
 # What it does, in order (DESIGN.md, "Going live: tools/land.ps1"):
 #  0. Sweeps the gate worktrees (land-gate-*) a cut landing left: the junction first with `cmd /c rmdir` (never a recursive
@@ -20,9 +21,10 @@
 #     say fail 0. The output goes to data/landings/<time>-<branch>.log; a refusal names the failing test files. A full run that
 #     fails gets each failing test file run again alone, one at a time, once (the live-board tests flake under load); the first that
 #     fails again refuses, all passing counts as passed and the log says so. Never a second full run. The gate runs
-#     BEFORE the lock.
-#  3. One landing at a time: data/landing.lock, refreshed at every phase (a heartbeat), so a live landing never looks stale; a
-#     lock older than 15 minutes is a crashed landing's and is broken.
+#     under the lock (F39: taken before it, beaten every minute while it runs).
+#  3. One landing at a time: data/landing.lock, taken BEFORE the gate (F39) with phase "gate", then "land" once main is about to
+#     move; refreshed every minute during the gate and at every phase after (a heartbeat). A lock whose land.ps1 is gone, or older
+#     than 15 minutes, is a crashed landing's and is broken. A second landing is refused at once: "<by> lands <branch> since HH:MM".
 #  4. Under the lock, once more: the branch still contains main and its head is the gated one, the checkout is clean, no
 #     debugger, no board without its keeper. Then main is fast-forwarded to the gated head and pushed (never forced); a push that
 #     fails or times out is checked against the remote (git ls-remote) before main is put back. The trial copy is then
@@ -41,7 +43,7 @@
 #  Exit 0 only for `landed`. Exit 1 refused, 2 rolled back, 3 rollback failed. Every run adds one line to data/landings.jsonl.
 #
 # -Config <json file> is for tests only: { main, boards: [{ dir, port }], remote, trialRemote, gateBoard, gateMod, gateFile ({file}
-# in it is the test file run again alone), claudeExe, dataDir, tempRoot, nodeModules, nodeModulesMarker, comeBackSeconds, pollMs, gateMinutes, gateQueueMinutes, pushTimeoutSeconds, lockStaleMinutes,
+# in it is the test file run again alone), claudeExe, dataDir, tempRoot, nodeModules, nodeModulesMarker, comeBackSeconds, pollMs, gateMinutes, gateQueueMinutes, pushTimeoutSeconds, lockStaleMinutes, lockBeatSeconds,
 # processesFile, connectionsFile, claudeProcesses, printBoards, printClaude, failAfter }. Without it the defaults are the PC's real boards: the
 # main checkout (the repository's first working tree) with the port the PC's list of boards gives it, and each trial copy (a board
 # of that list that is a clone of the main checkout: its remote `local`). The boards chosen are said on every run.
@@ -125,7 +127,8 @@ $mainDir = $null
 $boards = @()
 $gateBoardCommand = 'npm test'
 $gateModCommand = ''
-$gateFileCommand = 'node --test {file}'
+# F39, review 8: the rerun alone goes through tools/test.mjs too (its per-test timeout and stall watchdog).
+$gateFileCommand = 'node tools/test.mjs {file}'
 $claudeExeSetting = ''
 $dataDir = $null
 $tempRoot = $null
@@ -141,6 +144,8 @@ $gateMinutes = [double]60
 $gateQueueMinutes = [double]120
 $pushTimeoutSeconds = 300
 $lockStaleMinutes = 15
+# F39: how often the gate beats the landing lock (taken before the gate).
+$lockBeatSeconds = 60
 $processesFile = ''
 $connectionsFile = ''
 $failAfter = ''
@@ -251,7 +256,7 @@ function Initialize-Settings {
   }
   $script:gateBoardCommand = [string](Get-Setting 'gateBoard' 'npm test')
   $script:gateModCommand = [string](Get-Setting 'gateMod' '')
-  $script:gateFileCommand = [string](Get-Setting 'gateFile' 'node --test {file}')
+  $script:gateFileCommand = [string](Get-Setting 'gateFile' 'node tools/test.mjs {file}')
   $script:claudeExeSetting = [string](Get-Setting 'claudeExe' '')
   $script:nodeModules = Get-Full (Get-Setting 'nodeModules' (Join-Path $script:mainDir 'node_modules'))
   $script:nodeModulesMarker = [string](Get-Setting 'nodeModulesMarker' 'happy-dom')
@@ -261,6 +266,7 @@ function Initialize-Settings {
   $script:gateQueueMinutes = [double](Get-Setting 'gateQueueMinutes' 120)
   $script:pushTimeoutSeconds = [int](Get-Setting 'pushTimeoutSeconds' 300)
   $script:lockStaleMinutes = [int](Get-Setting 'lockStaleMinutes' 15)
+  $script:lockBeatSeconds = [double](Get-Setting 'lockBeatSeconds' 60)
   $script:processesFile = [string](Get-Setting 'processesFile' '')
   $script:connectionsFile = [string](Get-Setting 'connectionsFile' '')
   # For the tests: where a fault is made on purpose ('ff', 'push', 'rollback', comma-separated), and what is only printed.
@@ -492,9 +498,12 @@ function Test-Ready([bool]$AfterGate) {
 
 # The lock's heartbeat: a new time at each phase, so a landing that is alive never looks stale. `$MustHold`: before main moves, a lock
 # that another landing took over is a refusal; after, it is only said.
-function Update-LockBeat([bool]$MustHold = $false) {
+function Update-LockBeat([bool]$MustHold = $false, [string]$Phase = '') {
   if ($null -eq $script:lockToken) { return }
-  $beat = Invoke-Landing @('lock-refresh', '--file', $lockFile, '--pid', "$($script:lockToken.pid)", '--at', "$($script:lockToken.at)")
+  $beatArgs = @('lock-refresh', '--file', $lockFile, '--pid', "$($script:lockToken.pid)", '--at', "$($script:lockToken.at)")
+  # F39, review 7: 'land' once main is about to move: the board watcher and the closers count only that phase.
+  if ($Phase -ne '') { $beatArgs += @('--phase', $Phase) }
+  $beat = Invoke-Landing $beatArgs
   if ($null -ne $beat.json -and $beat.json.ok) {
     $script:lockToken = @{ pid = $script:lockToken.pid; at = $beat.json.at }
     return
@@ -535,6 +544,9 @@ function Remove-LeftoverGates {
         continue
       }
     }
+    # F39, review: what the cut landing's gate left running there (its test tree holds the folder and the heavy slot).
+    $left = @(Stop-FolderProcesses $dir)
+    if ($left.Count -gt 0) { Say "note: ended $($left.Count) process(es) a cut landing's gate left in $($dir): $($left -join ', ')" }
     $junction = Join-Path $dir 'node_modules'
     $item = Get-Item -LiteralPath $junction -Force -ErrorAction SilentlyContinue
     if ($null -ne $item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
@@ -709,6 +721,27 @@ function Read-NewText([string]$File, [ref]$From) {
   } catch { return '' }
 }
 
+# F39 (2026-11-21, chat 3's find): ends every process whose command line or program lies inside `$Folder` (the gate worktree): a
+# test that starts a board through WMI (src/keeperStart.mjs) leaves a keeper and a child that are no children of the gate, so the
+# tree kill misses them and they hold the folder. Gives back what it ended, "name (pid)" each. Never this script itself.
+function Stop-FolderProcesses([string]$Folder) {
+  $ended = @()
+  if ([string]::IsNullOrEmpty($Folder)) { return $ended }
+  $needle = $Folder.Replace('/', '\').TrimEnd('\').ToLowerInvariant()
+  try {
+    foreach ($one in @(Get-CimInstance Win32_Process -ErrorAction Stop)) {
+      if ([int]$one.ProcessId -eq $PID) { continue }
+      $line = ([string]$one.CommandLine).Replace('/', '\').ToLowerInvariant()
+      $exe = ([string]$one.ExecutablePath).ToLowerInvariant()
+      if ($line.Contains($needle) -or $exe.StartsWith("$needle\")) {
+        Stop-Process -Id $one.ProcessId -Force -ErrorAction SilentlyContinue
+        $ended += "$($one.Name) ($($one.ProcessId))"
+      }
+    }
+  } catch { $null = $_ }
+  return $ended
+}
+
 # F14: ends a gate's process with its whole tree: taskkill /T first, then every process whose parent chain leads to it (a child
 # cmd or node started while taskkill walked the tree), then the root; waits for the root to be gone.
 function Stop-GateTree([System.Diagnostics.Process]$Root) {
@@ -726,6 +759,8 @@ function Stop-GateTree([System.Diagnostics.Process]$Root) {
   } catch { $null = $_ }
   Stop-Process -Id $Root.Id -Force -ErrorAction SilentlyContinue
   [void]$Root.WaitForExit(5000)
+  # F39: and what the gate started outside its tree, inside its worktree.
+  $null = Stop-FolderProcesses $script:gateTemp
 }
 
 # Runs a gate command through cmd with its words appended to a file as they are (a UTF-8 summary line must not pass through the
@@ -755,8 +790,21 @@ function Invoke-GateCommand([string]$Command, [string]$WorkDir, [string]$Output)
   $graceSeconds = 30
   $readFrom = [long]0
   $carry = ''
+  $beatAt = Get-Date
   while (-not $process.WaitForExit($pollMs)) {
     $now = Get-Date
+    # F39: the landing lock's beat while the gate runs (it is taken before the gate), once a minute.
+    # A lock lost during the gate (another landing broke it) ends the gate: never gate on without the lock (F39, review).
+    if (($now - $beatAt).TotalSeconds -ge $lockBeatSeconds) {
+      # One retry first (a busy file, a slow node): only a second failure ends the gate.
+      try { Update-LockBeat $true } catch {
+        $script:refused = $false
+        $script:why = $null
+        Start-Sleep -Milliseconds 1000
+        try { Update-LockBeat $true } catch { Stop-GateTree $process; throw }
+      }
+      $beatAt = $now
+    }
     if ($null -eq $clockFrom) {
       # All that is new since the last look, with the unfinished last line of the look before (a line may arrive in two parts).
       $fresh = $carry + (Read-NewText $Output ([ref]$readFrom))
@@ -800,6 +848,7 @@ function Invoke-Gate {
   $safe = $Branch -replace '[^A-Za-z0-9._-]', '-'
   $script:gateLog = Join-Path $landingsDir "$stamp-$safe.log"
   $temp = Join-Path $tempRoot ('land-gate-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+  $script:gateTemp = $temp
   Write-Utf8 $script:gateLog "landing of $Branch ($($script:headFull)) by $By at $((Get-Date).ToString('s'))`r`ngate worktree: $temp`r`n"
   $ownerFile = "$temp.owner"
   $added = $false
@@ -834,6 +883,9 @@ function Invoke-Gate {
       if ($null -ne $checked.json.PSObject.Properties['files']) { $files = @($checked.json.files) }
       if ($files.Count -eq 0) { Refuse "the gate failed on $(Short $script:headFull): $why (see $($script:gateLog))" }
       Say "note: the gate failed with $($files.Count) failing test file(s): each is run again alone, once"
+      # F39, review 8: first what the full run left running in the worktree, so it cannot hold the reruns up.
+      $left = @(Stop-FolderProcesses $temp)
+      if ($left.Count -gt 0) { [System.IO.File]::AppendAllText($script:gateLog, "`r`nbefore the reruns: ended $($left.Count) process(es) the full run left in the worktree: $($left -join ', ')`r`n") }
       foreach ($file in $files) {
         $aloneLog = "$($script:gateLog).alone"
         [System.IO.File]::AppendAllText($script:gateLog, "`r`n===== rerun alone: $file =====`r`n")
@@ -872,6 +924,9 @@ function Invoke-Gate {
     # stops the landing: the worktree is left for a look, the gate log and the landing line say why (2026-11-07: node_modules was
     # emptied at the end of a landing and nothing said so).
     $teardown = $null
+    # F39: first what the gate left running inside its worktree (a WMI-started board of a test): it would hold the folder.
+    $left = @(Stop-FolderProcesses $temp)
+    if ($left.Count -gt 0) { [System.IO.File]::AppendAllText($script:gateLog, "`r`nteardown: ended $($left.Count) process(es) the gate left in its worktree: $($left -join ', ')`r`n") }
     if ($linked) {
       $gone = Invoke-Native 'cmd.exe' @() '' 60 "/c rmdir `"$temp\node_modules`""
       if (Test-Path -LiteralPath "$temp\node_modules") { $teardown = "the gate's junction $temp\node_modules could not be removed ($(Git-Line $gone)); the gate worktree was left: remove the junction with cmd /c rmdir (never a recursive delete), then the worktree, and land again" }
@@ -1074,20 +1129,21 @@ function Invoke-Run {
   Test-Ready $false
   Test-Debugger
   Test-CanRestart
-  # 2. The gate on the exact head, before the lock.
-  Invoke-Gate
-  # 3. One landing at a time.
+  # 2. One landing at a time, whole (F39, 2026-11-21: two land.ps1 runs a minute apart each ran a gate, and one gate was wasted):
+  # the lock is taken BEFORE the gate, so a second landing refuses at once, naming who lands what; the gate beats it every minute.
   New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-  $took = Invoke-Landing @('lock-take', '--file', $lockFile, '--by', $By, '--branch', $Branch, '--pid', "$PID", '--stale-minutes', "$lockStaleMinutes")
+  $took = Invoke-Landing @('lock-take', '--file', $lockFile, '--by', $By, '--branch', $Branch, '--pid', "$PID", '--stale-minutes', "$lockStaleMinutes", '--check-pid', 'yes')
   if ($null -eq $took.json) { Refuse "the landing lock could not be taken: $($took.err) $($took.out)" }
   if (-not $took.json.ok) { Refuse $took.json.why }
   $script:lockToken = @{ pid = $PID; at = $took.json.at }
   if ($took.json.broke) { Say $took.json.broke }
+  # 3. The gate on the exact head, under the lock.
+  Invoke-Gate
   # Under the lock, once more: main may have moved during the gate (about ten minutes), and a debugger may have come.
   Test-Ready $true
   Test-Debugger
   Test-CanRestart
-  Update-LockBeat $true
+  Update-LockBeat $true 'land'
 
   # 4. Land: fast-forward main to the gated head, push (never forced), bring the trial copy up.
   $moved = Invoke-Git $mainDir @('merge', '--ff-only', $script:headFull)

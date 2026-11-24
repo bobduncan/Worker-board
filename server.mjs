@@ -23,7 +23,7 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { constants as osConstants, setPriority } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -45,12 +45,13 @@ import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
-import { assetsOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, wordsPath } from './src/projectPaths.mjs'
+import { assetsOf, backlogViewOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, storedOfWholePath, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { boardView, exitAt, keptStart, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
 import { START_ANEW, keep, startEnv } from './src/keeper.mjs'
+import { isShutdownDue, shutdownSign, shutdownView } from './src/shutdown.mjs'
 import { boardAddress, gamePortFor, workerPort, boardsFile, readBoards, recordingBoardPort, launchEntry, registerHome, resolvePort, withEntry } from './src/ports.mjs'
 import { findClaude, marketsFile, modVersions, pluginsFile } from './src/setup.mjs'
 import { dayRecaps } from './src/dayRecap.mjs'
@@ -60,6 +61,7 @@ import { readHead } from './src/files.mjs'
 import { chatsByRole, oldModNeed } from './src/oldMods.mjs'
 import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
+import { gapsNow, keptSinceJump, readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog } from './src/hearing.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
@@ -67,7 +69,8 @@ import { workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
-import { areaOf, freshScan, keptTasks, listText, readOn } from './src/taskTimes.mjs'
+import { areaOf, freshScan, keptTasks, listText, readOn, withStepSizes } from './src/taskTimes.mjs'
+import { sizeOf } from './src/work/held.mjs'
 import { createSpendingCollector } from './src/work/routing/collector.mjs'
 import { readRoutingRecord } from './src/work/routing/records.mjs'
 import { parseRoutingPolicy } from './src/work/routing/policy.mjs'
@@ -117,12 +120,14 @@ import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isF
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
-import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, courierAlive, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandRefusedAlone, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
-import { lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
+import { landingRestarts, lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
+import { readTestQueue } from './src/testQueue.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
-import { parseList, readAccountFolders } from './src/appChats.mjs'
+import { listedWhere, parseList, readAccountFolders } from './src/appChats.mjs'
+import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
 import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
@@ -130,7 +135,7 @@ import { stillTruePass } from './src/stillTrue.mjs'
 import { HANDOVER_COMMAND, envelopesOf, onSequence, outcomeOf, stagesOf } from './src/work/handover.mjs'
 import { addStages, closeClearOnly, handOut, handOver, handoverPass, inTurn as handoverTurn, settle as settleEnvelope } from './src/work/handoverBoard.mjs'
 import { coalesce } from './src/work/again.mjs'
-import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, closeLeaked, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
+import { REFUSED_MS, SUPERVISOR_RULES, SUPERVISOR_RULE_KEYS, claimFileOf, claimPorts, closeLeaked, createSupervisor, incidentCards, loopGate, loopOwner, tokensOfTurn, wordJudge } from './src/supervisor/index.mjs'
 import { FILES as WORKTREE_FILES, cleanLeftover, findLeftovers, stepLeftovers } from './src/work/worktrees.mjs'
 import { followRenames } from './src/work/rename.mjs'
 import { standardHold } from './src/work/standardHold.mjs'
@@ -925,6 +930,9 @@ async function main(args) {
   // the page and reads what the first wrote. The lock is checked at every run, so the other takes over within one run
   // when the holder ends (src/supervisor/loop.mjs loopOwner, loopGate). A copy that only shows runs its own loops, unlocked.
   const LOOP_LOCK = isDemo || isShowOnly || config.project === '' ? null : localFile(config, 'sync-loop.json')
+  // F55: the claim file beside the lock, made exclusively (a hard link, src/supervisor/claimFile.mjs): of two processes that claim at
+  // once, one has it (loopOwner).
+  const LOOP_CLAIM = LOOP_LOCK === null ? null : claimFileOf(LOOP_LOCK)
   /** Set below, where the stores and the bridge note are: what this process does when it gains the loops. */
   let gainedLoops = async () => {}
   const ownsLoops = LOOP_LOCK === null ? async () => true : loopGate({
@@ -935,6 +943,7 @@ async function main(args) {
         // B934: the lock's heartbeat, every second or so: no flush.
         await writeUnflushed(LOOP_LOCK, text)
       },
+      claim: claimPorts(LOOP_CLAIM),
       alive: pid => {
         try {
           process.kill(pid, 0)
@@ -946,7 +955,6 @@ async function main(args) {
       pid: process.pid,
       port: config.port,
       now: clock,
-      settleMs: 80,
     }),
     now: clock,
     onGained: () => gainedLoops(),
@@ -967,6 +975,12 @@ async function main(args) {
   }
   if (LOOP_LOCK !== null) {
     process.on('exit', () => {
+      // F55: an own claim left at the exit (ended between claim and write) goes with the lock; another's stays.
+      try {
+        if (JSON.parse(readFileSync(LOOP_CLAIM, 'utf8')).pid === process.pid) rmSync(LOOP_CLAIM)
+      } catch {
+        // not there, or another board's
+      }
       try {
         if (JSON.parse(readFileSync(LOOP_LOCK, 'utf8')).pid === process.pid) rmSync(LOOP_LOCK)
       } catch {
@@ -1084,7 +1098,8 @@ async function main(args) {
       return null
     }
   }
-  const viewFile = workDir === null ? null : !isShowOnly ? resolveStored(config, config.backlog) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
+  // T5.2 A1: the generated view is a runtime file (`backlogViewOf`: `<data>/local/backlog.md` once the data moves), never written into the game checkout.
+  const viewFile = workDir === null ? null : !isShowOnly ? backlogViewOf(config) : isOwnWork(config) ? join(workDir, 'backlog.md') : null
   const workWriters = viewFile === null ? null : { dir: workDir, viewFile }
   /**
    * Focus 2 (spec 2026-10-18, sections 3 and 6): a move of the Focus page, or a draft of the partner's (the page's route,
@@ -1814,6 +1829,9 @@ async function main(args) {
     // The Product owner (2026-10-31): its talks' drafts, asks and notes (work/api.mjs OWNER_MAY), nothing of a worker's.
     if (state.productOwner) roles.set(state.productOwner.name, 'owner')
     return {
+      // T5.2 A3 (chat 1's review, finding 11): the store's path as the chat reaches it, for the step files a take or next answer names
+      // (work/api.mjs rowWordsBlock); before, only the evaluate word had it and the answers fell back to the default prefix.
+      workPrefix: `${wordsPath(config, workFolder(config))}/`,
       // The supervisor's Task 5: the board's health summary for the supervisor chat's sweep (src/supervisor/health.mjs).
       ...(supervisor === null ? {} : { health: () => supervisor.health() }),
       // P1 of the one wait system: the limit of a recorded wait on a chat, for the work API's answer (src/work/waitsOn.mjs).
@@ -1850,7 +1868,7 @@ async function main(args) {
       // Focus 4: the list's chat names: a name given with the prefix or in another case is the list's.
       chats: [...roles.keys()],
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
-      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: resolveStored(config, config.backlog),
+      viewFile, boardUrl: boardAddress(HOST, config), backlogFile: backlogViewOf(config),
       // Part C of the asset providers: the requests' folder and the provider in use for each kind (the work tool's `asset`).
       ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
@@ -2137,6 +2155,9 @@ async function main(args) {
   let updateShown = null
   // Signals change 1: set where the exit for a new version is decided (restartNow), before the wait; the state says it.
   let leaving = null
+  // Shut down (src/shutdown.mjs): the person's shutdown on its way, `{ at, isNow }`, or null; `stopBy` the sign's `by` the exit writes.
+  let shutdown = null
+  let stopBy = null
   // Signals change 1: set once the server listens: only then the board's exit is written as a stop (data/stop.json).
   let isUp = false
   let callsNow = 0
@@ -2471,7 +2492,8 @@ async function main(args) {
   // P7, the review: the none-ready episode (state.mjs `noWorkSeen`), in memory as planSeen: a restart starts it from the
   // longest-free worker's since again.
   let noWorkSeen = null
-  const readState = cached(() => trackJob('state rebuild', async () => {
+  // F42: an answer built before a PC sleep is read again (src/afterSleep.mjs).
+  const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
     rebuilds += 1
     if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
@@ -2503,7 +2525,8 @@ async function main(args) {
       // board-fast-answer: the day's work-call figures for the Supervisor's health line (src/workCalls.mjs).
       workCalls: workCalls.today(clock()),
       finishedSeen: finishedSeen ?? {},
-      taskTimes: taskTimes.tasks,
+      // F42: a kept task without an estimate counts its step's size.
+      taskTimes: withStepSizes(taskTimes.tasks, raw.work?.items),
       // Stability numbers (2026-11-05, task 4): what the loop above last recorded; the demo shows made-up days.
       stability: isDemo ? demoStability(clock()) : keepStability?.latest() ?? null,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
@@ -2515,7 +2538,7 @@ async function main(args) {
       // Signals change 7 (B914): when each worker's own plan words last changed, as the last read saw them (memory only).
       planSeen,
       noWorkSeen,
-      now: clock(),
+      now: built(clock()),
       config: { ...config, project },
     })
     planSeen = state.planSeen ?? {}
@@ -2535,7 +2558,7 @@ async function main(args) {
     return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
       // T5.2 A7: the project keys config.json still holds while the project's settings file is in use (ignored: the amber line).
       settingsIgnored: isDemo || typeof config.settingsFile !== 'string' ? null : { file: basename(config.settingsFile), keys: config.settingsIgnored ?? [] }, check: checker?.view() ?? null, clicksUnsent: (await clicks.settle(one => movedOn(one, state, store.outbox()), clock()), await clicks.unsent()) }
-  }), STATE_MS)
+  })), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
   // at the first look. Tasks a worker reported are added to the list, and the list the chats read is written anew.
@@ -2552,7 +2575,7 @@ async function main(args) {
         const item = items.get(id)
         if (item === undefined) return null
         const words = [item.head.get('Title') ?? '', ...(item.sections.get('Context') ?? []), ...(item.sections.get('Touches') ?? []).map(one => `Touches: ${one}`)].join('\n')
-        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`), effort: effortOf(item).level }
+        return { area: areaOf(words), estimateMin: minutesOf(`about ${item.head.get('Estimate') ?? ''}`) ?? sizeOf(item), effort: effortOf(item).level }
       }
       const added = []
       const routingRecords = [...items.values()].map(item => ({ item, read: readRoutingRecord(item) }))
@@ -2585,7 +2608,7 @@ async function main(args) {
       if (historyFrom === undefined) {
         // B934: the board's own measure, made again from the transcripts: no flush.
         await writeUnflushed(TASK_TIMES_FILE, JSON.stringify(taskTimes))
-        if (added.length > 0 || !hasList) await writeUnflushed(TASK_LIST_FILE, listText(taskTimes.tasks, clock()))
+        if (added.length > 0 || !hasList) await writeUnflushed(TASK_LIST_FILE, listText(withStepSizes(taskTimes.tasks, items), clock()))
         hasList = true
       }
       if (added.length > 0) readState.reset()
@@ -2753,7 +2776,11 @@ async function main(args) {
     wakesChanged()
     isOpening = true
     try {
-      const done = await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
+      // B1304 (chat 1's review, minor): a board copy under test records its launches in this file instead of starting the real program.
+      const stub = process.env.WORKER_BOARD_OPEN_STUB ?? ''
+      const done = stub !== '' ? await appendFile(stub, `${JSON.stringify({ chat: target.chat, session: target.session, at: now })}
+`).then(() => ({ launched: true, ok: true, why: null }))
+        : await openChat({ exe: await findClaude(), session: target.session, cwd: resolve(HERE, chatHomeOf(config)) })
       if (!done.launched) {
         // Nothing was launched: no try spent (the ⚙ row says why).
         wakeGivenBack(wakes, key, jobId)
@@ -3123,6 +3150,49 @@ async function main(args) {
       process.exit(START_ANEW)
     } }
   }
+  // Shut down (2026-11-21, src/shutdown.mjs): Pause all first, then the board ends once the pause is safe, after SHUTDOWN_WAIT_MS at
+  // the latest, or at once for "Shut down now"; its stop sign (`by: 'command'`) holds it down until the person starts it again.
+  let shutdownTimer = null
+  const shutdownLook = async () => {
+    if (shutdown === null || leaving !== null) return
+    let pause = null
+    try {
+      pause = (await readState()).pause ?? null
+    } catch {
+      // the state could not be read: the wait's end still stops the board
+    }
+    if (!isShutdownDue({ shutdown, pause, now: clock() })) return
+    clearInterval(shutdownTimer)
+    isClosing = true
+    leaving = { at: clock(), why: 'shutdown' }
+    console.log(`Shut down: ${shutdown.isNow ? 'at once, on the person\'s word' : pause?.isSafe === true ? 'every chat ended its turn' : 'the wait for the chats ended'}; the board stops and stays down until it is started again (npm run resume, or its icon).`)
+    const inTime = await settleWithin([reconciling, ...runningChecks.values()], RESTART_WAIT_MS)
+    if (!inTime) console.log('Shut down: the board did not wait longer than 10 s for its running work.')
+    await reportsSave?.flush()
+    await workCalls.flush()
+    await wakesSave?.flush()
+    // The page sees `leaving` once before the board ends, as for a restart (Gap 2 of the live proof).
+    const wait = exitAt({ leavingAt: leaving.at, workSettledAt: clock(), refreshSeconds: config.refreshSeconds, waitMs: RESTART_WAIT_MS }) - clock()
+    if (wait > 0) await new Promise(done => setTimeout(done, wait))
+    stopBy = 'command'
+    process.exit(0)
+  }
+  const shutdownNow = async body => {
+    if (isDemo) return { ok: false, status: 409, why: 'This is the demo: stop it where it was started.' }
+    if (isShowOnly) return { ok: false, status: 409, why: `This board only shows. Shut down the board that delivers: http://${HOST}:${recordingPort}/` }
+    if (leaving !== null) return { ok: true, result: shutdownView(shutdown ?? { at: leaving.at, isNow: true }) }
+    const state = await readState()
+    // Pause all first, unless the chats are paused already: nothing is handed out, woken or reopened from here on.
+    if (workDir !== null && state.pause?.state !== 'pausing') {
+      const paused = await workAction({ action: 'pause-all' }, 'person')
+      if (!paused.ok) return paused
+      readState.reset()
+    }
+    shutdown = { at: shutdown?.at ?? clock(), isNow: body?.now === true || shutdown?.isNow === true }
+    if (shutdownTimer === null) shutdownTimer = setInterval(() => void shutdownLook(), 5_000)
+    void shutdownLook()
+    return { ok: true, result: shutdownView(shutdown) }
+  }
   const server = createBoard({
     token: pageToken,
     // B319: the demo is no project's.
@@ -3179,6 +3249,8 @@ async function main(args) {
       return lightState({ ...state, advisor, talkPartner, waits, waitsAsOf, waitAgain: !isDemo && !isShowOnly && bridgeKey !== null, stuckTalks: stuckTalksOf({ state, outbox: store.outbox(), now: clock() }), forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), autopilotCleared: await autopilotClearedNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
         // Signals change 1: the board's own clock, its work loop's last run, a restart on its way, and why it was off.
         board: boardView({ now: clock(), startedAt, aliveAt: store.aliveAt?.() ?? null, leaving, waiting: updateShown?.state === 'waiting' ? updateShown : null, lastStop: lastStopOf(store.startedGap ?? null, startedAt) }), mod: await modNow(),
+        // Shut down: the shutdown on its way (`{ at, until, isNow }`), and whether this board can be shut down from the page.
+        shutdown: shutdownView(shutdown), canShutdown: !isDemo && !isShowOnly,
         // B320: where the New project button suggests a new project's folder, and whether this board makes one.
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
@@ -3529,8 +3601,10 @@ async function main(args) {
       return { page: { ...found.page, feedback: { ...feedback, canSend: whyNot === null && (feedback.parts > 0 || feedback.looks > 0) && (!feedback.done || feedback.looks > 0) && feedback.making === null && feedback.toJudge > 0, whyNot } } }
     },
     demoFeedback: async body => demoFeedbackNow(body),
-    picture: async path => {
+    picture: async asked => {
       const { project } = await readState()
+      // F49: a whole path inside the project (a check's Evidence line) is read as its stored path; the checks below stay the only door.
+      const path = storedOfWholePath({ ...config, project }, asked)
       const found = await findPicture(pictureHome(project), shownRoots(config), path)
       if (found !== null) return { type: found.type, body: await readFile(found.file) }
       const size = await pictureTooBig(pictureHome(project), shownRoots(config), path)
@@ -3688,6 +3762,8 @@ async function main(args) {
     work: async body => {
       // Focus 3, the review: the person's Undo goes the one way that types the word before it marks the line.
       if (body?.action === 'undo') return undoNow({ note: body.id, line: body.line })
+      // Shut down: the person's button on the page (src/shutdown.mjs).
+      if (body?.action === 'shutdown') return shutdownNow(body)
       // B775: the check's start types a word to the partner after the store has written it.
       if (body?.action === 'obsolete-check') return obsoleteStart()
       // B360, the review: an Overturn of a goal's recap opens the goal first; the recap closes only once it is open.
@@ -3853,7 +3929,8 @@ async function main(args) {
       const setsRefusedNow = setsRefusedOf(store.outbox(), clock())
       // B1271 (chat 1's review, minor): a start or wake word a carry word carries is never a hand's too (the carry may switch on and off).
       const carried = new Set(store.outbox().filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state) && typeof one.of === 'string').map(one => one.of))
-      const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers })
+      // B1307 (chat 1's review 1): a side word starts a model turn, so none goes while a limit is full.
+      const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers, isFull: state.limitFull === true })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
@@ -4038,6 +4115,13 @@ async function main(args) {
           else if (failed.includes(id) && isSendRefusal(why[id])) woke = noteHandRefused(wakes, checked.chat, clock()) || woke
           continue
         }
+        // B1307 (chat 1's crossing 2): a side word's send counts for this hand alone: one that went lifts its own mark, one the app
+        // refused marks it, never the board-wide refusal and never a start or wake try (it is no wake: no attempt in the record).
+        if (store.outbox().some(one => one.id === id && one.command === SIDE_WORD)) {
+          if (sent.includes(id) && !doubt.includes(id) && noteHandSent(wakes, checked.chat, clock())) woke = true
+          if (failed.includes(id) && isSendRefusal(why[id]) && noteHandRefusedAlone(wakes, checked.chat, clock())) woke = true
+          continue
+        }
         const chat = wakeChatOf(id)
         if (chat === null) continue
         // B1271 (X203): a send of this hand that went lifts its own mark; one the app refused marks it (the board's only when no hand's send
@@ -4192,7 +4276,8 @@ async function main(args) {
   process.on('exit', code => {
     // Signals change 1: why the board ended, for the next start's gap line (a board that records, once it listened).
     // F10: the sign names the start it belongs to (`started`), so the watcher tells a stale sign from the last board's (G4).
-    if (isUp && !isDemo && historyFrom === undefined) writeStop(join(HERE, 'data', 'stop.json'), { at: clock(), why: stopWhy({ code }), started: startedAt })
+    // Shut down: the person's stop (`by: 'command'`), which holds the board down (src/shutdown.mjs `shutdownSign`).
+    if (isUp && !isDemo && historyFrom === undefined) writeStop(join(HERE, 'data', 'stop.json'), stopBy === 'command' && code === 0 ? shutdownSign({ at: clock(), started: startedAt }) : { at: clock(), why: stopWhy({ code }), started: startedAt })
     games.stopAll()
     // A picture that is being made ends with the board, and its folder under the temporary folder goes with it.
     making?.stop()
@@ -4438,6 +4523,27 @@ async function main(args) {
         // B812 (X109): checked and put in the outbox in one go, so a look that runs beside this one says none again.
         const stops = await sayStopWords(state, store, sentNow, now, () => randomBytes(8).toString('hex'))
         if (stops.length > 0) readState.reset()
+        // B1307 (F40): a late wait on a side chat: one word to that chat by a hand (its app id from the local side-chats.json, the one the
+        // app lists under the board's account), checked against the outbox and said in one go; none found: the record of why, so the
+        // person's card comes at once. A word whose wait ended, or that no hand sent within 10 min of running time, is closed (state.mjs).
+        if (!isHolding(state.pause)) {
+          let sides = 0
+          for (const { id, why } of state.sideWordsClose ?? []) if (await store.close(id, 'dropped', why, now)) sides += 1
+          const due = (state.sideWordsDue ?? []).filter(one => sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) === null)
+          if (due.length > 0) {
+            const chats = sideChatsOf((await readHead(localFile(config, SIDE_CHATS_FILE), 16 * 1024).catch(error => { loops.failed('side-chats', error); return null }))?.text ?? '')
+            const folders = await readAccountFolders(config.appSessions).catch(error => { loops.failed('side-chats-folders', error); return null })
+            const whereOf = folders === null ? null : id => listedWhere(id, folders, { account: state.account?.board ?? null })
+            for (const one of due) {
+              if (sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) !== null) continue
+              const word = sideWordFor({ late: one, worker: one.chat, wait: one.wait, found: sideSessionOf(one.who, chats, whereOf), now, overdue: one.overdue === true })
+              await store.say({ id: randomBytes(8).toString('hex'), ...word })
+              console.log(`B1307: ${word.state === 'waiting' ? `a word to ${one.who} about ${one.chat}'s late wait on ${one.id}` : `no word to ${one.who} about ${one.id} (${word.why})`} at ${timeOf(now)}.`)
+              sides += 1
+            }
+          }
+          if (sides > 0) readState.reset()
+        }
       }
       // Signals change 4: words that wait for a chat that is not running are the wake procedure's need (src/wake.mjs), no
       // start word by the clock any more. Only the board that delivers.
@@ -4622,7 +4728,7 @@ async function main(args) {
         // Only when the state this pass read shows a held ask (its quiet `held` line): with nothing held the call would be a full work call every 10 seconds.
         await loops.run('holds-ended', async () => {
           if (!heldIn(state)) return
-          const ended = await workAction({ action: 'holds-ended', gaps: state.gaps ?? [] }, 'server')
+          const ended = await workAction({ action: 'holds-ended', gaps: gapsNow(store, clock()) }, 'server')
           if (!ended.ok) throw new Error(ended.why ?? 'holds-ended was refused')
           await sendWakes(ended)
           if (ended.result.changed === true) readState.reset()
@@ -4665,7 +4771,7 @@ async function main(args) {
         },
         // B736 (X89: work health timed out twice while the board was busy): the health summary reads what the board has.
         assets: () => assetRequests(),
-        keptState: () => readState.last() ?? null,
+        keptState: () => keptSinceJump(readState, clock()),
         keptItems: () => work.last?.()?.items ?? null,
         outbox: () => store.outbox(),
         keep,
@@ -4695,15 +4801,18 @@ async function main(args) {
         // and the close of one (its tree, each process while its creation time holds; the tool's own folder); Windows only, and only on
         // the PC's first board (chat 1's review: three boards on this PC would each close the same browser and split the leak count), the
         // landing read right before the kill.
-        ...(closesBrowsers ? { processes: () => windowsProcesses.list(), closeBrowser: one => closeLeaked(one, { landing: () => { const held = lockHolder(join(HERE, 'data', 'landing.lock'), clock()); return held !== null && held.ageMs < STALE_LOCK_MS } }) } : {}),
+        ...(closesBrowsers ? { processes: () => windowsProcesses.list(), closeBrowser: one => closeLeaked(one, { landing: () => landingRestarts(lockHolder(join(HERE, 'data', 'landing.lock'), clock()), { staleMs: STALE_LOCK_MS }) }) } : {}),
         // B598: the base branches against their remotes', and a step's check run again once they are equal (the rule
         // base-equal); workAction runs the check that the action answers
         bases: () => basesNow({ repos: knownRepos(), run: gitRunner() }),
+        // B1302 (X211): the PC's one-at-a-time test queue, read only (src/testQueue.mjs), so a worker that waits its turn for a test run is no stale checkpoint.
+        testQueue: async () => readTestQueue({ tool: await import('./tools/one-at-a-time.mjs'), now: clock() }),
         recheck: (id, why, more = {}) => workAction({ action: 'recheck-base', id, why, ...more }, 'server'),
         // P2 (T2.11), the rule faults-gone: what stands in each repository now, whether a landing runs (data/landing.lock, a lock not
         // stale), when this board started, and the steps whose check runs now.
         branches: () => faultsNow({ repos: knownRepos(), run: gitRunner() }),
-        landing: () => { const held = lockHolder(join(HERE, 'data', 'landing.lock'), clock()); return held !== null && held.ageMs < STALE_LOCK_MS },
+        // F39, review 7: only a landing in its 'land' phase whose process runs (a gate can take an hour).
+        landing: () => landingRestarts(lockHolder(join(HERE, 'data', 'landing.lock'), clock()), { staleMs: STALE_LOCK_MS }),
         startedAt: () => startedAt,
         checking: () => [...runningChecks.keys()],
         // B482: what the main chat was told and since when a wait was seen, kept over a restart
