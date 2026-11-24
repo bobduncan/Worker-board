@@ -4,6 +4,8 @@
 // of whole state rebuilds that started during it; the record keeps the newest `DAYS_KEPT` days in `data/work-calls.json`, and
 // `today()` gives one figure for the Supervisor's health line: "work calls today: 412 (median 0.3 s, slowest 1.8 s, 0 over 5 s)". The
 // rebuilds are those that STARTED while a call ran (the page's or a loop's too), not only those the call waited for.
+// B1139 (X93, one clock): a call is timed from the chat's send (its request id's time, `callFrom`), as the chat waits from then,
+// no longer from its handler's begin, which left the wait before the handler unmeasured; a repeated request id counts once.
 // PURE but for the clock and the file, which are handed in.
 
 import { readFile } from 'node:fs/promises'
@@ -16,6 +18,8 @@ export const OVER_MS = 5000
 export const DAYS_KEPT = 7
 /** How many single times a day keeps per action (the newest); the counts go on beyond it. */
 export const MOST_TIMES = 2000
+/** B1139: how many request ids the record keeps to know a repeat (a few minutes of calls). */
+export const MOST_NOTED = 500
 /** How long after a note the file is written (many calls in a second are one write). */
 export const SAVE_MS = 2000
 
@@ -45,6 +49,31 @@ const noteIn = (one, ms, rebuilds) => {
   one.times.push(Math.round(ms))
   if (one.times.length > MOST_TIMES) one.times.splice(0, one.times.length - MOST_TIMES)
 }
+/** B1139: takes back one call noted in `one` (a repeat of its request id is noted in its place). */
+const unnoteIn = (one, ms, rebuilds) => {
+  const at = one.times.lastIndexOf(Math.round(ms))
+  if (at === -1) return
+  one.times.splice(at, 1)
+  one.count = Math.max(0, one.count - 1)
+  if (ms >= OVER_MS) one.over = Math.max(0, one.over - 1)
+  if (finite(rebuilds) && rebuilds > 0) one.rebuilds = Math.max(0, one.rebuilds - rebuilds)
+  if (ms >= one.max) one.max = one.times.length === 0 ? 0 : Math.max(...one.times)
+}
+
+/** B1139: a call whose send lies further back than this spans a sleep of the PC: it is timed from its handler's begin. */
+export const SEND_KEEP_MS = 10 * 60_000
+
+/**
+ * B1139 (X93, one clock): when a work call's time starts: the chat's send (`sent`, the request id's time, hearing.mjs `sentAtOf`),
+ * as the chat waits from then; not before the board began (`startedAt`: the wait for a restart is the landing's, not a slow
+ * board); the handler's begin (`begun`) when there is no send time, it lies after the begin (another clock), or the answer
+ * came over SEND_KEEP_MS after it (a sleep of the PC). PURE.
+ */
+export function callFrom({ sent, begun, answered, startedAt = null }) {
+  if (!finite(sent) || !finite(begun) || sent > begun) return begun
+  if (finite(answered) && answered - sent > SEND_KEEP_MS) return begun
+  return finite(startedAt) && sent < startedAt ? Math.min(begun, startedAt) : sent
+}
 
 /** The figures of a bucket: `{ count, median, p95, max, over, rebuilds }` (ms; null medians for none). */
 export const figuresOf = one => (one === null || one === undefined ? { count: 0, median: null, p95: null, max: null, over: 0, rebuilds: 0 }
@@ -64,6 +93,8 @@ export function workCallsWords(figures) {
 export function workCallRecord({ file = null, now = Date.now, fs = { readFile }, saveMs = SAVE_MS, daysKept = DAYS_KEPT } = {}) {
   /** By day: `{ all: bucket, actions: { [action]: bucket } }`. */
   let days = {}
+  /** B1139: the calls noted by their request id (the newest MOST_NOTED, in memory): a repeat takes its earlier note's place. */
+  const noted = new Map()
   let timer = null
   let saving = Promise.resolve()
 
@@ -101,13 +132,34 @@ export function workCallRecord({ file = null, now = Date.now, fs = { readFile },
         days = {}
       }
     },
-    note({ action = 'call', chat = null, ms, rebuilds = 0, at = now() } = {}) {
+    note({ action = 'call', chat = null, ms, rebuilds = 0, at = now(), request = null } = {}) {
       if (!finite(ms) || ms < 0) return
+      const name = String(action ?? 'call').slice(0, 30)
+      // B1139: a repeated request id is one call (the mod asks again when an answer is slow; a read runs again): the earlier note
+      // goes, the slower of the two stays, so the call counts once, by the time its chat waited.
+      const id = typeof request === 'string' && request !== '' ? request.slice(0, 100) : null
+      const earlier = id === null ? undefined : noted.get(id)
+      if (earlier !== undefined) {
+        noted.delete(id)
+        const was = days[earlier.day]
+        if (was !== undefined) {
+          unnoteIn(was.all, earlier.ms, earlier.rebuilds)
+          if (was.actions[earlier.name] !== undefined) unnoteIn(was.actions[earlier.name], earlier.ms, earlier.rebuilds)
+        }
+        if (earlier.ms > ms) {
+          ms = earlier.ms
+          at = earlier.at
+        }
+        rebuilds = Math.max(finite(rebuilds) ? rebuilds : 0, earlier.rebuilds)
+      }
       const day = dayOf(finite(at) ? at : now())
       const kept = days[day] ?? (days[day] = { all: bucket(), actions: {} })
-      const name = String(action ?? 'call').slice(0, 30)
       noteIn(kept.all, ms, rebuilds)
       noteIn(kept.actions[name] ?? (kept.actions[name] = bucket()), ms, rebuilds)
+      if (id !== null) {
+        noted.set(id, { day, name, ms, rebuilds: finite(rebuilds) ? rebuilds : 0, at })
+        if (noted.size > MOST_NOTED) noted.delete(noted.keys().next().value)
+      }
       void chat
       trim()
       saveSoon()

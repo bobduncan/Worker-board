@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { DAYS_KEPT, MOST_TIMES, OVER_MS, dayOf, figuresOf, percentile, workCallRecord, workCallsWords } from '../src/workCalls.mjs'
+import { DAYS_KEPT, MOST_TIMES, OVER_MS, SEND_KEEP_MS, callFrom, dayOf, figuresOf, percentile, workCallRecord, workCallsWords } from '../src/workCalls.mjs'
 import { tempDir } from './tempDir.mjs'
 
 const DAY = new Date(2026, 10, 11, 10, 0).getTime()
@@ -69,4 +69,41 @@ test('the file: written soon after a note, read back at the start, the newest se
   const broken = workCallRecord({ now: () => now, file, fs: { readFile: async () => '{not json' } })
   await broken.load()
   assert.equal(broken.today().count, 0)
+})
+
+test('B1139 (X93, one clock): a call is timed from the chat\'s send: the live case of 2026-11-23 14:57 (sent 19 s before its answer, a 2 s handler) reads 19 s', () => {
+  const sent = new Date(2026, 10, 23, 14, 56, 41).getTime()
+  const begun = sent + 17_000
+  const answered = begun + 2000
+  const startedAt = sent - HOUR
+  const from = callFrom({ sent, begun, answered, startedAt })
+  assert.equal(answered - from, 19_000)
+  const record = workCallRecord({ now: () => answered })
+  record.note({ action: 'pause-state', chat: 'Worker 2', ms: answered - from, at: begun, request: `0f3c-9a2e-${sent}-1` })
+  assert.deepEqual([record.today(answered).max, record.today(answered).over], [19_000, 1])
+  assert.equal(workCallsWords(record.today(answered)), 'work calls today: 1 (median 19 s, slowest 19 s, 1 over 5 s)')
+  // No send time (an older mod), a send after the begin (another clock), a send before the board began (the restart's wait is the
+  // landing's) or one past SEND_KEEP_MS (a sleep of the PC): the handler's begin, or the board's start.
+  assert.equal(callFrom({ sent: null, begun, answered, startedAt }), begun)
+  assert.equal(callFrom({ sent: begun + 5, begun, answered, startedAt }), begun)
+  assert.equal(callFrom({ sent, begun, answered, startedAt: sent + 10_000 }), sent + 10_000)
+  assert.equal(callFrom({ sent: begun - SEND_KEEP_MS - 1, begun, answered: begun + 10, startedAt }), begun)
+})
+
+test('B1139: a repeated request id counts once, by its slower answer, from its first send; other ids count apart', () => {
+  let now = DAY
+  const record = workCallRecord({ now: () => now })
+  const id = `0f3c-9a2e-${DAY - 12_000}-7`
+  // The mod gave up after 10 s and asked again with the same id; the read ran twice: one call of 12 s.
+  record.note({ action: 'next', chat: 'Worker 1', ms: 10_400, rebuilds: 1, request: id })
+  record.note({ action: 'next', chat: 'Worker 1', ms: 12_100, rebuilds: 0, request: id })
+  record.note({ action: 'step', chat: 'Worker 1', ms: 200, request: `0f3c-9a2e-${DAY}-8` })
+  record.note({ action: 'step', chat: 'Worker 1', ms: 300 })
+  const today = record.today()
+  assert.deepEqual([today.count, today.over, today.max, today.rebuilds], [3, 1, 12_100, 1])
+  assert.deepEqual([today.byAction.next.count, today.byAction.next.max, today.byAction.next.over], [1, 12_100, 1])
+  // A repeat answered faster than the first keeps the first's time.
+  record.note({ action: 'step', chat: 'Worker 1', ms: 150, request: `0f3c-9a2e-${DAY}-8` })
+  assert.deepEqual([record.today().byAction.step.count, record.today().byAction.step.max], [2, 300])
+  assert.deepEqual(record.today().byAction.step.median, 200)
 })

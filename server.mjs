@@ -64,10 +64,10 @@ import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { gapsNow, keptSinceJump, readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
-import { hearingLog } from './src/hearing.mjs'
+import { hearingLog, sentAtOf } from './src/hearing.mjs'
 import { callTracer } from './src/callTrace.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
-import { workCallRecord } from './src/workCalls.mjs'
+import { callFrom, workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
@@ -114,7 +114,7 @@ import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, keepPersonAction, workApi } from './src/work/api.mjs'
 import { effortOf, setsRefusedOf } from './src/work/effort.mjs'
-import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
+import { PAUSE_FILE, chatsAsking, chatsWithoutProcess, isHolding, parsePause, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
@@ -877,7 +877,7 @@ async function main(args) {
   const workCalls = workCallRecord({ now: clock, file: isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'work-calls.json') })
   let rebuilds = 0
   /** B934: a chat's work call as the stall log names it (by its chat once checked); one answered after 2 s is a stall. */
-  const callStall = (action, session) => {
+  const callStall = (action, session, request = null) => {
     const begun = clock()
     const rebuildsBefore = rebuilds
     const what = by => `work ${String(action ?? 'call').slice(0, 30)} by ${by}`
@@ -888,8 +888,11 @@ async function main(args) {
       by: name => end.as(words = what(chat = name)),
       done: () => {
         end()
-        stalls.slowCall(words, begun, clock())
-        workCalls.note({ action, chat, ms: clock() - begun, rebuilds: rebuilds - rebuildsBefore, at: begun })
+        const answered = clock()
+        stalls.slowCall(words, begun, answered)
+        // B1139 (one clock): the day record times the call from the chat's send, as the chat waits (src/workCalls.mjs `callFrom`).
+        const from = callFrom({ sent: sentAtOf(request), begun, answered, startedAt })
+        workCalls.note({ action, chat, ms: answered - from, rebuilds: rebuilds - rebuildsBefore, at: begun, request })
       },
     }
   }
@@ -1872,8 +1875,12 @@ async function main(args) {
    */
   const keptStateFor = async (chat, action, of = null, forYou = false) => {
     const last = readState.last() ?? null
+    // B1139: pause-state may answer from the kept state only while the store's pause (pause.json, read now) is running or none.
+    // A pause.json that is there but cannot be read now (Windows holds it) is no "running": the state is read fresh then.
+    const pause = action !== 'pause-state' || workDir === null ? null
+      : await readFile(join(workDir, PAUSE_FILE), 'utf8').then(text => parsePause(text)?.state ?? null, error => (error?.code === 'ENOENT' ? null : 'unreadable'))
     // `dirty`: a write reset the state since it was read (folders.mjs `cached`: readAt -Infinity until the next whole read).
-    const why = keptStateWhy({ last, now: clock(), chat, action, of, forYou, dirty: readState.readAt() === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS })
+    const why = keptStateWhy({ last, now: clock(), chat, action, of, forYou, dirty: readState.readAt() === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS, pause })
     return why === 'kept' ? last : readState()
   }
   const workCtx = async ({ kept = false, chat = null, action = null, of = null, forYou = false } = {}) => {
@@ -3923,7 +3930,7 @@ async function main(args) {
         trace?.set({ repeat: true })
         return kept
       }
-      const stall = callStall(asked.action, session)
+      const stall = callStall(asked.action, session, request)
       trace?.mark('begin')
       const rebuildsAt = rebuilds
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.

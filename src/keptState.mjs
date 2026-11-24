@@ -14,7 +14,7 @@
  * the answer), `health` (B736's own path), `asset`, `incident`, `incident-fix`, `save-log`, `whoami`, `list` (a read whose wait
  * words lag as the page's do), and `note` unless it is of a goal. Not `take` nor `next` (the verifier of 2026-11-11): their answer
  * carries the recap rows' words of the step (`rowWordsBlock`), which a verdict just written must reach; the take path reads the
- * state anew itself anyway. Everything else (ask, new, refine, refined, answer, withdraw, words, pause-state, pause, resumed, drop,
+ * state anew itself anyway. Everything else (ask, new, refine, refined, answer, withdraw, words, pause-state while pausing or resuming (B1139: kept-safe while the store's pause is running), pause, resumed, drop,
  * close, checked, ...) reads the goal map, the recaps, the ready list or the lanes and waits for a fresh state when a write came
  * since the last read.
  */
@@ -31,11 +31,11 @@ export const KEPT_STATE_MS = 60_000
  * call's `of` field: a note of a goal (G<n>) reads the goal map, a note to the main chat does not; `forYou` whether a turn-ended
  * carries a For you block (its items are filed as asks, which read the goal map, the recaps and the card's step).
  */
-export function keptStateWhy({ last, now, chat = null, action = null, of = null, forYou = false, dirty = false, roleOf = () => null, maxMs = KEPT_STATE_MS }) {
+export function keptStateWhy({ last, now, chat = null, action = null, of = null, forYou = false, dirty = false, roleOf = () => null, maxMs = KEPT_STATE_MS, pause = null }) {
   if (last === null || last === undefined || typeof last !== 'object') return 'none'
   if (!Number.isFinite(last.readAt) || !Number.isFinite(now) || now - last.readAt > maxMs) return 'old'
   if (chat !== null && chat !== undefined && roleOf(last, chat) === null) return 'unknown'
-  if (dirty === true && readsStoreFacts(action, of, forYou)) return 'dirty'
+  if (dirty === true && readsStoreFacts(action, of, forYou, pause)) return 'dirty'
   return 'kept'
 }
 
@@ -43,8 +43,13 @@ export function keptStateWhy({ last, now, chat = null, action = null, of = null,
  * Whether the action's answer reads a store-derived fact of the state: not a safe action; a note only when it is of a goal (G<n>);
  * a turn-ended only with a For you block (`forYou`).
  */
-export function readsStoreFacts(action, of = null, forYou = false) {
+export function readsStoreFacts(action, of = null, forYou = false, pause = null) {
   if (action === 'note') return /^G\d+$/i.test(String(of ?? '').trim())
+  // B1139 (X93, chat 1's condition): pause-state reads the pause from the store itself (fresh) and only the lanes from the state. While
+  // the store's pause is running (or there is none) the lanes drive nothing it answers: the mods' running-state polls answer from the
+  // kept state even after a write. While pausing or resuming the lanes drive the not-started list (the banner, whom Main wakes): after
+  // a write the state is read fresh then; a clean kept state still serves (a few seconds old on the live board, as before B1139).
+  if (action === 'pause-state') return !(pause === null || pause === undefined || pause === 'running')
   if (action === 'turn-ended') return forYou === true
   return !KEPT_SAFE_ACTIONS.has(String(action ?? ''))
 }

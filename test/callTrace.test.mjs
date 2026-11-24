@@ -169,7 +169,7 @@ test('the server traces each part in order and changes no order of the call', as
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   const part = (from, to) => server.slice(server.indexOf(from), server.indexOf(to, server.indexOf(from)))
   const bridge = part('    bridgeWork: counted(async (body, trace = null) => {', '    take: counted(async body => {')
-  const order = ["requests.known(session, request)", "trace?.mark('known')", 'callStall(asked.action, session)', "trace?.mark('begin')", 'await checkFresh(body)', "trace?.mark('fresh')"]
+  const order = ["requests.known(session, request)", "trace?.mark('known')", 'callStall(asked.action, session, request)', "trace?.mark('begin')", 'await checkFresh(body)', "trace?.mark('fresh')"]
   const at = order.map(one => bridge.indexOf(one))
   assert.ok(at.every((one, i) => one > -1 && (i === 0 || one > at[i - 1])), JSON.stringify(at))
   const action = part('  const workAction = async (body, as, trace = null) => {', 'if (done.ok && done.result.changed !== false)')
