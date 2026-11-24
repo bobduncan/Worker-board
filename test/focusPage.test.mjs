@@ -22,7 +22,8 @@ const css = await readFile(join(PUBLIC, 'board.css'), 'utf8')
 const made = {}
 vm.runInNewContext(`${script.slice(script.indexOf('// focus:start'), script.indexOf('// focus:end'))}
 ${script.slice(script.indexOf('// coordinate:start'), script.indexOf('// coordinate:end'))}
-Object.assign(this, { advisorPartsShown, coordinateList, focusAsk, focusCan, focusTalk, focusView, goalStepIds })`, made)
+${script.slice(script.indexOf('// elsewhere:start'), script.indexOf('// elsewhere:end'))}
+Object.assign(this, { advisorPartsShown, coordinateList, focusAsk, focusCan, focusTalk, focusView, goalStepIds, otherGoalsAsks })`, made)
 const plain = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 const page = Object.fromEntries(Object.entries(made).map(([name, made]) => [name, (...args) => plain(made(...args))]))
 
@@ -533,4 +534,14 @@ test('B690: the step rows follow option B: dot at the first line, waiting dot as
   assert.match(rule('.focus-part'), /gap: 0/)
   assert.match(rule('.focus-step'), /grid-template-columns: 22px 54px/)
   assert.match(rule('.focus-bar .focus-block.is-stop'), /box-sizing: content-box/)
+})
+
+test('F61: under the focus head, the asks of OTHER goals that stand with the person are counted by goal with a way to the goal\'s page; the focus goal\'s own, closed cards, step cards and asks of no goal are not', () => {
+  const nodes = [{ id: 'G106', title: 'Rebuild the older levels', steps: ['B1500'] }, { id: 'G40', title: 'Four more heroes', steps: ['B1369', 'B1392'] }, { id: 'G7', title: 'Music', steps: ['B700'] }]
+  const need = (workId, of, more = {}) => ({ id: `work:${workId}`, workId, of, question: workId, isClosed: false, ...more })
+  const state = { focus: { id: 'G106' }, goals: { nodes }, forYou: [need('Q889', 'B1369'), need('Q900', 'B1392'), need('Q950', 'B1500'), need('Q960', 'B700'), need('Q970', 'B9999'), need('Q980', 'B1369', { isClosed: true }), { id: 'wake:1', workId: 'B1369', of: 'B1369' }] }
+  assert.deepEqual(page.otherGoalsAsks(state), [{ goal: 'G40', title: 'Four more heroes', count: 2, ids: ['Q889', 'Q900'] }, { goal: 'G7', title: 'Music', count: 1, ids: ['Q960'] }])
+  assert.deepEqual(page.otherGoalsAsks({ ...state, focus: null }).map(one => one.goal), ['G40', 'G7', 'G106'], 'without a focus every goal\'s count stands (most asks first, then by id)')
+  assert.deepEqual(page.otherGoalsAsks({ focus: { id: 'G106' }, goals: { nodes }, forYou: [] }), [])
+  assert.deepEqual(page.otherGoalsAsks({}), [])
 })
