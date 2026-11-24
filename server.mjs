@@ -3135,7 +3135,7 @@ async function main(args) {
   const homeFilesShown = async () => {
     if (isDemo || isShowOnly || dataOf(config) === null) return []
     if (clock() - homeRead.at < 30_000) return homeRead.files
-    homeRead = { at: clock(), files: await homeFilesNow(config).catch(() => []) }
+    homeRead = { at: clock(), files: await homeFilesNow(config).catch(error => { console.error(`The home files could not be read: ${error?.message ?? error}`); return [] }) }
     return homeRead.files
   }
   /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
