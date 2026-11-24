@@ -2,6 +2,8 @@
 // Worker 1 waits on "chat 1" and Worker 2 on "chat 3", both past the limit; the local side-chats.json knows only chat 1, by a fake id.
 // Over several looks and a board restart there is exactly one record per wait: one word a hand sends to chat 1's id, one "could not
 // go" record for chat 3 with the card saying why. Fake ids only.
+// F53 (b): while a limit is full the card shown is written down once: keepCard on chat 1's word still to go, and a record of its own for
+// a wait on chat 2 that turns late while full (no word yet); back under the limit, one word to chat 2 that keeps the card, over a restart.
 
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -23,6 +25,7 @@ const NOW = Date.now()
 const MIN = 60_000
 const SINCE = NOW - 95 * MIN
 const FAKE_SIDE = 'local_fake-side-chat-1'
+const FAKE_SIDE_2 = 'local_fake-side-chat-2'
 
 const freePort = () => new Promise(done => {
   const server = createServer().listen(0, '127.0.0.1', () => {
@@ -67,8 +70,8 @@ async function until(check, what) {
   throw new Error(`Not within 60 s: ${what}`)
 }
 
-const step = (id, owner, who) => `${[
-  `Id: ${id}`, 'Kind: step', `Title: Step ${id}`, 'State: in progress', `Owner: ${owner}`, 'Activity: Art', `Waits on: ${who} · its review · ${stamp(SINCE).slice(0, 16)}`,
+const step = (id, owner, who, since = SINCE) => `${[
+  `Id: ${id}`, 'Kind: step', `Title: Step ${id}`, 'State: in progress', `Owner: ${owner}`, 'Activity: Art', ...(who === null ? [] : [`Waits on: ${who} · its review · ${stamp(since).slice(0, 16)}`]),
   `Since: ${stamp(NOW - 200 * MIN)}`, `Branch: ${id.toLowerCase()}-work`, 'Taken for: 60 min', 'Refined: ready',
 ].join('\n')}\n\n## History\n- ${stamp(NOW - 200 * MIN)} ${owner}: taken → in progress\n`
 
@@ -86,14 +89,17 @@ test('over two looks and a restart: exactly one word to chat 1 by a hand, exactl
     await writeFile(path, text)
   }
   await put(join(board, 'data', 'outbox.jsonl'), '')
-  await put(join(project, '.claude', 'side-chats.json'), JSON.stringify({ 'chat 1': [FAKE_SIDE] }))
+  await put(join(project, '.claude', 'side-chats.json'), JSON.stringify({ 'chat 1': [FAKE_SIDE], 'chat 2': [FAKE_SIDE_2] }))
   await put(join(project, '.claude', 'work', 'B901.md'), step('B901', 'Worker 1', 'chat 1'))
   await put(join(project, '.claude', 'work', 'B902.md'), step('B902', 'Worker 2', 'chat 3'))
-  await put(join(project, '.claude', 'work', 'activities.json'), `${JSON.stringify({ preamble: [], activities: [{ name: 'Art', steps: ['B901', 'B902'] }] }, null, 1)}\n`)
+  // F53: Worker 1's second step, no wait yet (it waits on chat 2 from the full limit on).
+  await put(join(project, '.claude', 'work', 'B903.md'), step('B903', 'Worker 1', null))
+  await put(join(project, '.claude', 'work', 'activities.json'), `${JSON.stringify({ preamble: [], activities: [{ name: 'Art', steps: ['B901', 'B902', 'B903'] }] }, null, 1)}\n`)
   const chats = join(project, '.claude', 'chats')
   await put(join(chats, 'list.json'), '{"prefix":"Game - ","main":"Main"}')
   const appChat = (title, sessionId, cliSessionId) => JSON.stringify({ title, sessionId, cliSessionId, cwd: project, isArchived: false, createdAt: NOW - 600 * MIN, lastActivityAt: NOW - 2 * MIN })
   await put(join(app, 'a', 'b', `${FAKE_SIDE}.json`), appChat('A side chat', FAKE_SIDE, 'side-id'))
+  await put(join(app, 'a', 'b', `${FAKE_SIDE_2}.json`), appChat('Another side chat', FAKE_SIDE_2, 'side-id-2'))
   for (const [name, sessionId, cli, role] of [['Main', 'local_main', 'main-id', 'main'], ['Worker 1', 'local_w1', 'w1-id', 'worker'], ['Worker 2', 'local_w2', 'w2-id', 'worker']]) {
     await put(join(app, 'a', 'b', `${sessionId}.json`), appChat(`Game - ${name}`, sessionId, cli))
     await put(join(transcripts, `${cli}.jsonl`), `${[typed(NOW - 8 * MIN, 'Status?'), answer(NOW - 7 * MIN, 'All fine.')].join('\n')}\n`)
@@ -144,11 +150,27 @@ test('over two looks and a restart: exactly one word to chat 1 by a hand, exactl
   const isFull = async () => (await (await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } })).json()).limitFull === true
   await setWeek(99)
   await until(isFull, 'the board reads the limit as full')
+  // F53 (b): the card shows ("did not ask chat 1: a limit is full"): the look writes it down on the word still to go.
+  // The page's token is the running board's (read anew: a restart below makes a new one).
+  const lateCard = async id => (await (await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0] } })).json()).forYou.find(one => one.kind === 'wait late' && one.title.endsWith(` on ${id}`))?.text ?? ''
+  await until(async () => (await byWho('chat 1'))[0].keepCard === true, 'the card shown while full kept on chat 1\'s word')
+  // A wait that turns late while full has no word: the record of its card, once.
+  await put(join(project, '.claude', 'work', 'B903.md'), step('B903', 'Worker 1', 'chat 2', SINCE - 5 * MIN))
+  await until(async () => (await byWho('chat 2')).length > 0, 'the record of the card shown for chat 2')
+  await until(async () => /Then the board did not ask chat 2: a limit is full\./.test(await lateCard('B903')), 'the card for B903 while full')
+  await looks()
+  const kept = await byWho('chat 2')
+  assert.deepEqual(kept.map(one => [one.state, one.why, one.keepCard, one.text, one.step]), [['dropped', 'a limit is full', true, '', 'B903']])
   const whileFull = await call('/api/bridge/hands', { chat: 'Worker 2', session: 'w2-id', mod: '0.27.1', can: ['send'] })
   assert.deepEqual(whileFull.jobs.filter(job => job.id === word.id), [])
   assert.equal((await byWho('chat 1'))[0].state, 'waiting')
   await setWeek(40)
   await until(async () => !(await isFull()), 'the board reads the limit as back')
+  // F53 (b): back: one word to chat 2 that keeps the card; the card never went.
+  await until(async () => (await byWho('chat 2')).length === 2, 'one word to chat 2')
+  const word2 = (await byWho('chat 2')).find(one => one.text !== '')
+  assert.deepEqual([word2.session, word2.keepCard, word2.step], [FAKE_SIDE_2, true, 'B903'])
+  assert.match(await lateCard('B903'), /Then the board is asking chat 2\./)
 
   // A hand sends it, once, to chat 1's own id; the next claim has no job for it.
   const { jobs } = await call('/api/bridge/hands', { chat: 'Worker 2', session: 'w2-id', mod: '0.27.1', can: ['send'] })
@@ -166,4 +188,7 @@ test('over two looks and a restart: exactly one word to chat 1 by a hand, exactl
   await looks()
   assert.deepEqual((await byWho('chat 1')).map(one => [one.id, one.state]), [[word.id, 'delivered']])
   assert.deepEqual((await byWho('chat 3')).map(one => [one.id, one.state]), [[record.id, 'dropped']])
+  // F53: the record and the one word to chat 2 are all, and B903's card stays, naming the word.
+  assert.deepEqual((await byWho('chat 2')).map(one => one.id), [kept[0].id, word2.id])
+  assert.match(await lateCard('B903'), /Then the board (is asking|asked) chat 2/)
 })

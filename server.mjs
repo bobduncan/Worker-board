@@ -127,7 +127,7 @@ import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { readTestQueue } from './src/testQueue.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { listedWhere, parseList, readAccountFolders } from './src/appChats.mjs'
-import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
+import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideKeepOf, sideKeptFor, sideKeptOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
 import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
@@ -4611,6 +4611,16 @@ async function main(args) {
         if (!isHolding(state.pause)) {
           let sides = 0
           for (const { id, why } of state.sideWordsClose ?? []) if (await store.close(id, 'dropped', why, now)) sides += 1
+          // F53 (b): a card shown because a limit is full is written down once per wait, checked against the outbox: keepCard on the
+          // word still to go, or a record of its own, so the card stays until the one word went (a restart too).
+          for (const one of state.sideCardsKept ?? []) {
+            const key = sideKeyOf(one.id, one.wait)
+            const keep = sideKeepOf({ side: { full: true }, word: sideWordOf(store.outbox(), key), kept: sideKeptOf(store.outbox(), key) })
+            if (keep === null) continue
+            if (keep.word === null) await store.say({ id: randomBytes(8).toString('hex'), ...sideKeptFor({ late: one, worker: one.chat, wait: one.wait, now }) })
+            else await store.update(keep.word, { keepCard: true })
+            sides += 1
+          }
           const due = (state.sideWordsDue ?? []).filter(one => sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) === null)
           if (due.length > 0) {
             const chats = sideChatsOf((await readHead(localFile(config, SIDE_CHATS_FILE), 16 * 1024).catch(error => { loops.failed('side-chats', error); return null }))?.text ?? '')

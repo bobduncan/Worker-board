@@ -5,17 +5,20 @@
 // an unknown side chat the card at 90 min with the why; waits on board chats as before. Made-up chats and fake app ids only.
 
 import assert from 'node:assert/strict'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import { parseConfig } from '../src/config.mjs'
 import { handJobs, isForHandsYet, isHandWord } from '../src/hands.mjs'
-import { foldOutbox, outboxKnown } from '../src/store.mjs'
+import { fileStore, foldOutbox, outboxKnown } from '../src/store.mjs'
 import { isUndelivered } from '../src/supervisor/rules/watch.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { stamp } from '../src/work/migrate.mjs'
 import { storeFromText } from '../src/work/read.mjs'
-import { SIDE_WORD, sideChatsOf, sideClosesOf, sideKeyOf, sideSessionOf, sideStateOf, sideWordFor } from '../src/work/sideWord.mjs'
-import { waitsOnOf } from '../src/work/waitsOn.mjs'
+import { SIDE_WORD, sideChatsOf, sideClosesOf, sideKeepOf, sideKeptFor, sideKeptOf, sideKeyOf, sideSessionOf, sideStateOf, sideWordFor, sideWordOf } from '../src/work/sideWord.mjs'
+import { hourMinute, waitsOnOf } from '../src/work/waitsOn.mjs'
 import { buildState } from './withStore.mjs'
 
 const MIN = 60_000
@@ -274,4 +277,116 @@ test('chat 1\'s re-check c: a word that waited too long reads as the end of its 
   assert.deepEqual(sideClosesOf({ words: known, liveKeys: new Set(), runningMs: () => 0 }), [{ id: 'w1', why: 'its wait ended' }])
   // One the board closed as expired before is not closed again.
   assert.deepEqual(sideClosesOf({ words: [word({ state: 'expired', closedAt: at(12, 30) })], liveKeys: new Set([KEY]), runningMs: () => 0 }), [])
+})
+
+// F53 (chat 1's core review of B1394, both on main before): a full limit leaves no wait without its word, and no card that shows and
+// vanishes. The looks below are the delivering board's (server.mjs: the closes, the cards kept, then the words due, each checked against
+// the outbox) over a store on files, so a board restart reads the outbox back from its log.
+
+/** One look of the delivering board's side part, as server.mjs makes it. */
+async function sideLook(store, state, now) {
+  for (const { id, why } of state.sideWordsClose) await store.close(id, 'dropped', why, now)
+  for (const one of state.sideCardsKept) {
+    const key = sideKeyOf(one.id, one.wait)
+    const keep = sideKeepOf({ side: { full: true }, word: sideWordOf(store.outbox(), key), kept: sideKeptOf(store.outbox(), key) })
+    if (keep === null) continue
+    if (keep.word === null) await store.say({ id: `k${store.outbox().length + 1}`, ...sideKeptFor({ late: one, worker: one.chat, wait: one.wait, now }) })
+    else await store.update(keep.word, { keepCard: true })
+  }
+  for (const one of state.sideWordsDue) {
+    if (sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) !== null) continue
+    await store.say({ id: `w${store.outbox().length + 1}`, ...sideWordFor({ late: one, worker: one.chat, wait: one.wait, found: { session: CHAT_1 }, now, overdue: one.overdue === true }) })
+  }
+}
+
+/**
+ * The board minute by minute from `from` to `to`: `isFullAt(now)` a limit is full then; each minute the state (its late cards and the
+ * words due), then the look; a hand sends the waiting word at `sendAt` (never while full); at `restartAt` the board starts anew on the
+ * same files. `{ seen: { 'HH:MM': { cards, due } }, outbox }`.
+ */
+async function minutes({ from, to, isFullAt, sendAt, restartAt }) {
+  const dir = await mkdtemp(join(tmpdir(), 'side-full-'))
+  try {
+    let store = await fileStore(dir, from)
+    const seen = {}
+    for (let now = from; now <= to; now += MIN) {
+      if (now === restartAt) store = await fileStore(dir, now)
+      const state = build({ now, week: isFullAt(now) ? 99 : 40, outbox: store.outbox().map(one => ({ ...one })) })
+      seen[hourMinute(now)] = { cards: lateCards(state).map(card => card.text.match(/Then [^.]*\./)?.[0] ?? 'the card'), due: state.sideWordsDue.length }
+      await sideLook(store, state, now)
+      if (now === sendAt) {
+        assert.equal(isFullAt(now), false, 'no hand sends while a limit is full')
+        const waiting = store.outbox().filter(one => one.command === SIDE_WORD && one.state === 'waiting')
+        assert.equal(waiting.length, 1)
+        await store.update(waiting[0].id, { state: 'delivered', deliveredAt: now })
+      }
+    }
+    return { seen, outbox: store.outbox() }
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+const ASKING = 'Then the board is asking chat 1.'
+const NOT_ASKED = 'Then the board did not ask chat 1: a limit is full.'
+const said = outbox => outbox.filter(one => one.command === SIDE_WORD && one.text !== '')
+
+test('F53 (a): a word given up while a limit is full is no word: still full, the "did not ask" card and no word; back, one new word that keeps the card', async () => {
+  const { seen, outbox } = await minutes({ from: at(12, 19), to: at(12, 38), isFullAt: now => now >= at(12, 20) && now < at(12, 36), sendAt: at(12, 37), restartAt: at(12, 36) })
+  assert.deepEqual(seen['12:19'], { cards: [], due: 1 })
+  // The word waited for a hand when the limit filled; its window ended at 12:29 while full: closed so. Still full: the same card, no word.
+  for (const minute of ['12:20', '12:28', '12:29', '12:30', '12:35']) assert.deepEqual(seen[minute], { cards: [NOT_ASKED], due: 0 }, minute)
+  assert.deepEqual(outbox.filter(one => one.id === 'w1').map(one => [one.state, one.why]), [['dropped', 'a limit is full']])
+  // Back (and the board started anew): due again, the card stays; then it names the one new word.
+  assert.deepEqual(seen['12:36'], { cards: ['the card'], due: 1 })
+  assert.deepEqual(seen['12:37'], { cards: [ASKING], due: 0 })
+  assert.deepEqual(seen['12:38'], { cards: ['Then the board asked chat 1 at 12:37.'], due: 0 })
+  assert.deepEqual(said(outbox).map(one => [one.id, one.state, one.keepCard]), [['w1', 'dropped', true], ['w2', 'delivered', true]])
+  // A word closed so on main before F53 (no keepCard): the same.
+  const before = [word({ state: 'dropped', why: 'a limit is full', closedAt: at(12, 29) })]
+  const full = build({ now: at(12, 35), week: 99, outbox: before })
+  assert.deepEqual([full.sideWordsDue, full.sideCardsKept, lateCards(full).map(card => card.text.match(/Then [^.]*\./)?.[0])], [[], [], [NOT_ASKED]])
+  const back = build({ now: at(12, 40), week: 40, outbox: before })
+  assert.deepEqual(back.sideWordsDue.map(one => [one.id, one.overdue]), [['B1300', true]])
+  assert.equal(lateCards(back).length, 1)
+  // Any other give-up stays the word of its wait: no second word.
+  assert.deepEqual(build({ now: at(12, 40), outbox: [word({ state: 'dropped', why: 'no hand sent it within 10 min' })] }).sideWordsDue, [])
+})
+
+test('F53 (b): full for 3 minutes, back inside the hand window, a word waiting: the card never vanishes until the one word went (a restart too)', async () => {
+  const { seen, outbox } = await minutes({ from: at(12, 19), to: at(12, 26), isFullAt: now => now >= at(12, 20) && now < at(12, 23), sendAt: at(12, 24), restartAt: at(12, 23) })
+  assert.deepEqual(seen['12:19'], { cards: [], due: 1 })
+  for (const minute of ['12:20', '12:21', '12:22']) assert.deepEqual(seen[minute], { cards: [NOT_ASKED], due: 0 }, minute)
+  for (const minute of ['12:23', '12:24']) assert.deepEqual(seen[minute], { cards: [ASKING], due: 0 }, minute)
+  for (const minute of ['12:25', '12:26']) assert.deepEqual(seen[minute], { cards: ['Then the board asked chat 1 at 12:24.'], due: 0 }, minute)
+  assert.deepEqual(said(outbox).map(one => [one.id, one.state, one.keepCard]), [['w1', 'delivered', true]])
+  assert.equal(outbox.filter(one => one.command === SIDE_WORD).length, 1, 'kept on the word itself, no record beside it')
+})
+
+test('F53 (b): full when the wait turns late, back 3 minutes later inside the hand window: the card stays, exactly one word goes (a restart too)', async () => {
+  const { seen, outbox } = await minutes({ from: at(12, 19), to: at(12, 25), isFullAt: now => now < at(12, 22), sendAt: at(12, 24), restartAt: at(12, 22) })
+  for (const minute of ['12:19', '12:20', '12:21']) assert.deepEqual(seen[minute], { cards: [NOT_ASKED], due: 0 }, minute)
+  assert.deepEqual(seen['12:22'], { cards: ['the card'], due: 1 })
+  for (const minute of ['12:23', '12:24']) assert.deepEqual(seen[minute], { cards: [ASKING], due: 0 }, minute)
+  assert.deepEqual(seen['12:25'], { cards: ['Then the board asked chat 1 at 12:24.'], due: 0 })
+  assert.deepEqual(said(outbox).map(one => [one.state, one.keepCard, one.at]), [['delivered', true, at(12, 22)]])
+  // The card's record: once, closed at once, no text (the log keeps it), no word of its wait.
+  assert.deepEqual(outbox.filter(one => one.text === '').map(one => [one.state, one.why, one.keepCard, one.at]), [['dropped', 'a limit is full', true, at(12, 19)]])
+  assert.equal(foldOutbox(`${JSON.stringify(outbox.find(one => one.text === ''))}\n`).length, 1)
+})
+
+test('F53: what the board writes down, and when not: only a card shown because a limit is full that the outbox does not keep yet', () => {
+  const full = { full: true }
+  assert.deepEqual(sideKeepOf({ side: full, word: null }), { word: null })
+  assert.equal(sideKeepOf({ side: full, word: null, kept: true }), null)
+  assert.deepEqual(sideKeepOf({ side: full, word: word() }), { word: 'w1' })
+  assert.equal(sideKeepOf({ side: full, word: word({ keepCard: true }) }), null)
+  assert.equal(sideKeepOf({ side: { full: false }, word: null }), null)
+  const late = { id: 'B1300', who: 'chat 1', since: WAIT_AT, limitMs: 90 * MIN }
+  assert.equal(sideStateOf({ late, word: null, runningMs: () => 0, isFull: true }).full, true)
+  assert.equal(sideStateOf({ late, word: word({ state: 'taken' }), runningMs: () => 0, isFull: true }).full, false, 'a hand has it: no card')
+  assert.equal(sideStateOf({ late, word: word({ state: 'dropped', why: 'session not found' }), runningMs: () => 0, isFull: true }).full, false, 'its own why')
+  // The state names what to write (the delivering board writes it, server.mjs): only while the card shows because a limit is full.
+  assert.deepEqual(build({ now: at(12, 19), week: 99 }).sideCardsKept.map(one => [one.id, one.who, one.chat, one.wait.at]), [['B1300', 'chat 1', 'Worker 1', '2026-11-21 10:49']])
+  assert.deepEqual(build({ now: at(12, 19), week: 40 }).sideCardsKept, [])
+  assert.deepEqual(build({ now: at(12, 19), week: 99, outbox: [word({ keepCard: true })] }).sideCardsKept, [])
 })
