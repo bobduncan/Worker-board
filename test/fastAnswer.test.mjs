@@ -37,7 +37,8 @@ test('workCtx answers from the kept state: no rebuild of its own, but for an unk
   const kept = bodyOf('  const keptStateFor = async (chat, action, of = null, forYou = false) => {')
   assert.match(kept, /keptStateWhy\(\{ last, now: clock\(\), chat, action, of, forYou, dirty: readState\.readAt\(\) === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS, pause \}\)/)
   // B1139: the store's pause for pause-state is read from pause.json at the call (fresh); one that cannot be read is no "running".
-  assert.match(kept, /readFile\(join\(workDir, PAUSE_FILE\), 'utf8'\)\.then\(text => parsePause\(text\)\?\.state \?\? null, error => \(error\?\.code === 'ENOENT' \? null : 'unreadable'\)\)/)
+  // The whole guard: only a pause-state call reads it (every other action hands null), and the read's state goes to keptStateWhy.
+  assert.match(kept, /const pause = action !== 'pause-state' \|\| workDir === null \? null\n\s+: await readFile\(join\(workDir, PAUSE_FILE\), 'utf8'\)\.then\(text => parsePause\(text\)\?\.state \?\? null, error => \(error\?\.code === 'ENOENT' \? null : 'unreadable'\)\)\n/)
   assert.match(kept, /return why === 'kept' \? last : readState\(\)/)
   // The work action gives the context the calling chat (a chat's call; the person's and the server's name none) and the action.
   assert.match(server, /workCtx\(\{ kept: body\?\.action === 'health', chat: as === undefined && typeof body\?\.chat === 'string' \? body\.chat : null, action: body\?\.action \?\? null, of: typeof body\?\.of === 'string' \? body\.of : null, forYou: Array\.isArray\(body\?\.forYou\) && body\.forYou\.length > 0 \}\)/)

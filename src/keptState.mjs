@@ -47,7 +47,8 @@ export function readsStoreFacts(action, of = null, forYou = false, pause = null)
   if (action === 'note') return /^G\d+$/i.test(String(of ?? '').trim())
   // B1139 (X93, chat 1's condition): pause-state reads the pause from the store itself (fresh) and only the lanes from the state. While
   // the store's pause is running (or there is none) the lanes drive nothing it answers: the mods' running-state polls answer from the
-  // kept state. While pausing or resuming the lanes drive the not-started list (the banner, whom Main wakes): read fresh then.
+  // kept state even after a write. While pausing or resuming the lanes drive the not-started list (the banner, whom Main wakes): after
+  // a write the state is read fresh then; a clean kept state still serves (a few seconds old on the live board, as before B1139).
   if (action === 'pause-state') return !(pause === null || pause === undefined || pause === 'running')
   if (action === 'turn-ended') return forYou === true
   return !KEPT_SAFE_ACTIONS.has(String(action ?? ''))
