@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { answer, typed } from '../fixtures/lines.mjs'
 import { foldOutbox } from '../src/store.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -71,9 +72,10 @@ async function until(check, what, ms = 60_000) {
 /**
  * A board whose five chats are closed: each reported its session ended at `spell` (40 minutes ago), none claims the hands. `waiting` the
  * chats a word (the person's answer) waits for; `attempts` more tries of each chat's spell, by name; `pause` the person's pause;
- * `courierAgo` minutes since the courier's last call as data/wakes.json keeps it (F59 review 5), or null.
+ * `courierAgo` minutes since the courier's last call as data/wakes.json keeps it (F59 review 5), or null; `running` the chats that run (they
+ * report idle, claim no hands: `keepRunning()` reports them again); `extra` more outbox lines, made from the board's spell and the time.
  */
-async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null, courierAgo = null } = {}) {
+async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null, courierAgo = null, running = [], extra = () => [] } = {}) {
   const now = Date.now()
   const spell = now - 40 * MIN
   const dir = await mkdtemp(join(tmpdir(), 'board-nohands-'))
@@ -89,7 +91,7 @@ async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, text)
   }
-  const lines = waiting.map((name, index) => ({ id: `answer00000000${index}`, at: now - 5 * MIN, to: name, ask: `chat:${name}`, step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }))
+  const lines = [...waiting.map((name, index) => ({ id: `answer00000000${index}`, at: now - 5 * MIN, to: name, ask: `chat:${name}`, step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' })), ...extra(spell, now)]
   await put(join(board, 'data', 'outbox.jsonl'), lines.length === 0 ? '' : `${lines.map(line => JSON.stringify(line)).join('\n')}\n`)
   const wakes = Object.fromEntries(Object.entries(attempts).map(([name, list]) => [name, [{ spell, attempts: list(spell, now), turnEndedAt: null, told: { failed: false, nobody: false } }]]))
   await put(join(board, 'data', 'wakes.json'), `${JSON.stringify({ wakes, ...(courierAgo === null ? {} : { courierAt: now - courierAgo * MIN }) })}\n`)
@@ -99,6 +101,11 @@ async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null
     await put(join(app, 'a', 'b', `${appId(name)}.json`), JSON.stringify({ title: `Game - ${name}`, sessionId: appId(name), cliSessionId: sessionOf(name), cwd: project, isArchived: false, createdAt: now - 600 * MIN, lastActivityAt: spell }))
   }
   await mkdir(transcripts, { recursive: true })
+  // A running chat as wakeCarryBoard's Main: its conversation and its chat file.
+  for (const name of running) {
+    await put(join(transcripts, `${sessionOf(name)}.jsonl`), `${[typed(now - 8 * MIN, 'Status?'), answer(now - 7 * MIN, 'All fine.')].join('\n')}\n`)
+    await put(join(project, '.claude', 'chats', `${sessionOf(name)}.json`), JSON.stringify({ name, role: name === 'Main' ? 'main' : 'worker', state: 'waiting', task: null, at: now - MIN }))
+  }
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'nohands', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
   const launchFile = join(dir, 'launches.jsonl')
@@ -115,7 +122,13 @@ async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null
     return parsed.result ?? parsed
   }
   // Every chat's session ended at `spell`: none runs (the app's relaunch).
-  for (const name of NAMES) await json('/api/bridge/report', { chat: name, session: sessionOf(name), report: { state: 'ended', since: spell, seq: 1, run: 1 } })
+  for (const name of NAMES.filter(one => !running.includes(one))) await json('/api/bridge/report', { chat: name, session: sessionOf(name), report: { state: 'ended', since: spell, seq: 1, run: 1 } })
+  let seq = 1
+  const keepRunning = async () => {
+    seq += 1
+    for (const name of running) await json('/api/bridge/report', { chat: name, session: sessionOf(name), report: { state: 'idle', since: now - 2 * MIN, seq, run: 1 } })
+  }
+  await keepRunning()
   const claim = async name => (await json('/api/bridge/hands', { chat: name, session: sessionOf(name), mod: '0.27.1', can: ['send'] })).jobs ?? []
   const courier = async () => (await json('/api/bridge/wakes-due', {})).wakes
   const words = async () => foldOutbox(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8'))
@@ -129,7 +142,7 @@ async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null
   const handsGone = () => pause(Math.max(0, upAt + 65_000 - Date.now()))
   /** Waits until F59's quiet (90 s here) has passed since the board's start: from then the board reads no hands. */
   const handsQuiet = () => pause(Math.max(0, upAt + 95_000 - Date.now()))
-  return { out, call, json, claim, courier, words, carried, record, launches, state, handsGone, handsQuiet, upAt, spell }
+  return { out, call, json, claim, courier, words, carried, record, launches, state, handsGone, handsQuiet, keepRunning, upAt, spell }
 }
 
 test('F59, the 10:23 case: no hand, five wakes due, the courier called before the board started (kept, review 5): nothing until the hands are quiet (review 2), then ONE courier word each, no launch before its window; the courier takes each once and keeps them', { timeout: 300_000 }, async t => {
@@ -214,6 +227,31 @@ test('F59 point 3: a launch that failed before the courier called: at the courie
   const wake = name => lanes.find(lane => lane.name === name).wake
   assert.deepEqual([wake('Worker 4').state, wake('Worker 4').final], ['sent', false])
   assert.deepEqual([wake('Worker 5').state, wake('Worker 5').final, wake('Worker 5').need], ['failed', true, false], JSON.stringify(wake('Worker 5')))
+})
+
+test('F59 re-check b: the courier stops calling: its untaken word goes back (no try spent) at the first pass after its alive window, and the launch goes', { timeout: 300_000 }, async t => {
+  // Main runs (no board-wide "nobody ran" launch), its hands claim nothing. Worker 4's courier word went a minute ago, untaken; the courier
+  // last called so long ago that it counts only until about 95 s from now (COURIER_ALIVE_MS).
+  const word = (spell, now) => [{ id: 'c0c0c0c0c0c0c0f9', at: now - MIN, to: 'the courier', command: 'wake-carry', about: 'Worker 4', forModel: true, spell, session: appId('Worker 4'), wakeText: 'The worker board holds words for you: run work next', text: 'Wake Worker 4', state: 'waiting' }]
+  const attempt = (spell, now) => [{ path: 'message', at: now - MIN, by: 'the courier', jobId: 'c0c0c0c0c0c0c0f9', sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: 'courier' }]
+  const { words, record, launches, keepRunning, upAt } = await boardOf(t, { waiting: ['Worker 4'], running: ['Main'], attempts: { 'Worker 4': attempt }, extra: word, courierAgo: 25 - 95 / 60 })
+  const carry = async () => (await words()).find(one => one.id === 'c0c0c0c0c0c0c0f9')
+  // While the courier counts (the passes of about 10 and 60 s): the word waits, no launch.
+  while (Date.now() < upAt + 100_000) {
+    await keepRunning()
+    await pause(10_000)
+  }
+  assert.equal((await carry()).state, 'waiting', 'it waits while the courier counts')
+  assert.deepEqual(await launches(), [], 'no launch while the courier counts')
+  // The first pass after its window (about 120 s): the word goes back, and Worker 4's own launch goes.
+  for (const end = Date.now() + 80_000; Date.now() < end && (await launches()).length === 0;) {
+    await keepRunning()
+    await pause(2000)
+  }
+  assert.deepEqual((await launches()).map(one => one.chat), ['Worker 4'])
+  assert.deepEqual([(await carry()).state, (await carry()).why], ['dropped', 'the courier no longer calls: the launch may go'])
+  await until(async () => ((await record()).wakes['Worker 4'].at(-1).attempts ?? []).every(one => one.jobId !== 'c0c0c0c0c0c0c0f9'), 'its attempt given back', 10_000)
+  assert.deepEqual((await record()).wakes['Worker 4'].at(-1).attempts.map(one => one.path), ['launch'], 'no try spent: the launch is the spell\'s one try')
 })
 
 test('F59: the person\'s pause holds it: no hand, the courier calling, nothing for it and no launch', { timeout: 300_000 }, async t => {

@@ -6518,6 +6518,13 @@ failed launch then the courier, the pause), `test/wakeNoHandsBoard.test.mjs` (th
    word goes to it.
 5. The courier's last call is kept in data/wakes.json (`courierAt`), so a restarted board still counts on it.
 6. COURIER_WAIT_MS is COURIER_ALIVE_MS (25 min): one missed courier run no longer spends the try. Each why says its own window.
+*Re-check (chat 1, 2026-11-24):*
+a. "No hand at all" for the notice and the rule is `noHandsOf` (wakeCarry.mjs; the facts' `noHands`, the state's `wakeNoHands`). It is
+   true when no hand that may send claims, and none is only in a long round (gone from the minute's window, not NO_HANDS_MS quiet yet).
+   One slow send of 2 minutes files no "no chat's hands run".
+b. Once the courier no longer calls (`courierAlive` false), its words it has not taken go back with their attempts unspent (`carryCloses`
+   `courierGone`, from `applyCarryCloses`), so the launch goes at the next pass instead of waiting up to 25 minutes for a word nobody
+   comes for.
 
 ## A lane's own chat, and one way back for a held step (B986, X140, 2026-11-04)
 

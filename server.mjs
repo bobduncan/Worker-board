@@ -120,7 +120,7 @@ import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isF
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, handMayTakeOver, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
-import { CARRY_BY_MODEL, COURIER, NO_HANDS_MS, isCarriedWord, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, carryingOf, courierAlive, courierSends, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandRefusedAlone, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, NO_HANDS_MS, isCarriedWord, noHandsOf, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, carryingOf, courierAlive, courierSends, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandRefusedAlone, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { landingRestarts, lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
@@ -2228,7 +2228,8 @@ async function main(args) {
   const wakeFacts = () => {
     const now = clock()
     const hands = handsNow(now)
-    return { record: wakes, senderClaims: sendersNow(now, hands), handsClaim: hands.senders, canLaunch: canLaunchNow() }
+    // Re-check a: `noHands`, no hand at all answers now (a hand in one long round is no hand gone), for "nobody answers" and its rule.
+    return { record: wakes, senderClaims: sendersNow(now, hands), handsClaim: hands.senders, noHands: noHandsOf(hands), canLaunch: canLaunchNow() }
   }
   /**
    * B1271 (X203; chat 1's review 1, 2): the hands now. `gone` (`handsGone`); `able`: a hand that may send by code (`maySend`) claims and
@@ -2861,7 +2862,7 @@ async function main(args) {
   const applyCarryCloses = async (state, now, { handSends = false } = {}) => {
     let changed = false
     const paused = carryPaused(state.pause)
-    for (const close of carryCloses({ outbox: store.outbox(), lanes: boardLanes(state), attemptOf: carriedAttemptOf, now, paused, handSends, handTakes: word => handMayTakeOver(wakes, word.about, word.id) })) {
+    for (const close of carryCloses({ outbox: store.outbox(), lanes: boardLanes(state), attemptOf: carriedAttemptOf, now, paused, handSends, handTakes: word => handMayTakeOver(wakes, word.about, word.id), courierGone: !courierAlive(lastCourierAt, now) })) {
       const word = store.outbox().find(one => one.id === close.id)
       if (word === undefined) continue
       // Verifier 8: the word's state before the close; a give-back only through a close of a word that still waits (a take in between

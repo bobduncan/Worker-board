@@ -267,6 +267,13 @@ export const courierAlive = (lastAt, now) => isTime(lastAt) && isTime(now) && no
 export const courierSends = ({ gone = false, courierAt = null, now }) => gone === true && courierAlive(courierAt, now)
 
 /**
+ * F59 re-check a (chat 1, 2026-11-24): whether no hand at all answers the board's wake-ups now, for "nobody answers the board's wake-ups"
+ * and the rule nobody-answers-wakes: no hand that may send claims (`senders`), and none is only in a long round (gone from the hands'
+ * window, HANDS_GONE_MS, but not NO_HANDS_MS quiet yet: one slow send). Hands that claim, all refused (not gone), are none, as before.
+ */
+export const noHandsOf = ({ senders = false, gone = false, quiet = false } = {}) => senders !== true && (quiet === true || gone !== true)
+
+/**
  * What the wake pass carries words for, `{ since }` or null: the app's refusal of the hands' sends (`refused`, `sendsRefusedOf`), every
  * hand that claims refused (`allRefused`, B1271), or F59's no hand while the courier calls (`{ since, noHands: true }`).
  */
@@ -321,6 +328,8 @@ export function dueOf(outbox, now, { anyRuns = true } = {}) {
 /** The courier's entry of a word. */
 export const dueEntry = message => ({ id: message.id, chat: message.about, session: message.session, text: message.wakeText })
 
+/** F59 re-check b: the why of a courier word given back because the courier no longer calls (COURIER_ALIVE_MS). */
+export const COURIER_GONE_WHY = 'the courier no longer calls: the launch may go'
 /** F59 review 1: the why of a courier word a hand that came back takes over. */
 export const HAND_BACK_WHY = 'a hand that may send is back: it sends the wake'
 
@@ -336,22 +345,25 @@ export const HAND_BACK_WHY = 'a hand that may send is back: it sends the wake'
  * attempt given back unspent, so that hand takes the message in its claim); a word the courier took (held, sent) stays its own, and so
  * does one whose message a hand would not take over (`handTakes(word)`, wake.mjs `handMayTakeOver`: B1279's word after a hand's send that
  * brought no report goes to a model or the courier, never to a hand again).
+ * F59 re-check b: `courierGone`, the courier no longer calls (`courierAlive` false): a word for it that it has not taken yet goes back too
+ * (no try spent), so the launch is no longer held off by a word nobody comes for.
  */
-export function carryCloses({ outbox, lanes, attemptOf, now, paused = false, handSends = false, handTakes = () => true }) {
+export function carryCloses({ outbox, lanes, attemptOf, now, paused = false, handSends = false, handTakes = () => true, courierGone = false }) {
   const out = []
   const laneOf = name => (lanes ?? []).find(lane => lane.name === name) ?? null
   for (const message of (outbox ?? []).filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state))) {
     const target = laneOf(message.about)
     const carrierGone = message.state === 'waiting' && message.to !== COURIER && !canCarry(laneOf(message.to), message.about, now, outbox)
     const isHandsAgain = handSends === true && message.state === 'waiting' && message.to === COURIER
+    const isCourierGone = courierGone === true && message.state === 'waiting' && message.to === COURIER
     if (typeof message.of === 'string') {
       if (paused && message.state === 'waiting') {
         out.push({ id: message.id, state: 'dropped', why: 'held back while you pause the chats', giveBack: false })
         continue
       }
       // Review 1: the start or wake word it carries is that hand's job again (no attempt to give back).
-      if (isHandsAgain) {
-        out.push({ id: message.id, state: 'dropped', why: HAND_BACK_WHY, giveBack: false })
+      if (isHandsAgain || isCourierGone) {
+        out.push({ id: message.id, state: 'dropped', why: isHandsAgain ? HAND_BACK_WHY : COURIER_GONE_WHY, giveBack: false })
         continue
       }
       // F17 check 1: one its carrier (the courier) took and never said it sent has the verdict's window, then it is closed.
@@ -372,6 +384,10 @@ export function carryCloses({ outbox, lanes, attemptOf, now, paused = false, han
     }
     if (isHandsAgain && attempt !== null && attempt.verdict === null && attempt.sentAt === null && !isTime(attempt.heldAt) && handTakes(message)) {
       out.push({ id: message.id, state: 'dropped', why: HAND_BACK_WHY, giveBack: true })
+      continue
+    }
+    if (isCourierGone && attempt !== null && attempt.verdict === null && attempt.sentAt === null && !isTime(attempt.heldAt)) {
+      out.push({ id: message.id, state: 'dropped', why: COURIER_GONE_WHY, giveBack: true })
       continue
     }
     if (attempt?.verdict === 'woke') out.push(isTime(attempt.sentAt) && attempt.self !== true ? { id: message.id, state: 'delivered', why: `${message.about} woke`, giveBack: false } : { id: message.id, state: 'dropped', why: `${message.about} woke by itself`, giveBack: false })

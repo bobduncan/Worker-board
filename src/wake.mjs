@@ -578,11 +578,14 @@ export function nothingWaitsFor(lane, { outbox = [], isPaused = false, owed = nu
  * its failed wake (`ranSince`) leaves the notice, the line is stale. A chat nothing waits for any more (`need.need === false`) gets a QUIET line
  * ("could not wake X at 10:32; nothing waits for it now", only for a chat in `nothingWaits`, a Set of chat names): the tone is 'quiet' when every line is quiet, 'attention' as soon as one is not.
  */
-export function noticeOf(record, targets, now, timeOf, { senderClaims = false, handsClaim = undefined, senderSince = -Infinity, nobody = null, reports = null, nothingWaits = null } = {}) {
+export function noticeOf(record, targets, now, timeOf, { senderClaims = false, handsClaim = undefined, noHands = undefined, senderSince = -Infinity, nobody = null, reports = null, nothingWaits = null } = {}) {
   const reportOf = chat => (reports instanceof Map ? reports.get(chat) : reports?.[chat]) ?? null
   // F59 review 4: `handsClaim`, whether a hand that may send claims (the hands' own claim, never the courier): "nobody answers" reads it,
   // and so does a chat nothing needs a wake for (no courier word is made for it). Without it, `senderClaims` as before.
   const hands = handsClaim === undefined ? senderClaims : handsClaim === true
+  // F59 re-check a: `noHands`, no hand at all answers now (wakeCarry.mjs `noHandsOf`: a hand in one long round is no hand gone), for
+  // "nobody answers"; without it, no hand that may send claims (`handsClaim`, else `senderClaims`) as before.
+  const away = noHands === undefined ? hands !== true : noHands === true
   const wakes = (targets ?? []).map(need => ({ need, wake: wakeOf(record, need, { senderClaims: need.need === false ? hands : senderClaims, senderSince }) }))
   const failed = wakes.filter(one => one.wake.final && !ranSince(record, one.need.chat, one.need.spell ?? null, reportOf(one.need.chat), now))
   const quiet = []
@@ -601,7 +604,7 @@ export function noticeOf(record, targets, now, timeOf, { senderClaims = false, h
   const board = nobody === null ? null : statusOf(record, BOARD_KEY, nobody.since ?? null)
   const isBoardFailed = board !== null && board.state === 'failed'
   const needs = wakes.filter(one => one.need.need !== false)
-  const isEveryone = hands !== true && needs.length > 0 && needs.every(one => one.wake.final || one.wake.state === 'waiting-sender')
+  const isEveryone = away && needs.length > 0 && needs.every(one => one.wake.final || one.wake.state === 'waiting-sender')
   if (isBoardFailed || isEveryone) lines.unshift('nobody answers the board\'s wake-ups: open any chat')
   return lines.length === 0 ? null : { tone: lines.every(line => quiet.includes(line)) ? 'quiet' : 'attention', text: lines.join(' · ') }
 }

@@ -187,7 +187,8 @@ test('the courier: wakes-due hands each word once with a fresh window; never a c
   const word = { id: 'c0c0c0c0c0c0c001', at: NOW - MIN, to: 'the courier', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'The worker board holds words for you: run work next', text: 'Wake Worker 2 for the worker board', state: 'waiting' }
   const taken = { ...word, id: 'c0c0c0c0c0c0c002', to: 'Worker 1' }
   const attempt = id => ({ path: 'message', at: NOW - MIN, by: id === word.id ? 'the courier' : 'Worker 1', jobId: id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: id === word.id ? 'courier' : 'model' })
-  const { call, json, words, record } = await boardWith(t, { refused: true, lines: [word, taken, { id: taken.id, state: 'taken', takenAt: NOW - 30_000 }], attempts: [attempt(word.id)] })
+  // F59 re-check b: the courier called when its word was made (data/wakes.json keeps its call): a word of a courier that no longer calls goes back.
+  const { call, json, words, record } = await boardWith(t, { refused: true, lines: [word, taken, { id: taken.id, state: 'taken', takenAt: NOW - 30_000 }], attempts: [attempt(word.id)], facts: { courierAt: Date.now() - MIN } })
   // Only the board's key.
   assert.equal((await call('/api/bridge/wakes-due', {}, { 'X-Board-Key': 'no' })).status, 403)
   const due = { id: word.id, chat: 'Worker 2', session: 'local_w2', text: 'The worker board holds words for you: run work next' }
@@ -207,7 +208,7 @@ test('the courier: wakes-due hands each word once with a fresh window; never a c
 test('review 12: a target that woke before the courier asked: its word is not listed', { timeout: 240_000 }, async t => {
   const word = { id: 'c0c0c0c0c0c0c003', at: NOW - MIN, to: 'the courier', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'x', text: 'Wake Worker 2', state: 'waiting' }
   const attempt = { path: 'message', at: NOW - MIN, by: 'the courier', jobId: word.id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: 'courier' }
-  const { json, words } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt] })
+  const { json, words } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt], facts: { courierAt: Date.now() - MIN } })
   // Worker 2 is back by itself (the person opened it): a report with a new run.
   await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'idle', since: Date.now(), seq: 2, run: 2 } })
   assert.deepEqual((await json('/api/bridge/wakes-due', {})).wakes, [])

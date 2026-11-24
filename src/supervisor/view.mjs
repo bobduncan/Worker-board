@@ -70,8 +70,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     // Signals change 4: the wake record's newest spell per chat (the rules wake-failed, nobody-answers-wakes, handover-unanswered).
     wakes: Object.freeze({ ...(state.wakes !== null && typeof state.wakes === 'object' ? state.wakes : {}) }),
     wakeBoardSince: Number.isFinite(state.wakeBoardSince) ? state.wakeBoardSince : null,
-    // F59 review 4: whether a hand that may send claims (the hands' own claim), or null when the state does not say.
-    wakeHandsClaim: typeof state.wakeHandsClaim === 'boolean' ? state.wakeHandsClaim : null,
+    // F59 review 4, re-check a: whether no hand at all answers the wake-ups now (never a hand in one long round), or null when the state does not say.
+    wakeNoHands: typeof state.wakeNoHands === 'boolean' ? state.wakeNoHands : null,
     // The start-up check (2026-11-05): the newest check's result (`state.check`), or null before the first; the rule check-unreachable reads it.
     check: state.check !== null && typeof state.check === 'object' ? Object.freeze({ ...state.check }) : null,
     limits: limits ?? state.limits ?? {},

@@ -10,7 +10,7 @@ import { handsGone } from '../src/opener.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
 import { carryPlan, claim, emptyWakes, givenBack, handMayTakeOver, launchPlan, nextPath, noticeOf, pass, sent, textOfWakes, wakeJobId, wakeNeeds, wakeOf, wakesOfFile, wakeWords } from '../src/wake.mjs'
-import { CARRY_VERDICT_MS, COURIER, COURIER_ALIVE_MS, COURIER_WAIT_MS, HAND_BACK_WHY, NO_HANDS_MS, carryCloses, carryPaused, carryingOf, courierSends, dueOf, isCarriedWord } from '../src/wakeCarry.mjs'
+import { CARRY_VERDICT_MS, COURIER, COURIER_ALIVE_MS, COURIER_GONE_WHY, COURIER_WAIT_MS, HAND_BACK_WHY, NO_HANDS_MS, carryCloses, carryPaused, carryingOf, courierAlive, courierSends, dueOf, isCarriedWord, noHandsOf } from '../src/wakeCarry.mjs'
 
 const MIN = 60_000
 /** 10:23: the app's relaunch ended every board chat's process (their spells). */
@@ -208,17 +208,70 @@ test('F59 review 4: "nobody answers the board\'s wake-ups" reads the hands\' own
   const { record, need } = bothFailed()
   const now = AT + 10 * MIN
   const line = 'nobody answers the board\'s wake-ups: open any chat'
-  // The courier counts as a sender (senderClaims), no hand claims (handsClaim false): the line stands.
-  assert.ok(noticeOf(record, [{ ...need, need: true }], now, time, { senderClaims: true, handsClaim: false }).text.startsWith(line))
-  // A hand that may send claims: no such line (as before); without the hands' fact, senderClaims as before.
-  assert.equal(noticeOf(record, [{ ...need, need: true }], now, time, { senderClaims: true, handsClaim: true }).text.startsWith(line), false)
+  // The courier counts as a sender (senderClaims), no hand at all (noHands, re-check a): the line stands.
+  assert.ok(noticeOf(record, [{ ...need, need: true }], now, time, { senderClaims: true, handsClaim: false, noHands: true }).text.startsWith(line))
+  // A hand that may send claims: no such line (as before); without the hands' facts, senderClaims as before.
+  assert.equal(noticeOf(record, [{ ...need, need: true }], now, time, { senderClaims: true, handsClaim: true, noHands: false }).text.startsWith(line), false)
   assert.equal(noticeOf(record, [{ ...need, need: true }], now, time, { senderClaims: true }).text.startsWith(line), false)
   // The Supervisor's rule: every chat with a need could not be woken, no board-wide launch (none goes while the courier calls), no hand.
   const lane = { ...closed('Worker 4', 3), onSequence: true, wake: { state: 'failed', final: true, need: true, spell: ENDED, why: 'no report within 2 minutes of the message', attempts: record.wakes.get('Worker 4').at(-1).attempts } }
-  const viewOf = handsClaim => buildView({ state: { chats: [lane], today: [], limits: {}, pause: null, chatPrefix: '', readyList: null, gaps: [], wakes: {}, wakeHandsClaim: handsClaim }, items: new Map(), outbox: [], settings: {}, now })
+  const viewOf = noHands => buildView({ state: { chats: [lane], today: [], limits: {}, pause: null, chatPrefix: '', readyList: null, gaps: [], wakes: {}, wakeNoHands: noHands }, items: new Map(), outbox: [], settings: {}, now })
   const rule = WATCH_RULES.find(one => one.id === 'nobody-answers-wakes')
-  assert.deepEqual(rule.check(viewOf(false), { seen: new Map(), observed: [] }).map(one => one.text), ['nobody answers the board\'s wake-ups: Worker 4 could not be woken, and no chat\'s hands run'])
-  assert.deepEqual(rule.check(viewOf(true), { seen: new Map(), observed: [] }), [], 'a hand claims: none')
+  assert.deepEqual(rule.check(viewOf(true), { seen: new Map(), observed: [] }).map(one => one.text), ['nobody answers the board\'s wake-ups: Worker 4 could not be woken, and no chat\'s hands run'])
+  assert.deepEqual(rule.check(viewOf(false), { seen: new Map(), observed: [] }), [], 'a hand claims: none')
+})
+
+test('F59 re-check a: a live hand in one long round (a slow send, 2 minutes without a claim) is no hand gone: no "nobody answers", the Supervisor\'s rule files nothing; after NO_HANDS_MS of quiet it does', () => {
+  const { record, need } = bothFailed()
+  const startedAt = AT - 60 * MIN
+  const claims = new Map([['Worker 3', { at: AT + 8 * MIN, can: ['send'], mod: '0.27.1' }]])
+  const handsAt = now => {
+    const gone = handsGone({ claims, now, startedAt })
+    return { senders: !gone, gone, quiet: gone && handsGone({ claims, now, startedAt, quietMs: NO_HANDS_MS }) }
+  }
+  const lane = { ...closed('Worker 4', 3), onSequence: true, wake: { state: 'failed', final: true, need: true, spell: ENDED, why: 'no report within 2 minutes of the message', attempts: record.wakes.get('Worker 4').at(-1).attempts } }
+  const rule = WATCH_RULES.find(one => one.id === 'nobody-answers-wakes')
+  const filed = now => {
+    const noHands = noHandsOf(handsAt(now))
+    const view = buildView({ state: { chats: [lane], today: [], limits: {}, pause: null, chatPrefix: '', readyList: null, gaps: [], wakes: {}, wakeNoHands: noHands }, items: new Map(), outbox: [], settings: {}, now })
+    const notice = noticeOf(record, [{ ...need, need: true }], now, time, { senderClaims: true, handsClaim: handsAt(now).senders, noHands })
+    return { noHands, rule: rule.check(view, { seen: new Map(), observed: [] }).length, nobody: notice.text.startsWith('nobody answers') }
+  }
+  // Worker 3's hand last claimed at 10:32 and is in one send for two minutes: gone from the minute's window, not quiet.
+  assert.deepEqual(filed(AT + 10 * MIN), { noHands: false, rule: 0, nobody: false })
+  // Quiet for NO_HANDS_MS: no hand at all.
+  assert.deepEqual(filed(AT + 8 * MIN + NO_HANDS_MS), { noHands: true, rule: 1, nobody: true })
+  // Hands that claim, every one refused (not gone): none answers, as before.
+  assert.equal(noHandsOf({ senders: false, gone: false, quiet: false }), true)
+  assert.equal(noHandsOf({ senders: true, gone: false, quiet: false }), false)
+})
+
+test('F59 re-check b: the courier no longer calls: its words it has not taken go back (no try spent), so the launch goes; a word it holds stays', () => {
+  const record = emptyWakes()
+  const needs = needsNow()
+  const words = planOf(record)
+  // 10:24 the words; the courier last called at 10:18, so it counts until 10:43.
+  const courierAt = AT - 6 * MIN
+  assert.equal(courierAlive(courierAt, courierAt + COURIER_ALIVE_MS), true)
+  const gone = courierAt + COURIER_ALIVE_MS + 1
+  assert.equal(courierAlive(courierAt, gone), false)
+  // Worker 2's word the courier took at 10:30 (held): it stays.
+  const held = words.find(one => one.about === 'Worker 2')
+  Object.assign(attemptOfIn(record)(held), { heldAt: AT + 6 * MIN })
+  const outbox = words.map(one => (one === held ? { ...one, state: 'taken', takenBy: COURIER, takenAt: AT + 6 * MIN } : one))
+  assert.deepEqual(carryCloses({ outbox, lanes: CHATS, attemptOf: attemptOfIn(record), now: gone - 1, courierGone: false }), [], 'while it counts: nothing')
+  const closes = carryCloses({ outbox, lanes: CHATS, attemptOf: attemptOfIn(record), now: gone, courierGone: true })
+  const aboutOf = id => words.find(one => one.id === id).about
+  const untaken = NAMES.filter(name => name !== 'Worker 2')
+  assert.deepEqual(closes.map(one => [aboutOf(one.id), one.state, one.giveBack, one.why]), untaken.map(name => [name, 'dropped', true, COURIER_GONE_WHY]))
+  for (const close of closes) assert.equal(givenBack(record, aboutOf(close.id), close.id), true)
+  // No courier, no hand: the launch is next for those chats (one per check, the main chat first); Worker 2's held word keeps its window.
+  assert.deepEqual(launchPlan(record, { needs, nobody: null, senderClaims: false }), { key: 'Main', chat: 'Main', session: uuid(1), spell: ENDED })
+  for (const need of needs) assert.equal(nextPath(record, { chat: need.chat, spell: need.spell, senderClaims: false, paths: need.paths }), need.chat === 'Worker 2' ? null : 'launch', need.chat)
+  // A start or wake word's carry for the courier goes back too.
+  const of = { id: 'o2', at: AT, to: COURIER, command: 'wake-carry', about: 'Worker 5', forModel: true, spell: null, state: 'waiting', of: 'start2' }
+  const start = { id: 'start2', at: AT, to: 'Main', command: 'start', about: 'Worker 5', state: 'waiting' }
+  assert.deepEqual(carryCloses({ outbox: [of, start], lanes: CHATS, attemptOf: () => null, now: gone, courierGone: true }).map(one => [one.id, one.state, one.why]), [['o2', 'dropped', COURIER_GONE_WHY]])
 })
 
 test('F59, the unverified point: a chat nothing needs a wake for whose launch failed keeps "could not wake" when the courier starts counting (no courier word is made for it)', () => {

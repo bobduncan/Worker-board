@@ -1593,9 +1593,9 @@ function startUntaken(view) {
 
 /**
  * Signals change 4, B908 (decision 7): nobody answers the board's wake-ups: every chat that needs a wake failed on every
- * path, and the board-wide spell's launch failed too. One finding per day (the board's local date). F59 review 4: or no hand that
- * may send claims (`wakeHandsClaim` false): while no hand runs and the courier calls no board-wide launch goes, and each chat's own
- * courier word and launch failed.
+ * path, and the board-wide spell's launch failed too. One finding per day (the board's local date). F59 review 4: or no hand at all
+ * answers now (`wakeNoHands`, re-check a: never a hand only in one long round): while no hand runs and the courier calls no board-wide
+ * launch goes, and each chat's own courier word and launch failed.
  */
 function nobodyAnswersWakes(view) {
   // The start-up check names the chats it could not reach in one incident of their cause: they are not a second alarm here.
@@ -1605,7 +1605,7 @@ function nobodyAnswersWakes(view) {
   const failedAt = Math.max(...(board?.attempts ?? []).map(one => one.verdictAt).filter(Number.isFinite))
   const isNow = board !== null && ((Number.isFinite(view.wakeBoardSince) && board.spell === view.wakeBoardSince) || view.now - failedAt <= DAY)
   const boardFailed = board?.state === 'failed' && isNow
-  if (needs.length === 0 || !needs.every(lane => lane.wake.state === 'failed' && lane.wake.final === true) || !(boardFailed || view.wakeHandsClaim === false)) return []
+  if (needs.length === 0 || !needs.every(lane => lane.wake.state === 'failed' && lane.wake.final === true) || !(boardFailed || view.wakeNoHands === true)) return []
   return [{
     rule: 'nobody-answers-wakes', key: `nobody-answers-wakes ${dayOfMs(view.now)}`, subject: 'board',
     text: `nobody answers the board's wake-ups: ${needs.map(lane => lane.name).join(', ')} could not be woken, and ${boardFailed ? 'the launch when nobody ran failed' : 'no chat\'s hands run'}`,
