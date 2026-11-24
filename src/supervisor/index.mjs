@@ -34,6 +34,7 @@ export { incidentCards }
  * to the supervisor as `owns`, so the list runs only where every other loop of the board runs.
  */
 export { loopGate, loopOwner } from './loop.mjs'
+export { claimFileOf, claimPorts } from './claimFile.mjs'
 // Leaked headless browsers (2026-11-13): the server's port that closes one (the boundary: server.mjs imports the supervisor here alone).
 export { closeLeaked } from './browsers.mjs'
 

@@ -147,7 +147,9 @@ test('an unknown side chat: the record says why and the card comes at 90 min wit
   assert.deepEqual([record.state, record.why, record.session], ['dropped', unknown.why, undefined])
   const cards = lateCards(build({ now: at(12, 19), who: 'chat 3', outbox: [{ id: 'w3', ...record }] }))
   assert.equal(cards.length, 1)
-  assert.match(cards[0].text, /Then the board could not ask chat 3: chat 3 is not known to the board \(no app id in side-chats\.json\)\./)
+  // B1394 (principle 16): the card names no file.
+  assert.match(cards[0].text, /Then the board could not ask chat 3: chat 3 is not known to the board\./)
+  assert.doesNotMatch(cards[0].text, /side-chats/)
   // Two ids, one per account: the one the app lists under the board's account; only another account's: no word, with why.
   const two = sideChatsOf(JSON.stringify({ 'Chat 1': ['local_fake-work', CHAT_1], 'chat 9': [CHAT_1], 'chat 2': 'not-an-id' }))
   assert.deepEqual(two, { 'chat 1': ['local_fake-work', CHAT_1] })
@@ -203,6 +205,12 @@ test('chat 1\'s crossing 2: a refused side send marks that hand alone, never the
   const side = done.indexOf('one.command === SIDE_WORD')
   assert.ok(side > 0 && side < done.indexOf('const chat = wakeChatOf(id)'), 'the side word branch comes before the wake path')
   assert.match(done.slice(side, side + 500), /noteHandRefusedAlone\(wakes, checked\.chat, clock\(\)\)[\s\S]*continue/)
+})
+
+test('B1394: while a limit is full a waiting side word is no hand\'s; every other hand word stays one', () => {
+  assert.equal(isHandWord(word()), true)
+  assert.equal(isHandWord(word(), { isFull: true }), false)
+  assert.equal(isHandWord({ id: 'w2', command: 'wake', about: 'Worker 1' }, { isFull: true }), true)
 })
 
 test('chat 1\'s blocker: while a limit is full no word is due and the card comes as before, saying so; after the reset one word goes and the card stays', () => {
