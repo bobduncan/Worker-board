@@ -4316,7 +4316,10 @@ the AI sweep by a cheap supervisor chat and the hand-over to the Advisor, comes 
   a block by steps that all wait for the person alone (B916), a block by steps that all move and any hold while a limit is full (B1021), a hold in words on a fix of the focus goal for its first 12 h (B1295) and a hold the watch only just saw are not odd there either,
   `stale-checkpoint` (B572, the fix of X24: a step in progress over 120 min with no checkpoint within them, or whose
   last checkpoint's next action is to report, written over 30 min ago; one finding per step and checkpoint; not while
-  the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; the health summary shows each step in progress with its
+  the person pauses, a limit is full or its worker is suspended for the limit, and its suspended time does not count; B1302, the fix of X211: not while a run of the step's
+  folder (`-b<id>` of the step, or of the step its Quality Assurance task checks) waits in the PC's test queue or runs there, read only from tools/one-at-a-time.mjs's lock, slot files and `.queue`
+  tickets (src/testQueue.mjs `readTestQueue`, live pids only; the view's `testQueue`), and its quiet time counts from the last pass that saw such a run, kept per folder in the supervisor's memory
+  (`queueSeen`, 3 days); the exemption is capped (`queueExcuseOf`): once 3 x 120 min of running time passed since the last checkpoint (or the stretch's start) the queue excuses nothing and is not shown, so a chat that loops on test runs is reported (the review of c055ddd2); the folder is named by the board's one rule `namesStep` (src/work/stepNames.mjs, also worktrees.mjs); the health summary says "waits in the test queue since HH:MM, N ahead" (or "its test run goes since HH:MM") beside the checkpoint; the health summary shows each step in progress with its
   last checkpoint's age, commit and next action, "!" when stale), `effort-mismatch` (B576, the fix of X26: a worker
   whose effort, or model where the settings name model ids, differs from its step's over 10 min after the take, with no
   switch read back; one finding per chat and step; not while the person pauses or a limit is full, and the pause's time

@@ -14,6 +14,7 @@ import { BUSY } from '../write.mjs'
 import { browserMemory, watchBrowsers } from './browsers.mjs'
 import { CHECKS, REPAIR_RULES } from './rules/repair.mjs'
 import { buildView } from './view.mjs'
+import { folderKey } from '../testQueue.mjs'
 
 const MIN = 60_000
 
@@ -236,9 +237,14 @@ export function memoryOf(value) {
   // restarted does not try the same browser again (a failed close too); pruned to the browsers still listed.
   const browsers = value?.browsers !== null && typeof value?.browsers === 'object'
     ? Object.entries(value.browsers).filter(([, tried]) => Number.isFinite(tried?.at) && typeof tried?.ok === 'boolean').map(([key, tried]) => [key, { at: tried.at, ok: tried.ok }]) : []
-  return { seen: new Map(seen), repairs, trips: new Map(trips), runs: new Map(runs), browsers: new Map(browsers) }
+  // B1302 (X211): when each folder was last seen in the PC's test queue (folder key → ms), so a step whose run waited there counts its quiet time from the
+  // pass that saw it last, across a board restart; the memory keeps TEST_QUEUE_KEPT_MS of it.
+  const queueSeen = value?.queueSeen !== null && typeof value?.queueSeen === 'object' ? Object.entries(value.queueSeen).filter(([, at]) => Number.isFinite(at)) : []
+  return { seen: new Map(seen), repairs, trips: new Map(trips), runs: new Map(runs), browsers: new Map(browsers), queueSeen: new Map(queueSeen) }
 }
-const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips), runs: Object.fromEntries(memory.runs), browsers: Object.fromEntries(memory.browsers ?? []) })
+/** B1302: how long the memory keeps the time a folder was last seen in the test queue. */
+const TEST_QUEUE_KEPT_MS = 3 * DAY_MS
+const memoryText = memory => JSON.stringify({ seen: Object.fromEntries(memory.seen), repairs: memory.repairs, trips: Object.fromEntries(memory.trips), runs: Object.fromEntries(memory.runs), browsers: Object.fromEntries(memory.browsers ?? []), queueSeen: Object.fromEntries(memory.queueSeen ?? []) })
 
 /** Signals change 6: how a rule stood in one run, for the gone clock: it looked (`complete`), it did not (`skipped`), or it threw. */
 const RUN_STATES = ['complete', 'skipped', 'failed']
@@ -310,8 +316,11 @@ export function syncRunner(ports, rules = REPAIR_RULES, watch = []) {
     const observed = []
     const items = await ports.items()
     const assets = typeof ports.assets === 'function' ? await ports.assets() : null
+    // B1302 (X211): the PC's test queue now, and the last time each folder was seen in it (kept in the memory, so a restart keeps it).
+    const queue = await lookTestQueue(ports)
+    memory.queueSeen = queueSeenAfter(memory.queueSeen, queue, now)
     const view = buildView({
-      state, items, assets, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), browsers: await lookBrowsers(ports, browsers, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
+      state, items, assets, testQueue: { runs: queue, seen: memory.queueSeen }, outbox: ports.outbox(), keep: ports.keep, refused: ports.refused(), leftovers: await lookLeftovers(ports, items, now), browsers: await lookBrowsers(ports, browsers, now), bases: await lookBases(ports), branches: await lookBranches(ports), live: lookLive(ports),
       repairs: memory.repairs, mods: typeof ports.mods === 'function' ? await ports.mods() : null, settings: ports.settings ?? {}, now,
     })
     const repairs = runRules(rules, view, { seen, observed })
@@ -601,4 +610,25 @@ export function loopGate({ owner, now, holdMs = 1000, onGained, onFailed, onSucc
     })().finally(() => { asking = null })
     return asking
   }
+}
+
+/**
+ * B1302 (X211): the PC's test queue through the runner's port `testQueue()` (src/testQueue.mjs `readTestQueue`): the runs that wait or run,
+ * `[{ cwd, label, state, since, ahead }]`; none without the port, or when the look fails (a rule then sees no queue, as before).
+ */
+export async function lookTestQueue(ports) {
+  if (typeof ports.testQueue !== 'function') return []
+  try {
+    const found = await ports.testQueue()
+    return Array.isArray(found) ? found : []
+  } catch {
+    return []
+  }
+}
+
+/** B1302: the memory of when each folder was last seen in the test queue, this pass's runs added (their folder key → `now`), the old ones past TEST_QUEUE_KEPT_MS gone. PURE. */
+export function queueSeenAfter(before, runs, now) {
+  const next = new Map([...(before ?? new Map())].filter(([, at]) => now - at < TEST_QUEUE_KEPT_MS))
+  for (const run of runs) next.set(folderKey(run.cwd), now)
+  return next
 }

@@ -9,7 +9,7 @@
 
 import { incidentCards } from './cards.mjs'
 import { HEALTH_OWNERS, healthSummary, oddLines } from './health.mjs'
-import { SYNC_EVERY_MS, memoryOf, syncRunner } from './loop.mjs'
+import { SYNC_EVERY_MS, lookTestQueue, memoryOf, queueSeenAfter, syncRunner } from './loop.mjs'
 import { buildView } from './view.mjs'
 import { REFUSED_MS, REPAIR_RULES } from './rules/repair.mjs'
 import { WATCH_RULES, isNearStop, isUndelivered, undeliveredJudged, wordMatters, wordWhyClosed } from './rules/watch.mjs'
@@ -161,8 +161,11 @@ export function createSupervisor(ports) {
     const state = runnerPorts.keptState?.() ?? await runnerPorts.state()
     const items = runnerPorts.keptItems?.() ?? await runnerPorts.items()
     const assets = typeof runnerPorts.assets === 'function' ? await runnerPorts.assets() : null
+    // B1302 (X211): the PC's test queue as the loop sees it, for the health lines and the same stale-checkpoint judgement.
+    const queue = await lookTestQueue(runnerPorts)
     const view = buildView({
       state, items, outbox: runnerPorts.outbox(), repairs: memoryOf(kept).repairs, seen: memoryOf(kept).seen,
+      testQueue: { runs: queue, seen: queueSeenAfter(memoryOf(kept).queueSeen, queue, now) },
       settings: settings.supervisor ?? {}, assets, now,
     })
     return { view, now }
