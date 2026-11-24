@@ -4,7 +4,7 @@
 // It is given the idea's own words and the reference pictures, nothing from a chat or a transcript. Codex is the
 // OpenAI command line the person is signed in to; the board holds no key and calls no service itself.
 
-import { spawn } from 'node:child_process'
+import { execFile as execFileNode, spawn } from 'node:child_process'
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -16,13 +16,62 @@ import { writeAtomic } from './write.mjs'
 const PICTURE = 'picture.png'
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47])
 
+/** The Microsoft Store package the Codex app updates itself into, found by its name (its folder carries a version). */
+const STORE_PACKAGE = 'OpenAI.Codex'
+const STORE_SECONDS = 10
+let storeFound = null
+
+const versionParts = text => String(text).split('.').map(part => Number.parseInt(part, 10) || 0)
+const newerVersion = (a, b) => {
+  const [x, y] = [versionParts(a), versionParts(b)]
+  for (let at = 0; at < Math.max(x.length, y.length); at++) if ((x[at] ?? 0) !== (y[at] ?? 0)) return (x[at] ?? 0) - (y[at] ?? 0)
+  return 0
+}
+
 /**
- * Where Codex is: the path the settings give, else the newest `codex.exe` under the Codex app's folder (its name
- * changes with every update of the app). Null when there is none.
+ * B1311: the `codex.exe` inside the Store package `OpenAI.Codex` (Windows only), by asking Windows for the package, not by
+ * a versioned folder name: the newest version whose `app\resources\codex.exe` is there. The question is hidden and ends after
+ * a few seconds; any failure is "not found", never a throw. The answer is kept while the board runs and its file is there,
+ * so the board's regular check and each picture job do not start PowerShell again (`execFile` stands in for the program
+ * start, the tests'; only the real one is kept).
  */
-export async function findCodex({ given = '', env = process.env, platform = process.platform } = {}) {
+export async function findStoreCodex({ execFile = execFileNode, platform = process.platform } = {}) {
+  if (platform !== 'win32') return null
   const isFile = async path => (await stat(path).then(found => found.isFile(), () => false))
-  if (given !== '') return (await isFile(given)) ? given : null
+  const real = execFile === execFileNode
+  if (real && storeFound !== null && (await isFile(storeFound))) return storeFound
+  const command = `Get-AppxPackage ${STORE_PACKAGE} | ForEach-Object { "$($_.Version)|$($_.InstallLocation)" }`
+  const text = await new Promise(done => {
+    try {
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, timeout: STORE_SECONDS * 1000, encoding: 'utf8' }, (error, out) => done(error ? '' : String(out ?? '')))
+    } catch {
+      done('')
+    }
+  })
+  const packages = []
+  for (const line of text.split(/\r?\n/)) {
+    const cut = line.indexOf('|')
+    if (cut < 0 || line.slice(cut + 1).trim() === '') continue
+    packages.push({ version: line.slice(0, cut).trim(), path: join(line.slice(cut + 1).trim(), 'app', 'resources', 'codex.exe') })
+  }
+  packages.sort((a, b) => newerVersion(b.version, a.version))
+  for (const one of packages) {
+    if (await isFile(one.path)) {
+      if (real) storeFound = one.path
+      return one.path
+    }
+  }
+  return null
+}
+
+/**
+ * Where Codex is: the path the settings give while its file is there; else (also when that path is gone, B1311: an old
+ * package folder) the newest `codex.exe` under the Codex app's folder (its name changes with every update of the app), then
+ * the PATH, then, on Windows, the Microsoft Store package. Null when there is none. It never writes the settings.
+ */
+export async function findCodex({ given = '', env = process.env, platform = process.platform, execFile = execFileNode } = {}) {
+  const isFile = async path => (await stat(path).then(found => found.isFile(), () => false))
+  if (given !== '' && (await isFile(given))) return given
   // B214: Codex as a program on the PATH, as it is installed on a Mac or Linux (and may be on Windows).
   const onPath = async () => {
     const byUpper = new Map(Object.entries(env).map(([name, value]) => [name.toUpperCase(), value]))
@@ -30,7 +79,7 @@ export async function findCodex({ given = '', env = process.env, platform = proc
     for (const folder of folders) {
       for (const name of platform === 'win32' ? ['codex.exe', 'codex.cmd'] : ['codex']) if (await isFile(join(folder, name))) return join(folder, name)
     }
-    return null
+    return findStoreCodex({ execFile, platform })
   }
   const home = platform === 'win32' ? env.LOCALAPPDATA ?? env.LocalAppData : null
   if (typeof home !== 'string' || home === '') return onPath()
