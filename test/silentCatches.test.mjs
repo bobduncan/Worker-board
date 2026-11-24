@@ -97,7 +97,7 @@ test('B467: the app\'s folder, the kinds of idea, another board\'s task times an
 })
 
 test('B446: the goal guard after a chat\'s checked runs as a loop', () => {
-  const action = part('const workAction = async (body, as) => {', 'if (done.ok && done.result.changed !== false)')
+  const action = part('const workAction = async (body, as, trace = null) => {', 'if (done.ok && done.result.changed !== false)')
   // T9.1.1: no loop asks the Advisor for a result check any more: the work API makes the task.
   assert.doesNotMatch(action, /result-check|askResultCheck/)
   assert.match(action, /loops\.run\('guard', async \(\) => guardNow\(await goalOfChecked\(body\.id\)\)\)/)

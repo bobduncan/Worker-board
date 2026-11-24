@@ -142,6 +142,8 @@ export function stallLog({ now = Date.now, overMs = STALL_MS, most = MOST_STALLS
     track,
     tick,
     slowCall,
+    /** B1139: the board's jobs that ran between `from` and `to` (a work call's trace names them). */
+    jobsDuring: (from, to) => during(from, to, 'job'),
     load,
     recent: () => stalls.map(one => ({ ...one, requests: [...one.requests], jobs: [...one.jobs] })),
     saved: () => saving,
