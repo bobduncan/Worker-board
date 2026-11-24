@@ -73,6 +73,11 @@
           <button class="cpu-level" type="button" data-setting="approveRebuilds" data-value="false" title="A rebuild your partner's evaluation proposes waits for your yes">Off</button>
           <button class="cpu-level" type="button" data-setting="approveRebuilds" data-value="true" title="A rebuild your partner's evaluation proposes goes ahead at once, and you get a recap">On</button>
         </div>
+        <div class="cpu board-setting" id="beyond-focus" role="group" aria-label="Any backlog task when idle" hidden>
+          <span class="cpu-label">Any backlog task when idle</span>
+          <button class="cpu-level" type="button" data-setting="handOutBeyondFocus" data-value="false" title="A free worker takes fixes, the focus, the backup focus and what you queued only">Off</button>
+          <button class="cpu-level" type="button" data-setting="handOutBeyondFocus" data-value="true" title="When none of those is ready, a free worker takes any refined task of the backlog">On</button>
+        </div>
         <div class="cpu board-setting" id="max-workers" role="group" aria-label="Workers at most" hidden>
           <span class="cpu-label">Workers at most</span>
           <button class="cpu-level cpu-step" type="button" data-setting="maxWorkers" data-step="-1" title="One worker fewer at most" aria-label="One worker fewer">−</button>

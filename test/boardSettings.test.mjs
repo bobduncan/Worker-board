@@ -45,8 +45,8 @@ test('only the settings the panel has, each with its own values; "Bother me" is 
 
 test('the panel shows the settings as the board reads them, and whether this board may change them', () => {
   // Autopilot (2026-10-31): the panel's answer carries `autopilot` too (off unless the person switched it on).
-  assert.deepEqual(panelSettings(parseConfig('{}', {})), { approveRebuilds: false, maxWorkers: 5, autopilot: false, canSet: true, whyNot: null })
-  assert.deepEqual(panelSettings(parseConfig('{"botherMe":"daily","approveRebuilds":true,"maxWorkers":7}', {}), { canSet: false, whyNot: 'This board only shows.' }), { approveRebuilds: true, maxWorkers: 7, autopilot: false, canSet: false, whyNot: 'This board only shows.' })
+  assert.deepEqual(panelSettings(parseConfig('{}', {})), { approveRebuilds: false, maxWorkers: 5, autopilot: false, handOutBeyondFocus: false, canSet: true, whyNot: null })
+  assert.deepEqual(panelSettings(parseConfig('{"botherMe":"daily","approveRebuilds":true,"maxWorkers":7}', {}), { canSet: false, whyNot: 'This board only shows.' }), { approveRebuilds: true, maxWorkers: 7, autopilot: false, handOutBeyondFocus: false, canSet: false, whyNot: 'This board only shows.' })
 })
 
 test('B-max: "Workers at most" is the config\'s number, else 5, whatever the config object holds', () => {

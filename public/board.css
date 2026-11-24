@@ -2118,6 +2118,9 @@ dialog::backdrop { background: rgba(4, 7, 12, 0.74); }
 .block-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .block-chip { display: inline-block; padding: 0 7px; border: 1px solid #2a3a52; border-radius: 9px; color: #9fb0c8; font-size: 11px; line-height: 1.5; vertical-align: 1px; }
 .block-chip.is-focus { border-color: #2f5d8a; color: #9cc2ee; }
+.focus-backup-pick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.focus-backup-pick select { max-width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; font-size: 14px; }
+.focus-backup .focus-ticks + .focus-backup-pick, .focus-backup .muted + .focus-backup-pick { margin-top: 10px; }
 .block-chip.is-you { border-color: #3d5a3d; color: #a9d6a9; }
 .block-goal { color: var(--muted); font-size: 12px; white-space: nowrap; }
 a.block-goal { color: #7f9cc4; text-decoration: none; border-bottom: 1px dotted #3a4d6a; justify-self: start; }
