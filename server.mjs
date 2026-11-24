@@ -82,12 +82,12 @@ import { recheckText, roundText, roundsNow } from './src/rounds.mjs'
 import { editStep, settleByBoard } from './src/tick.mjs'
 import { editThread, fixesToTell, strandedToTell } from './src/brainstorm.mjs'
 import { CLASH, brainstormClickOf, clickIdOf, clickLedger, movedOn, oneClick, retryClick } from './src/clicks.mjs'
-import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, keepGoalWords, setGoalSteps } from './src/goalsWrite.mjs'
+import { addDoneWhenStep, addPartStep, changeGoalsFile, editGoals, keepGoalWords, setBackup, setGoalSteps } from './src/goalsWrite.mjs'
 import { parseGoals } from './src/goals.mjs'
 import { activityFor, askToStep, missingToSteps, stepMadeFrom } from './src/goalSteps.mjs'
 import { PLAN_MOVES, planDecide } from './src/planMoves.mjs'
 import { checkSend, roundPage, rowsOf as rowsOfDemo, stampOf, withRound, wordsOfRound } from './src/demoFeedback.mjs'
-import { FOCUS_DRAFTS, FOCUS_MOVES, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, rethinkTalkWords, startEvaluation, undoLine } from './src/focus.mjs'
+import { FOCUS_DRAFTS, FOCUS_MOVES, backupDue, demoAgain, evaluationsAgain, evaluationsMode, evaluationsRunning, focusAllDone, focusMove, goalChecked, goalReopened, guardGoal, guardsAsking, partDropRefusal, rethinkTalkWords, startEvaluation, undoLine } from './src/focus.mjs'
 import { goalsToFree, rethinkHolds } from './src/work/rethink.mjs'
 import { rowWordsOf, rowWordsText } from './src/work/rowWords.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
@@ -1418,6 +1418,37 @@ async function main(args) {
     })
     for (const one of words) await toPartner(one, {}, state)
   }
+  /**
+   * The backup focus (the person, 2026-11-24, their yes to "the backup becomes the focus by itself"): once the focus is done
+   * or gone, the backup is picked as the person's Pick would (the partner gets its `focus:` word); a backup that is done or gone
+   * loses its line. Not while the person pauses, and only on the board that writes the map with a partner on it.
+   */
+  const BACKUP_RETRY_MS = 10 * 60_000
+  const backupNow = async state => {
+    if (!writesMap || workDir === null || (state.advisor ?? null) === null || isHolding(state.pause)) return
+    const text = await readFile(projectFile(config, 'goals'), 'utf8').catch(error => (error.code === 'ENOENT' ? null : Promise.reject(error)))
+    if (text === null) return
+    const due = backupDue(parseGoals(text))
+    if (due === null) return
+    if (due.clear === true) {
+      const cleared = await changeGoalsFile(one => setBackup(one, null), { file: projectFile(config, 'goals'), historyDir: projectFile(config, 'goalsHistory'), now: clock() })
+      if (!cleared.ok) throw new Error(`the backup line could not be taken out: ${cleared.why}`)
+      readState.reset()
+      return
+    }
+    // Principle 8: a pick the board refused is said once and tried again after BACKUP_RETRY_MS, never at every pass.
+    if (backupRefused !== null && backupRefused.id === due.pick && clock() - backupRefused.at < BACKUP_RETRY_MS) return
+    const picked = await focusNow({ command: 'focus', id: due.pick })
+    if (!picked.ok) {
+      backupRefused = { id: due.pick, at: clock() }
+      console.error(`The backup ${due.pick} could not become the focus: ${picked.why ?? picked.status}. Tried again in ${BACKUP_RETRY_MS / 60_000} minutes.`)
+      return
+    }
+    backupRefused = null
+    console.error(`The focus is done: the backup ${due.pick} is the focus now.`)
+  }
+  /** The backup pick the board was refused last (`{ id, at }`), so it is not tried at every pass. */
+  let backupRefused = null
   /**
    * T17.1 (the coordinator's review of 6f197a4): while the focus goal's recap has its next round being made, each next try (a step of
    * the goal filed or reopened after the person's Send, no Quality Assurance task) that turned done is told to the partner, once per
@@ -4772,6 +4803,8 @@ async function main(args) {
         await loops.run('rethink-free', () => rethinkFreeNow(state))
         // B677: the goal demo asked of the partner once every part of the focus is done.
         await loops.run('goal-demo', () => demoNow(state))
+        // The backup focus (2026-11-24): the backup becomes the focus once the focus is done.
+        await loops.run('backup-focus', () => backupNow(state))
         // T17.1: a next try of the recap's round that turned done is told to the partner (once per step).
         await loops.run('recap-round', () => recapRoundNow(state))
         // Rule 15: a hold the asking chat left alone for 60 minutes of the board's running time ends: the ask goes back to its route. On its

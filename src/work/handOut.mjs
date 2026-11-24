@@ -69,6 +69,9 @@ export function followUpOf(item, items, { now, followUpMs, prefix = '' }) {
   return found.sort((a, b) => b.at - a.at)[0] ?? null
 }
 
+/** The ready list's rank of a task of the backup focus: after the focus goal's (1), before the rest (2). */
+export const BACKUP_RANK = 1.5
+
 /** The Backlog tab's blocks (2026-10-25): why a refined task outside the focus goal waits, until the person adds it. */
 export const CHOICE_WHY = 'outside the focus goal: waits until you add it to the queue or switch the focus'
 
@@ -113,8 +116,9 @@ function staleQaWhy(item, items, now) {
  * its kind's standard does not hold it (`standardHold(item)`, a why or null) and its routing record does not
  * (`routingHeld`, ids); else held, `{ id, why }` in one line. `ready` in the board's order: a Quality Assurance task first
  * (rank -1, T9.1.1: the person, 2026-10-27, "checks go before new steps"), then a fix (rank 0), then a
- * task of the focus goal (1), then the rest (2): the tasks the person added to the queue (`added`, its stamp) in the
- * order they were added, then the others by id; ranks -1, 0 and 1 each by id. With the worker it is kept for (`keptFor`: its
+ * task of the focus goal (1), then a task of the backup focus (1.5: `backup` and the goals under it, `backupGoals`; the person,
+ * 2026-11-24, "i prefer to pick up fix items from the backlog before focusing on the backup focus"), then the rest (2): the tasks the person added to the queue (`added`, its stamp) in the
+ * order they were added, then the others by id; ranks -1, 0, 1 and 1.5 each by id. With the worker it is kept for (`keptFor`: its
  * pin, else, with `followUpMs` above 0, the worker it is a follow-up of, until `keptUntil`), its pin (`pinned`), and
  * (`followUpMs` 0, the default: a preference only) the worker it goes to when that one is idle at the give (`prefers`).
  * A task of rank 2 neither pinned nor added is held for the person's choice (`choice: true`, CHOICE_WHY) unless
@@ -131,11 +135,12 @@ function staleQaWhy(item, items, now) {
  * left to make pass, so its fix waits like an unpicked step. Only a step of an unrelated goal that nobody picked waits
  * for "Add to queue" (CHOICE_WHY).
  */
-export function readyList(items, { now, focus = null, focusGoals = [], followUpMs = HAND_OUT_DEFAULTS.followUpMinutes * 60_000, standardHold = null, routingHeld = new Set(), prefix = '', beyondFocus = true }) {
+export function readyList(items, { now, focus = null, focusGoals = [], backup = null, backupGoals = [], followUpMs = HAND_OUT_DEFAULTS.followUpMinutes * 60_000, standardHold = null, routingHeld = new Set(), prefix = '', beyondFocus = true }) {
   const ready = []
   const held = []
   const ctx = { store: { items } }
   const inFocus = new Set([...(focus === null ? [] : [focus]), ...focusGoals])
+  const inBackup = new Set([...(backup === null ? [] : [backup]), ...backupGoals].filter(one => !inFocus.has(one)))
   const steps = [...items.values()].filter(item => kindOf(item) === 'step' && stateOf(item) === 'refined' && typeof idOf(item) === 'string')
   for (const item of steps.sort((a, b) => byId(idOf(a), idOf(b)))) {
     const id = idOf(item)
@@ -157,7 +162,7 @@ export function readyList(items, { now, focus = null, focusGoals = [], followUpM
     const isQa = isQaTask(item)
     const follow = pinned === null && !isQa ? followUpOf(item, items, { now, followUpMs: isKept ? followUpMs : Infinity, prefix }) : null
     const chain = fixChain(item, items)
-    const rank = isQa ? -1 : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : 2
+    const rank = isQa ? -1 : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : chain.some(one => inBackup.has(valueOf(one, 'Goal'))) ? BACKUP_RANK : 2
     const added = addedStamp(item)
     // B691: a fix goes out as its root does: the person's pick (added or pinned) of any step down its chain is its own.
     // A dropped root has nothing left to make pass: its pick does not carry the fix.

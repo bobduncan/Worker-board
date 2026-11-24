@@ -15,7 +15,9 @@ export const MAX_WORKERS_RANGE = Object.freeze([1, 10])
 const isWorkerCount = value => Number.isInteger(value) && value >= MAX_WORKERS_RANGE[0] && value <= MAX_WORKERS_RANGE[1]
 
 /** The settings the panel may change, each with the values it takes (`maxWorkers`: its range, a whole number between the ends). */
-export const PANEL_SETTINGS = { approveRebuilds: [false, true], routingMode: ['off', 'observe'], maxWorkers: MAX_WORKERS_RANGE, autopilot: [false, true] }
+// The backup focus (2026-11-24): `handOutBeyondFocus`, whether a free worker also takes any refined backlog step once
+// nothing of the focus, the backup or the person's queue is ready (src/work/handOut.mjs `readyList`). Off by default.
+export const PANEL_SETTINGS = { approveRebuilds: [false, true], routingMode: ['off', 'observe'], maxWorkers: MAX_WORKERS_RANGE, autopilot: [false, true], handOutBeyondFocus: [false, true] }
 
 /**
  * Whether a rebuild the goal guard calls for goes ahead without the person's yes: the person's own "Approve rebuilds by
@@ -36,7 +38,7 @@ export const BOTHER_ME_REMOVED = 'Bother me was removed: questions come at once;
  */
 export function panelSettings(config, { canSet = true, whyNot = null } = {}) {
   const maxWorkers = Number.isInteger(config.maxWorkers) && config.maxWorkers >= 1 ? config.maxWorkers : DEFAULTS.maxWorkers
-  return { approveRebuilds: config.approveRebuilds === true, maxWorkers, autopilot: config.autopilot === true, canSet, whyNot: canSet ? null : whyNot }
+  return { approveRebuilds: config.approveRebuilds === true, maxWorkers, autopilot: config.autopilot === true, handOutBeyondFocus: config.handOutBeyondFocus === true, canSet, whyNot: canSet ? null : whyNot }
 }
 
 const refused = (status, why) => ({ ok: false, status, why })
@@ -59,7 +61,7 @@ export function checkSetting(body) {
   const key = body?.key
   if (key === 'botherMe') return refused(400, BOTHER_ME_REMOVED)
   if (key === 'providers') return checkProvider(body?.value)
-  if (typeof key !== 'string' || !Object.hasOwn(PANEL_SETTINGS, key)) return refused(400, 'Send key "approveRebuilds", "routingMode", "maxWorkers" or "autopilot".')
+  if (typeof key !== 'string' || !Object.hasOwn(PANEL_SETTINGS, key)) return refused(400, 'Send key "approveRebuilds", "routingMode", "maxWorkers", "autopilot" or "handOutBeyondFocus".')
   const value = body?.value
   if (key === 'maxWorkers') return isWorkerCount(value) ? { ok: true, key, value } : refused(400, `maxWorkers takes a whole number from ${MAX_WORKERS_RANGE[0]} to ${MAX_WORKERS_RANGE[1]}.`)
   if (!PANEL_SETTINGS[key].includes(value)) return refused(400, `${key} takes ${PANEL_SETTINGS[key].map(one => JSON.stringify(one)).join(' or ')}.`)

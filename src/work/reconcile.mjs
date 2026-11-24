@@ -79,7 +79,7 @@ const span = ms => {
  * `sent`: not a task whose envelope is in flight, nor one of a worker whose mod is not known yet, for the net's time).
  * `handOutHeld` says whether the hand-out holds now (a pause, a resume, a full limit).
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, wakeable = null }) {
+export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], backup = null, backupGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, wakeable = null }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -312,7 +312,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   // decision at a worker's turn end (T8.5, handover.mjs), which hands each worker the list's first task it may take. Here
   // only one more worker is asked of the main chat, when ready tasks wait and no worker is free for them.
   const followUpMs = Math.max(0, Number.isFinite(settings.followUpMinutes) ? settings.followUpMinutes : HAND_OUT_DEFAULTS.followUpMinutes) * MIN
-  const ready = readyList(items, { now, focus, focusGoals, followUpMs, standardHold, routingHeld, prefix, beyondFocus: settings.handOutBeyondFocus === true })
+  const ready = readyList(items, { now, focus, focusGoals, backup, backupGoals, followUpMs, standardHold, routingHeld, prefix, beyondFocus: settings.handOutBeyondFocus === true })
   // B1273: and while the Claude app is on another account (pause.mjs `awayOver`: an `isHolding` state of its own).
   const handOutHeld = isHolding(store.pause) || store.pause?.state === 'resuming' || limitsFull === true
   const handsOut = flowHandsOut(flow)

@@ -1652,6 +1652,28 @@ function partLeftMinutes(part, steps, lanes, now) {
   return times.some(one => one === null) ? null : times.reduce((sum, one) => sum + one, 0)
 }
 
+/**
+ * The backup focus (2026-11-24): the goal after the focus, as the Focus page's backup card draws it, or null without one (or
+ * one that is no longer in the map). Its stage and its drafts as the focus's are read (the goal definition, the work blocks),
+ * whether Go waits for a block's done-when line, and how many of its steps are made (its parts' and its own, in the store).
+ */
+export function backupState(goalMap, items = []) {
+  const node = goalMap?.backup ? goalMap.byId.get(goalMap.backup) ?? null : null
+  if (node === null) return null
+  const ids = new Set((items ?? []).filter(one => one.head.get('Kind') === 'step' && one.head.get('State') !== 'dropped').map(one => one.head.get('Id')))
+  const made = [...new Set([...node.parts.flatMap(part => part.steps), ...node.steps])].filter(id => ids.has(id)).length
+  return {
+    id: node.id,
+    title: node.title,
+    stage: focusStage(node),
+    vibe: node.vibe,
+    vibePicture: node.vibePicture,
+    parts: node.parts.map(part => ({ title: part.title, size: part.size, doneWhen: part.doneWhen ?? '' })),
+    goWaitsForLines: goWaitsForLines(node),
+    steps: made,
+  }
+}
+
 export function focusState(goalMap, items, threads, prefix, partner = null, now = null, lanes = null, recaps = null, goalRecaps = null, options = {}) {
   const node = goalMap?.focus ? goalMap.byId.get(goalMap.focus) ?? null : null
   if (node === null) return null
@@ -2655,6 +2677,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     store: config.autopilot === true ? { ...raw.work, partnerAnswers: { on: true } } : raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
     focus: goalMap?.focus ?? null, focusGoals: goalsUnder(goalMap, goalMap?.focus ?? null), routingHeld, sent,
+    // The backup focus (2026-11-24): its steps go out after the focus's.
+    backup: goalMap?.backup ?? null, backupGoals: goalsUnder(goalMap, goalMap?.backup ?? null),
     settings: { maxWorkers: config.maxWorkers, followUpMinutes: config.followUpMinutes, handOutBeyondFocus: config.handOutBeyondFocus === true, offAfterMinutes: config.offAfterMinutes, handover: config.handover ?? 'sequence' },
     limitsFull: ['fiveHour', 'week'].some(limit => limits[limit]?.level === 'full'),
     // B1279 (X205): with the wake record, the hand-out starts a worker through the one wake procedure, and only one it can wake.
@@ -3227,6 +3251,8 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     // Focus 1 (spec 2026-10-18): the focus goal for the Focus part, and the parts the tab's bar shows.
     // The review of Focus 3: the partner by the chat the board shows for it, the one the work API gives the role advisor.
     focus,
+    // The backup focus (2026-11-24): the goal after the focus, for its card on the Focus part.
+    backup: backupState(goalMap, itemsOf(raw.work)),
     // P7: every step's one status by id (src/stepStatus.mjs `stepStatusOf`): the page draws these words and works out none.
     stepStatus,
     advisorParts: config.advisorParts,
