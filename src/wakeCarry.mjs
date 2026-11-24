@@ -22,6 +22,10 @@
 // went since the last lift. A refused send spends no message try of the spell (src/wake.mjs `nextPath`): another hand that may send takes
 // it, else a carry word (when every hand that claims is refused), and the launch only when none can. The refusal is never worked around.
 //
+// F59 (2026-11-24): no hand at all (every board chat's process ended, or none claimed in the hands' window) is carried as the refusal is,
+// while the courier calls (`carryingOf`, `courierSends`): one courier word per wake at once, the launch only after its try failed, and a
+// failed launch's spell gets the courier's word at its next call (its message path is still untried).
+//
 // PURE: the server wires it (server.mjs `wakePass`, the take, the report, the hands route, the two bridge routes, Send again).
 
 import { heardTimeOf } from './chatReport.mjs'
@@ -238,6 +242,25 @@ export function freeChatOf(lanes, { target, main = null, now, outbox = [] } = {}
 
 /** Whether the courier asked for wakes lately (`lastAt`, when it last called wakes-due). */
 export const courierAlive = (lastAt, now) => isTime(lastAt) && isTime(now) && now - lastAt <= COURIER_ALIVE_MS
+
+/**
+ * F59 (2026-11-24, chat 1's spec): at 10:23 the app relaunched itself and every board chat's process ended; no hand ran, the board
+ * launched five chats (10:24-10:44, all "the app did not start it") and the courier, calling at 10:28, 10:34, 10:48 and 10:58, got an
+ * empty list: it got carry words only while the hands' sends were refused. Now no hand at all (`gone`, opener.mjs `handsGone`: none
+ * claimed in the hands' window) is carried as a refusal is, while the courier calls (`courierSends`): every wake due goes to it as ONE
+ * carry word at once, and the courier is the wakes' sender, so the launch (the board-wide one too) waits until its try failed.
+ */
+export const courierSends = ({ gone = false, courierAt = null, now }) => gone === true && courierAlive(courierAt, now)
+
+/**
+ * What the wake pass carries words for, `{ since }` or null: the app's refusal of the hands' sends (`refused`, `sendsRefusedOf`), every
+ * hand that claims refused (`allRefused`, B1271), or F59's no hand while the courier calls (`{ since, noHands: true }`).
+ */
+export function carryingOf({ refused = null, allRefused = false, gone = false, courierAt = null, now }) {
+  if (refused !== null && refused !== undefined) return refused
+  if (allRefused === true) return { since: now }
+  return courierSends({ gone, courierAt, now }) ? { since: now, noHands: true } : null
+}
 
 /** The words the carrier's model reads: the one tool call, with the target's app session id and the wake's own text; then the turn ends. */
 export const carryText = (target, session, text) => `Wake ${target} for the worker board: the app no longer lets the board's code send to a chat, so make this one call yourself: send_message with session_id "${session}" and message "${text}". Then end this turn; do nothing else.`

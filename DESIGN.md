@@ -6487,6 +6487,24 @@ idle Main waited untaken (X203, three times by 20:40). Now:
 Test: `test/wakeRefusedHand.test.mjs` (X203's record as it was, the per-hand mark, the message again by Main's hands, the launch only
 without a hand that may send, the carry word when every claiming hand is refused, the probe per hand, the file, the rule).
 
+**No hands: the courier first, the launch last (F59, 2026-11-24).** At 10:23 the app relaunched itself for an update and every board
+chat's process ended; no hand claimed, the board launched Workers 5, 1, 4, Main and 2 (10:24-10:44, all "the app did not start it")
+and nothing followed, while the courier, calling at 10:28, 10:34, 10:48 and 10:58, got an empty list: it got carry words only while
+the hands' sends were refused. Now no hand at all (`handsNow(now).gone`: none claimed in the hands' window) while the courier calls
+(`courierAlive`) is carried as the refusal is (src/wakeCarry.mjs `carryingOf`, `noHands`; server.mjs `carryingNow`): the wake pass
+gives every wake due ONE courier word at once, and a waiting start or wake word one too; Send again is a courier word. One word per
+chat per spell: the word's attempt is claimed in the record in the same step (`carryPlan`), so a hand that comes back while it waits
+finds the spell's message try taken (`nextPath` null) and gets no job. The launch is the last try: the courier is the wakes' sender
+then (the wake pass's `senders`, and `wakeFacts`' `senderClaims` via `courierSends`), so a chat's own launch goes only once its
+courier word failed (not taken within COURIER_WAIT_MS, or no report CARRY_VERDICT_MS after the hand-off). Point 5: the board-wide
+"nobody ran" launch (BOARD_KEY, `chatToOpen`) does not go at all while no hand runs and the courier calls, as while refused; after the
+courier's window each chat's own launch goes, one per check, the main chat first, so no launch comes before the courier's window. A
+launch that failed before the courier called leaves the spell's message way untried: the courier's next call makes its word and hands
+it in that same call (`wakesDue` runs the carry pass first while no hand runs), so no "could not wake" until courier and launch both
+failed (then once, `sayVerdict`, the notice). Without a courier that calls, the launch goes as before; the person's pause holds it all
+(`isHolding`, `carryPaused`; wakes-due makes no word while paused). Tests: `test/wakeNoHands.test.mjs` (the rule, the 10:23 case, a
+failed launch then the courier, the pause), `test/wakeNoHandsBoard.test.mjs` (the same on a running board copy with recorded launches).
+
 ## A lane's own chat, and one way back for a held step (B986, X140, 2026-11-04)
 
 **The case.** Worker 4 paused for the week's limit at 10:13 holding B968 (checkpoint c3186b6). The board was off
