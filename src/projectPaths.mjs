@@ -125,11 +125,15 @@ export function storedOfChatPath(config, chatPath) {
   const home = chatHomeOf(config)
   if (dataOf(config) === null || path === '' || isAbsolute(path) || home === '') return path
   const whole = resolve(home, ...parts(slashes(path)))
-  for (const base of [picturesOf(config), config.project].filter(isSet)) {
+  const inside = base => {
     const rel = relative(resolve(base), whole)
-    if (rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)) return slashes(rel)
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) ? slashes(rel) : null
   }
-  return path
+  // Chat 1's review: the pictures folder's form only under a picture root, the one form resolveStored maps back to <data>/pictures
+  // (a delivered asset, pictures/assets/A12/out.png, is no such picture: it stays as the chat gave it, as before).
+  const pictured = inside(picturesOf(config))
+  if (pictured !== null) return (config.pictureRoots ?? []).some(root => under(pictured, root)) ? pictured : path
+  return inside(config.project) ?? path
 }
 
 /**

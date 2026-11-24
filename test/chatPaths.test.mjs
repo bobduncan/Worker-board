@@ -18,7 +18,7 @@ import { readStore, writeStore } from '../src/work/store.mjs'
 import { removeDir } from './tempDir.mjs'
 
 const NOW = new Date(2026, 10, 21, 13, 0).getTime()
-const BACKLOG = ['# Backlog', '', '## Shop', '- [ ] B7 Paint the shop (for Features; about 1 h)', ''].join('\n')
+const BACKLOG = ['# Backlog', '', '## Shop', '- [ ] B7 Paint the shop (for Features; about 1 h)', '- [ ] B8 Paint the gate (about 1 h)', ''].join('\n')
 const ROLES = { Main: 'main', Features: 'worker' }
 
 /** The wrapper (chat home) holding the game repo (project) and its data home; or, `moved` false, today's layout in one folder. */
@@ -109,4 +109,21 @@ test('the server gives the work tool the chat-home paths', async () => {
   assert.match(server, /storedPicture: path => storedOfChatPath\(config, path\)/)
   assert.match(server, /shownFoldersWords: shownFolders\(config\)\.map\(folder => wordsPath\(config, resolveStored\(config, folder, \{ boardDir: HERE \}\)\)\)/)
   assert.match(server, /\?\? \(dataOf\(config\) === null \? null : await adoptPicture\(pictureHome\(\), shownFolders\(config\)\[0\], subject, path, resolve\(HERE, chatHomeOf\(config\)\)\)\)/)
+})
+
+test('chat 1\'s review 2: a worker\'s ask is filed under the step its pictures belong to, also when it names them from the chat home', async t => {
+  const one = await world(t)
+  // Asked under B8, which Features does not hold; the picture is B7's (Features holds it), named from the chat home.
+  const done = await one.ask({ of: 'B8', pictures: ['kiwi/.workerboard/pictures/art-inbox/b7/shop.png'] })
+  assert.equal(done.ok, true, done.why)
+  const filed = await lastAsk(one.store)
+  assert.deepEqual([valueOf(filed, 'Of'), valueOf(filed, 'Pictures')], ['B7', 'art-inbox/b7/shop.png'])
+})
+
+test('chat 1\'s review 1: a picture under the data home\'s pictures but outside every picture root keeps the path the chat gave', async t => {
+  const one = await world(t)
+  assert.equal(storedOfChatPath(one.config, 'kiwi/.workerboard/pictures/assets/A12/out.png'), 'kiwi/.workerboard/pictures/assets/A12/out.png')
+  assert.equal(storedOfChatPath(one.config, 'kiwi/.workerboard/pictures/art-inbox/b7/shop.png'), 'art-inbox/b7/shop.png', 'under a root: its stored form')
+  // Kept as given, it is read from the chat's own folder (and adopted into the shown folder), never stored in a form nothing maps back.
+  assert.notEqual(storedOfChatPath(one.config, 'kiwi/.workerboard/pictures/assets/A12/out.png'), 'assets/A12/out.png')
 })

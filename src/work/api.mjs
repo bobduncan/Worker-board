@@ -966,7 +966,11 @@ async function ask(body, w, { alone = false } = {}) {
   // person's "no" counted against the wrong step): a worker's ask whose pictures all sit under one step's folder in the project's picture
   // folder (`pictureStepOf`) is filed of that step when the chat holds, or held, it; when it holds neither step, it is refused.
   let placed = null
-  const named = !isAlone && w.role === 'worker' ? pictureStepOf(body.pictures, w.shownFolders?.[0]) : null
+  // T5.2 A6a (chat 1's review): the pictures in the stored form first (a chat names them from its own folder), so the step they belong to
+  // is read from the same paths the ask is filed with.
+  const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
+    .map(one => (typeof w.storedPicture === 'function' ? w.storedPicture(one) : one))
+  const named = !isAlone && w.role === 'worker' ? pictureStepOf(pictures, w.shownFolders?.[0]) : null
   if (named !== null && named !== valueOf(of.item, 'Id')) {
     const that = w.store.items.get(named)
     if (that !== undefined && kindOf(that) === 'step' && heldByChat(that, w)) {
@@ -1050,9 +1054,6 @@ async function ask(body, w, { alone = false } = {}) {
   if (isChatAsk && asksNothingOf(askShape({ owner: w.who, kind, of: isAlone ? goal : valueOf(of.item, 'Id'), options, advice: line(body.advice, 120), via, text })) !== null) {
     return askedNothing({ of: of.item, kind, text, options, play: line(body.play, 300), via, goal }, w)
   }
-  // T5.2 A6a: a chat names a picture from its own folder (the chat home); the board keeps it in its stored form (today the same).
-  const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
-    .map(one => (typeof w.storedPicture === 'function' ? w.storedPicture(one) : one))
   // 2026-10-24: a picture the board cannot show is refused here, with where to put it, so the person never meets a
   // link that opens nothing (Worker 1 linked one in its worktree). The mod's own asks (`via`) keep theirs as they came.
   // An ask filed from a chat's For you block (`via`) keeps its question: a picture outside is copied in instead (Q311).
