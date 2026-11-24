@@ -9,7 +9,12 @@
 //                                         keeper takes the port once the old board is stopped)
 //   node start-board.mjs --stop          stops this folder's board on purpose: the stop sign first (data/stop.json, so the
 //                                         watcher leaves it down), then its keeper and child
+//   node start-board.mjs --resume        starts the board although it was stopped or shut down on purpose (npm run resume)
 //   node start-board.mjs --port 4321 ...  anything else is handed to server.mjs as it is
+//
+// Shut down (2026-11-21, src/shutdown.mjs): a stop sign the person meant (--stop, /stop-app, the page's Shut down) holds: every
+// start without --resume, --open or --anew (the chats' Workers mod, the chat-open hook, land.ps1's --quiet) says so and starts
+// nothing. Before, an open chat's mod started a stopped board again within a minute.
 //
 // The board's own output goes to data/board.log. A board that cannot start (a broken settings file, the first start
 // that makes config.json) has its words printed here, and this ends with 1.
@@ -39,6 +44,7 @@ import { chatHomeOf } from './src/projectPaths.mjs'
 import { gitRunner } from './src/folders.mjs'
 import { LIST_MS, LIST_SCRIPT, endKeeper, keepersOf, netstat, parseProcessList, portHolderOf, powershell, runsAlready, startKeeper } from './src/keeperStart.mjs'
 import { boardsFile, resolvePort } from './src/ports.mjs'
+import { startAllowed } from './src/shutdown.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const HOST = '127.0.0.1'
@@ -119,6 +125,15 @@ export function earlyEndVerdict({ words, isAnew = false }) {
   return !isAnew && /is in use|EADDRINUSE/.test(String(words ?? '')) ? 'race' : 'fail'
 }
 
+/** data/stop.json read, or null (none, or not JSON). */
+function readSign() {
+  try {
+    return JSON.parse(readFileSync(join(HERE, 'data', 'stop.json'), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
 /** Whether a process is there (a signal 0). */
 const isAlive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
 
@@ -178,9 +193,18 @@ async function main(args) {
   const isQuiet = args.includes('--quiet')
   const isOpen = args.includes('--open')
   const isAnew = args.includes('--anew')
-  const passed = args.filter(arg => arg !== '--quiet' && arg !== '--open' && arg !== '--anew' && arg !== '--stop')
+  const passed = args.filter(arg => arg !== '--quiet' && arg !== '--open' && arg !== '--anew' && arg !== '--stop' && arg !== '--resume')
   if (args.includes('--stop')) return stopBoard(isQuiet, passed)
   const isDemo = passed.includes('--demo')
+  // Shut down: the person's stop holds against every start that is not the person's own, looked at first (the chats' mods run
+  // this every minute while the board is down: it costs one file read). The sign is the real board's alone (stopBoard).
+  if (!isDemo) {
+    const allowed = startAllowed({ stop: readSign(), args })
+    if (!allowed.ok) {
+      if (!isQuiet) console.log(allowed.line)
+      return 0
+    }
+  }
   const port = await portOf(passed)
   const url = `http://${HOST}:${port}/`
   // F10's --anew (land.ps1's cold restart) starts a keeper although the board answers; every other start asks first (F24).
