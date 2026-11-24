@@ -1,10 +1,14 @@
 // B311: "CPU for Claude". The person, 2026-10-18, while playing: the workers made the PC lag. B735 (2026-10-27): two
 // choices the person picks, no game detection. Full: everything the project started runs at Normal priority on all
-// cores. Low: the chats' trees, what the board's own processes started, the vite servers, codex and a headless browser
+// cores. Low: what the chats and the board's own processes started, the vite servers, codex and a headless browser
 // run at Idle priority on the last two cores, in efficiency mode where Windows has it, so a game or any other program
-// never slows. Never the desktop app, never a program the project did not start. The board's own processes (its server
+// keeps the rest of the PC. Never the desktop app, never a program the project did not start. The board's own processes (its server
 // and its keeper) stay at Normal on all cores in Low too (the person, 2026-10-30, the board blank for minutes at Idle
 // while a game ran: "it should not slow the board itself").
+// F44 (2026-11-23): a chat's own claude.exe no longer runs at Idle either. There, on two crowded cores, its hooks thread starved (hooks
+// took up to 287 s) and the CLI's watchdog, which reads 5 s without an answer as a crash, unloaded the Workers mod until the process
+// restarted: "Link gone". Under Low a chat runs at BelowNormal on all cores: above all Idle work, below a game. Windows hands BelowNormal
+// to what the chat starts, so a child is born below the game, and the next pass limits it to Idle on the last two cores.
 //
 // Windows only: the processes are read with one PowerShell call per refresh, and set with a second one only when a
 // process needs it. Elsewhere the control says "not available here" and nothing runs.
@@ -46,6 +50,16 @@ export async function readLevel(file, fallback = 'full') {
     // Not there, or broken: the default stands.
   }
   return parseLevel(fallback) ?? 'full'
+}
+
+/** F44: when the level saved in data/cpu.json was set (ms), or null. */
+export async function readLevelAt(file) {
+  try {
+    const at = JSON.parse(await readFile(file, 'utf8')).at
+    return Number.isFinite(at) && at > 0 ? at : null
+  } catch {
+    return null
+  }
 }
 
 /** Keeps the level in data/cpu.json, so it survives a restart. */
@@ -96,10 +110,82 @@ export function sessionsOfCards(names) {
   return names.filter(name => name.endsWith('.json')).map(name => name.slice(0, -5)).filter(name => SESSION.test(name) && name !== 'list')
 }
 
-/** The session a Claude Code CLI's command line resumes or starts (`--resume=<id>`, `--resume <id>`, `--session-id`). */
+/**
+ * F44: a command line's arguments as Windows splits them (quotes group, `\"` is a quote, backslashes count only before one), the program
+ * first: `{ text, quoted }`, `quoted` when the argument opens with a quote, as a prompt does.
+ */
+export function commandArgs(line) {
+  const args = []
+  let text = ''
+  let isOpen = false
+  let quoted = false
+  let inQuotes = false
+  let slashes = 0
+  const open = isQuote => {
+    if (isOpen) return
+    isOpen = true
+    quoted = isQuote
+  }
+  const flush = () => {
+    if (slashes > 0) open(false)
+    text += '\\'.repeat(slashes)
+    slashes = 0
+  }
+  for (const char of String(line)) {
+    if (char === '\\') {
+      slashes += 1
+    } else if (char === '"') {
+      const isLiteral = slashes % 2 === 1
+      slashes = Math.floor(slashes / 2)
+      if (slashes > 0) flush()
+      if (isLiteral) {
+        open(false)
+        text += '"'
+      } else {
+        open(true)
+        inQuotes = !inQuotes
+      }
+    } else if (/\s/.test(char) && !inQuotes) {
+      flush()
+      if (isOpen) args.push({ text, quoted })
+      text = ''
+      isOpen = false
+      quoted = false
+    } else {
+      flush()
+      open(false)
+      text += char
+    }
+  }
+  flush()
+  if (isOpen) args.push({ text, quoted })
+  return args
+}
+
+/**
+ * The session a Claude Code CLI's command line resumes or starts (`--resume=<id>`, `--resume <id>`, `--session-id`). F44: only as an
+ * argument of its own, never words inside a quoted prompt.
+ */
 export function sessionOf(commandLine) {
   if (typeof commandLine !== 'string') return null
-  return commandLine.match(/(?:^|\s)--(?:resume|session-id)(?:=|\s+)"?([\w-]{8,80})"?(?=\s|$)/)?.[1] ?? null
+  const args = commandArgs(commandLine).slice(1)
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i].quoted) continue
+    const flag = args[i].text.match(/^--(?:resume|session-id)(?:=(.*))?$/)
+    if (flag === null) continue
+    const id = flag[1] ?? args[i + 1]?.text ?? ''
+    return SESSION.test(id) ? id : null
+  }
+  return null
+}
+
+/**
+ * F44: a chat's own CLI process: a `claude.exe` whose command line names a session (the desktop app's names none), and no one-off: a
+ * `claude -p --resume <id>` a tool started answers once and ends, so it is limited with the tree that started it.
+ */
+export function isChatProcess(one) {
+  if (String(one.name).toLowerCase() !== 'claude.exe' || sessionOf(one.commandLine) === null) return false
+  return !commandArgs(one.commandLine).slice(1).some(arg => !arg.quoted && (arg.text === '-p' || arg.text === '--print'))
 }
 
 /**
@@ -169,6 +255,86 @@ export function changesFor(chosen, level, applied, cores, { all = false } = {}) 
   return { changes }
 }
 
+/** F44: a chat's own priority under Low: above all Idle work, below a game; Windows hands it to what the chat starts. */
+export const CHAT_PRIORITY = 'BelowNormal'
+
+/** F44: what `applied` holds for a chat's own process the board set to `CHAT_PRIORITY` on all cores under Low. */
+const CHAT_KEPT = 'chat'
+
+/**
+ * F44: what to set so the chats' own processes run at `CHAT_PRIORITY` on all cores under Low, efficiency mode off. A chat the board set
+ * and Windows reports at that priority is done, so no pass rewrites it. The listing holds no cores: one the board has not set yet is set
+ * once, and one found at another priority again.
+ */
+export function chatChanges(chats, applied, cores) {
+  const affinity = affinityMask(cores, 'full')
+  return chats.filter(one => one.priority !== BASE_PRIORITY[CHAT_PRIORITY] || applied.get(one.key) !== CHAT_KEPT)
+    .map(one => ({ pid: one.pid, key: one.key, priority: CHAT_PRIORITY, affinity, eco: false }))
+}
+
+/**
+ * F44: the programs a chat's tools run that can outlive what started them. Only these are ever limited or given back outside a tree: never
+ * a game, never the desktop app, never a browser (a test browser is a project tool, `isProjectTool`, whatever became of its parent).
+ */
+const STRANDED_NAMES = new Set(['node.exe', 'bash.exe', 'sh.exe', 'git.exe', 'python.exe', 'python3.exe', 'cmd.exe', 'conhost.exe', 'powershell.exe', 'pwsh.exe', 'ffmpeg.exe'])
+
+/** F44: the processes worth asking Windows for their cores: at Idle, of a program above, not among those already chosen. */
+export function strandedCandidates(list, chosen) {
+  const picked = new Set(chosen.map(one => one.pid))
+  return list.filter(one => !picked.has(one.pid) && one.priority === BASE_PRIORITY.Idle && STRANDED_NAMES.has(String(one.name).toLowerCase()))
+}
+
+/**
+ * F44 (a test run started under Low stayed at Idle on two cores after Full, its parent gone, so no tree led to it): the candidates that
+ * carry Low's own mark, Idle on exactly the cores Low leaves (`masks`: pid to the mask as a decimal string), whose parent is gone, and what
+ * they started that carries the mark too. A parent number given out again is no parent. On a PC where Low leaves every core there is no
+ * mark to go by: none. `roots`: the numbers of processes already being given back, whose marked children count as well.
+ */
+export function strandedProcesses(list, masks, cores, { chosen = [], roots = [] } = {}) {
+  const lowMask = affinityMask(cores, 'low')
+  if (lowMask === affinityMask(cores, 'full')) return []
+  return withMarkedChildren(list, new Set(strandedCandidates(list, chosen).filter(one => masks.get(one.pid) === lowMask).map(one => one.pid)), roots)
+}
+
+/**
+ * F44: the `marked` processes whose parent is gone, with what they, or `roots`, started that is marked too. A parent number given out again
+ * is no parent. The roots themselves are not in the answer unless marked.
+ */
+function withMarkedChildren(list, marked, roots = []) {
+  const byPid = new Map(list.map(one => [one.pid, one]))
+  const parentOf = one => {
+    const parent = byPid.get(one.parent)
+    if (parent === undefined || parent.pid === one.pid) return null
+    return Number.isFinite(parent.created) && Number.isFinite(one.created) && parent.created > one.created ? null : parent
+  }
+  const found = new Set([...roots, ...list.filter(one => marked.has(one.pid) && parentOf(one) === null).map(one => one.pid)])
+  for (let grew = true; grew;) {
+    grew = false
+    for (const one of list) {
+      if (found.has(one.pid) || !marked.has(one.pid) || !found.has(parentOf(one)?.pid)) continue
+      found.add(one.pid)
+      grew = true
+    }
+  }
+  return list.filter(one => found.has(one.pid) && marked.has(one.pid))
+}
+
+/** F44: a time in ms as Windows dates a process (FILETIME: 100 ns since 1601), as the listing's `created`. */
+export const fileTimeOf = ms => (ms + 11_644_473_600_000) * 10_000
+
+/**
+ * F44: what a chat started under Low whose starter ended before the next pass: in no tree, at the BelowNormal the chat handed it, on all
+ * cores for life. Told from anything else by all of: a tool's program (`STRANDED_NAMES`), exactly BelowNormal (a program of the person's
+ * starts at Normal), its parent gone, and born since Low was switched on (`since`, FILETIME). With what it started that is marked too.
+ */
+export function orphansOf(list, found, { since = null, skip = [] } = {}) {
+  if (!Number.isFinite(since)) return []
+  const picked = new Set([...found.map(one => one.pid), ...skip])
+  const isMarked = one => !picked.has(one.pid) && one.priority === BASE_PRIORITY[CHAT_PRIORITY] && STRANDED_NAMES.has(String(one.name).toLowerCase())
+    && Number.isFinite(one.created) && one.created >= since
+  return withMarkedChildren(list, new Set(list.filter(isMarked).map(one => one.pid)))
+}
+
 // The PowerShell calls. Both lower their own priority first: the board's look must not be what makes the game lag.
 const COMMAND_LINES = "('claude.exe','node.exe','codex.exe','msedge.exe') -contains $_.Name.ToLower()"
 export const LIST_SCRIPT = [
@@ -180,14 +346,24 @@ export const LIST_SCRIPT = [
 ].join('; ')
 
 // Efficiency mode (EcoQoS): SetProcessInformation(ProcessPowerThrottling), the execution-speed bit on for Low, forced off for Full.
-const ECO_TYPE = "Add-Type -Namespace Cpu -Name Eco -MemberDefinition '[StructLayout(LayoutKind.Sequential)] public struct S { public uint V; public uint C; public uint M; } [DllImport(\"kernel32.dll\")] public static extern bool SetProcessInformation(IntPtr h, int cls, ref S s, int size);'"
-const SET_SCRIPT = [
+// F44: through Reflection.Emit, not Add-Type: no C# compiler, so a set that does not end cleanly leaves nothing in Temp (about 31,000 files
+// by 2026-11-23, most of Defender's scan time in the person's recording).
+const ECO_TYPE = "$a = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'CpuEco'), [Reflection.Emit.AssemblyBuilderAccess]::Run); $t = $a.DefineDynamicModule('CpuEco').DefineType('CpuEco', [Reflection.TypeAttributes]'Public,Class'); $m = $t.DefinePInvokeMethod('SetProcessInformation', 'kernel32.dll', [Reflection.MethodAttributes]'Public,Static,PinvokeImpl', [Reflection.CallingConventions]::Standard, [bool], [Type[]]@([IntPtr], [int], [uint32[]], [int]), [Runtime.InteropServices.CallingConvention]::Winapi, [Runtime.InteropServices.CharSet]::Ansi); $m.SetImplementationFlags([Reflection.MethodImplAttributes]::PreserveSig); $eco = $t.CreateType()"
+export const SET_SCRIPT = [
   "try { (Get-Process -Id $PID).PriorityClass = 'BelowNormal' } catch {}",
   `try { ${ECO_TYPE} } catch {}`,
   '$changes = [Console]::In.ReadToEnd() | ConvertFrom-Json',
   '$done = @()',
-  "foreach ($c in @($changes)) { try { $p = Get-Process -Id ([int]$c.pid) -ErrorAction Stop; $p.PriorityClass = [string]$c.priority; $p.ProcessorAffinity = [IntPtr][long]$c.affinity; $done += [int]$c.pid; try { $s = New-Object Cpu.Eco+S; $s.V = 1; $s.C = 1; $s.M = [uint32]$(if ($c.eco) { 1 } else { 0 }); [void][Cpu.Eco]::SetProcessInformation($p.Handle, 4, [ref]$s, 12) } catch {} } catch {} }",
+  "foreach ($c in @($changes)) { try { $p = Get-Process -Id ([int]$c.pid) -ErrorAction Stop; $p.PriorityClass = [string]$c.priority; $p.ProcessorAffinity = [IntPtr][long]$c.affinity; $done += [int]$c.pid; try { [void]$eco::SetProcessInformation($p.Handle, 4, [uint32[]]@(1, 1, [uint32]$(if ($c.eco) { 1 } else { 0 })), 12) } catch {} } catch {} }",
   'ConvertTo-Json -Compress @($done)',
+].join('; ')
+// F44: reads the cores of the processes named on its input; it sets nothing.
+export const MASK_SCRIPT = [
+  "try { (Get-Process -Id $PID).PriorityClass = 'BelowNormal' } catch {}",
+  '$ids = [Console]::In.ReadToEnd() | ConvertFrom-Json',
+  '$out = @()',
+  'foreach ($id in @($ids)) { try { $p = Get-Process -Id ([int]$id) -ErrorAction Stop; $out += [pscustomobject]@{ pid = [int]$p.Id; mask = [string]$p.ProcessorAffinity.ToInt64() } } catch {} }',
+  'ConvertTo-Json -Compress @($out)',
 ].join('; ')
 
 /** Runs a PowerShell script, with `input` on its standard input; answers its output. */
@@ -238,9 +414,17 @@ export function parseListing(text) {
   }))
 }
 
+/** F44: the mask script's JSON as a Map of pid to mask; one process comes back as an object, none as nothing. */
+export function parseMasks(text) {
+  const parsed = JSON.parse(text.trim() === '' ? '[]' : text)
+  const list = Array.isArray(parsed) ? parsed : [parsed]
+  return new Map(list.filter(one => Number.isInteger(one?.pid) && typeof one.mask === 'string').map(one => [one.pid, one.mask]))
+}
+
 /** The one function that talks to Windows; tests give their own. */
 export const windowsProcesses = {
   list: async () => parseListing(await powershell(LIST_SCRIPT)),
+  masks: async pids => parseMasks(await powershell(MASK_SCRIPT, JSON.stringify(pids))),
   set: async changes => {
     const out = await powershell(SET_SCRIPT, JSON.stringify(changes.map(({ pid, priority, affinity, eco }) => ({ pid, priority, affinity, eco: eco === true }))))
     const done = JSON.parse(out.trim() === '' ? '[]' : out)
@@ -263,6 +447,10 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
   let level = null
   let restore = 0
   let applied = new Map()
+  // F44: since when Low is on (ms), kept through Full's passes, and the processes outside any tree the board limited or gave back
+  // (`pid@created`): Low limits them again after a Full.
+  let lowSince = null
+  let loose = new Set()
   let count = 0
   let fault = null
   let running = null
@@ -279,7 +467,10 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
   }
 
   const load = async () => {
-    if (level === null) level = await readLevel(file, fallback)
+    if (level === null) {
+      level = await readLevel(file, fallback)
+      if (level === 'low') lowSince = await readLevelAt(file) ?? now()
+    }
     return level
   }
 
@@ -313,20 +504,47 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
     fault = null
     // The board's own processes are roots of what is chosen (their children are limited), never limited themselves.
     const own = new Set(spare.filter(Number.isInteger))
-    const chosen = chosenProcesses(list, await sessions(), { boardPids: spare }).filter(one => !own.has(one.pid))
+    const found = chosenProcesses(list, await sessions(), { boardPids: spare }).filter(one => !own.has(one.pid))
+    // F44: under Low a chat's own process is kept at BelowNormal on all cores; what it starts is limited. Full's `found` gives it Normal back.
+    const chats = current === 'low' ? found.filter(isChatProcess) : []
+    // F44: outside any tree: what a chat started whose starter is gone, and what the board limited or gave back before.
+    const inTree = new Set(found.map(one => one.pid))
+    const orphans = orphansOf(list, found, { since: Number.isFinite(lowSince) ? fileTimeOf(lowSince) : null, skip: [...own] })
+    const remembered = list.filter(one => loose.has(keyOf(one)) && !inTree.has(one.pid) && !own.has(one.pid))
+    const outside = [...new Map([...remembered, ...orphans].map(one => [one.pid, { ...one, key: keyOf(one), parentKey: null }])).values()]
+    const chosen = current === 'low' ? [...found.filter(one => !isChatProcess(one)), ...outside] : found
     const { changes } = changesFor(chosen, current, applied, cores, { all: current === 'full' })
     const slowed = list.filter(one => own.has(one.pid) && one.priority !== BASE_PRIORITY.Normal).map(one => one.pid)
     if (current === 'low' && slowed.length > 0) changes.push(...boardChanges(slowed, cores))
-    if (changes.length > 0) {
+    const kept = chatChanges(chats, applied, cores)
+    // F44: back at Full, what Low left behind with its parent gone: what the board knows, and at Idle only with Low's cores read.
+    let stranded = []
+    if (current === 'full') {
+      const given = new Map(outside.map(one => [one.pid, one]))
+      const candidates = strandedCandidates(list, found).filter(one => !given.has(one.pid))
+      if (candidates.length > 0 && typeof processes.masks === 'function') {
+        const masks = await processes.masks(candidates.map(one => one.pid)).catch(() => new Map())
+        for (const one of strandedProcesses(list, masks, cores, { chosen: found, roots: [...given.keys()] })) if (!given.has(one.pid)) given.set(one.pid, one)
+      }
+      stranded = [...given.values()].map(one => ({ pid: one.pid, key: keyOf(one), priority: 'Normal', affinity: affinityMask(cores, 'full'), eco: false }))
+    }
+    // The chats first: a pass cut short must not leave them starved.
+    const sets = [...kept, ...changes, ...stranded]
+    let done = []
+    if (sets.length > 0) {
       try {
-        await processes.set(changes)
+        done = await processes.set(sets)
       } catch {
-        // Each process is tried once per level; the next level, or a new process, tries again.
+        // Each process is tried once per level; the next level, or a new process, tries again. A chat's own process is tried each pass.
       }
     }
-    const living = new Set(chosen.map(one => one.key))
+    if (stranded.length > 0) tell(`CPU for Claude: ${stranded.length} process${stranded.length === 1 ? '' : 'es'} Low left behind ${stranded.length === 1 ? 'is' : 'are'} back at Normal on all cores.`)
+    const alive = new Set(list.map(keyOf))
+    loose = new Set([...loose, ...(current === 'low' ? outside.map(one => one.key) : stranded.map(one => one.key))].filter(key => alive.has(key)))
+    const living = new Set([...chosen, ...chats].map(one => one.key))
     applied = new Map([...applied].filter(([key]) => living.has(key)))
     for (const change of changes) applied.set(change.key, current)
+    for (const change of kept) if (Array.isArray(done) && done.includes(change.pid)) applied.set(change.key, CHAT_KEPT)
     count = current === 'full' ? 0 : chosen.length
     if (current === 'full') {
       restore -= 1
@@ -353,6 +571,7 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
       if (!available) return { ok: false, status: 409, why: 'Not available here: the board sets the CPU on Windows only.' }
       const before = await load()
       level = next
+      if (next === 'low' && before !== 'low') lowSince = now()
       if (next === 'full' && before !== 'full') {
         restore = RESTORE_PASSES
         isFreed = false

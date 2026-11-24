@@ -455,7 +455,8 @@ test('review (3): after the take-back ended its need, "could not wake" and its i
   assert.deepEqual(waits.reconciled.passedOver, ['Weeder'])
   assert.deepEqual([lane(waits, 'Weeder').wake.need, lane(waits, 'Weeder').wake.final], [true, true])
   assert.equal(waits.wakeNotice.tone, 'attention')
-  assert.match(waits.wakeNotice.text, /^could not wake Weeder: .*; open its chat$/)
+  // B1304: no launch speaks against it, so a new worker is asked for in Weeder's place, and the line says so.
+  assert.match(waits.wakeNotice.text, /^could not wake Weeder: .*; open its chat · a new worker is asked for in its place$/)
   // Nothing ready: no need any more.
   const raw = build([held('B12', 'Digger')])
   const weeder = lane(raw, 'Weeder')

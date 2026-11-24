@@ -424,7 +424,7 @@ export function pass(record, now, { verdictMs = WAKE_VERDICT_MS, sendMs = WAKE_S
         if (isTime(attempt.sentAt) && now - attempt.sentAt >= (isCarried ? Math.max(verdictMs, CARRY_VERDICT_MS) : verdictMs)) {
           attempt.why = FAILED_WHY[attempt.path]
         } else if (attempt.sentAt === null && now - (isTime(attempt.heldAt) ? attempt.heldAt : attempt.at) >= (!isCarried ? sendMs : attempt.carry === 'courier' && !isTime(attempt.heldAt) ? Math.max(sendMs, COURIER_WAIT_MS) : Math.max(sendMs, CARRY_SEND_MS))) {
-          attempt.why = attempt.path === 'launch' ? 'the launch did not end' : isCarried ? `${carrierWords(attempt.by)} did not carry the message within 10 minutes` : `the message was not sent within 3 minutes (held by ${attempt.by})`
+          attempt.why = attempt.path === 'launch' ? LAUNCH_CUT_WHY : isCarried ? `${carrierWords(attempt.by)} did not carry the message within 10 minutes` : `the message was not sent within 3 minutes (held by ${attempt.by})`
         } else continue
         attempt.verdict = 'failed'
         attempt.verdictAt = now
@@ -763,12 +763,14 @@ function needOf(lane, { state, waiting, prefix, resumeList, ownerName }) {
  * could take in its spell (`wakeOf` final: the message and the launch tried and failed, or no id to reach it), until it runs again or the
  * app's return re-opens the spell (G1); `waking`: one whose wake is on its way (a message held or sent, a launch waiting for its verdict).
  * `lanes` the board's chats; `facts` the server's `{ record, senderClaims, canLaunch }`. Two Sets of names; empty without a record.
+ * B1304 (B1279's point 2): `lastLaunch` (`lastLaunchOf`): the hand-out asks for a new worker in place of ones it cannot wake only while
+ * launches start chats.
  */
-export function wakeableOf(lanes, facts) {
+export function wakeableOf(lanes, facts, now = Date.now()) {
   const unwakeable = new Set()
   const waking = new Set()
   const record = facts?.record ?? null
-  if (record === null) return { unwakeable, waking }
+  if (record === null) return { unwakeable, waking, lastLaunch: null }
   for (const lane of lanes ?? []) {
     if (lane === null || lane === undefined || lane.isLeftover === true || typeof lane.name !== 'string') continue
     const spell = spellOf(lane)
@@ -777,7 +779,32 @@ export function wakeableOf(lanes, facts) {
     if (wake.final === true && !ranSince(record, lane.name, spell, lane.report ?? null)) unwakeable.add(lane.name)
     else if (['on-its-way', 'sent', 'launched'].includes(wake.state)) waking.add(lane.name)
   }
-  return { unwakeable, waking }
+  return { unwakeable, waking, lastLaunch: lastLaunchOf(record, now) }
+}
+
+/** A launch that never ended (the board's own restart cut it off, `pass`): no proof of what the app does. */
+export const LAUNCH_CUT_WHY = 'the launch did not end'
+
+/** B1304: how long a launch's verdict speaks for the next one (chat 1's review 1: never a hold without an end). */
+export const LAST_LAUNCH_MS = 2 * 60 * 60 * 1000
+
+/**
+ * B1304: the record's newest launch with a verdict (any chat's, the board-wide spell's too), `{ verdict: 'started' | 'failed', at }`, or
+ * null. Only one of the last LAST_LAUNCH_MS counts; a failed one older than the app's return (`heardRunAt`, G1) does not, nor one the
+ * board's own restart cut off (`LAUNCH_CUT_WHY`).
+ */
+export function lastLaunchOf(record, now = Date.now()) {
+  let newest = null
+  for (const entries of record?.wakes?.values() ?? []) {
+    for (const attempt of (entries ?? []).flatMap(entry => entry.attempts ?? [])) {
+      if (attempt.path !== 'launch' || !['woke', 'failed'].includes(attempt.verdict) || attempt.why === LAUNCH_CUT_WHY) continue
+      const at = isTime(attempt.verdictAt) ? attempt.verdictAt : attempt.at
+      if (!isTime(at) || now - at > LAST_LAUNCH_MS) continue
+      if (attempt.verdict === 'failed' && isTime(record.heardRunAt) && record.heardRunAt > at) continue
+      if (newest === null || at >= newest.at) newest = { at, verdict: attempt.verdict === 'woke' ? 'started' : 'failed' }
+    }
+  }
+  return newest
 }
 
 /**
