@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { OWN_PORTS_FROM, choosePort, freePort, launchEntry, portArg, readOwnPort, resolvePort, withEntry, writeOwnPort } from '../src/ports.mjs'
+import { startAllowed } from '../src/shutdown.mjs'
 
 test('portArg: a port given on the command line, or null', () => {
   assert.equal(portArg('4311'), 4311)
@@ -96,12 +97,15 @@ test('launchEntry: a folder\'s entry is named after it and opens its own port; a
   })
   // The main board (also when `main` names its own folder): the launcher, detached; a copy has no `detached`.
   const main = launchEntry({ folder: 'C:\\x\\board', port: 4310, node, main: 'C:/x/Board/' })
-  assert.deepEqual(main.runtimeArgs, ['C:/x/board/start-board.mjs'])
+  // F57: the Run pane's Start is the person's own: `--resume` starts a board that was shut down on purpose (the stop sign).
+  assert.deepEqual(main.runtimeArgs, ['C:/x/board/start-board.mjs', '--resume'])
+  assert.equal(startAllowed({ stop: { why: 'stopped', by: 'command', at: Date.parse('2026-11-24T09:00:00Z'), how: 'shutdown' }, args: main.runtimeArgs.slice(1) }).ok, true)
+  assert.equal(startAllowed({ stop: { why: 'stopped', by: 'command', at: Date.parse('2026-11-24T09:00:00Z'), how: 'shutdown' }, args: [] }).ok, false, 'a start that is not the person\'s still holds')
   assert.equal(main.detached, true)
   // F10: the launcher's stop words (start-app 0.4.1 runs them for /stop-app: the stop sign first, so the watcher leaves the board down).
   assert.deepEqual(main.stop, ['C:/Program Files/nodejs/node.exe', 'C:/x/board/start-board.mjs', '--stop'])
   assert.equal('stop' in launchEntry({ folder: 'C:\\x\\board-one', port: 4320, node, main: 'C:\\x\\board' }), false)
-  assert.deepEqual(launchEntry({ folder: 'C:\\x\\board', port: 4310, node }).runtimeArgs, ['C:/x/board/start-board.mjs'])
+  assert.deepEqual(launchEntry({ folder: 'C:\\x\\board', port: 4310, node }).runtimeArgs, ['C:/x/board/start-board.mjs', '--resume'])
   assert.equal('detached' in launchEntry({ folder: 'C:\\x\\board-one', port: 4320, node, main: 'C:\\x\\board' }), false)
 })
 

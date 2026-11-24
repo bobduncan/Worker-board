@@ -336,13 +336,15 @@ const slashes = path => String(path).replace(/\\/g, '/')
  * its `stop` words (F10: `start-board.mjs --stop` writes the stop sign first, so the watcher leaves a stopped board down;
  * start-app 0.4.1 runs them for /stop-app). A copy keeps `server.mjs` with its own port, and shows the history of the board
  * in the main folder (it records none).
+ * F57 (2026-11-24): the launcher runs with `--resume`: the Run pane's Start is the person's own click, like the board's icon,
+ * so it starts a board that was shut down or stopped on purpose (src/shutdown.mjs PERSON_STARTS) instead of a refusal line.
  */
 export function launchEntry({ folder, port, node, main = null }) {
   const isCopy = main !== null && pathKey(main) !== pathKey(folder)
   const entry = {
     name: basename(slashes(folder)),
     runtimeExecutable: slashes(node),
-    runtimeArgs: isCopy ? [`${slashes(folder)}/server.mjs`, '--history-from', `${slashes(main)}/data`] : [`${slashes(folder)}/start-board.mjs`],
+    runtimeArgs: isCopy ? [`${slashes(folder)}/server.mjs`, '--history-from', `${slashes(main)}/data`] : [`${slashes(folder)}/start-board.mjs`, '--resume'],
     port,
     url: `http://127.0.0.1:${port}`,
   }

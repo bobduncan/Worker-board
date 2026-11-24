@@ -196,7 +196,10 @@ and the briefings for the main chat and the workers.
    <project>\.claude\launch.json`. With `"boards": ["worker-board"]` in `list.json`, every chat in the list starts
    the board when it does not answer, within 15 seconds: no need to start it yourself, also after a restart.
    The main board's entry runs `start-board.mjs` with `"detached": true`: `/launch` starts the board through its launcher,
-   which ends with code 0 while the port answers, so the board belongs to no chat and logs to `data/board.log`.
+   which ends with code 0 while the port answers, so the board belongs to no chat and logs to `data/board.log`. It runs
+   `start-board.mjs --resume` (F57): the Run pane's Start is your own click, like the board's icon, so it also starts a
+   board you shut down or stopped on purpose. An entry written before F57 lacks it: write it anew with
+   `node server.mjs --launch-entry` in the board folder.
    A copy's entry keeps `server.mjs --history-from ...`.
    **Outside the Claude app** (F10, 2026-11-14): every start makes the keeper through WMI (`Win32_Process.Create`), so it sits in
    no process tree or job of a chat: the app's self-update, which ends every process in its job, leaves the boards running. The
