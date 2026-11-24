@@ -174,6 +174,15 @@ test('review 8: while refused, the page\'s wake word for Worker 2 goes as one wo
   assert.equal((await words()).find(one => one.id === carried[0].id).why, 'the word it carried is closed')
 })
 
+test('F59 review 3: while refused, the page\'s wake word still in doubt (B891: a hand\'s call that gave no answer may have sent it) gets no word for the courier', { timeout: 240_000 }, async t => {
+  const { json, words } = await boardWith(t, { refused: true, lines: [{ ...WAKE_WORD, doubtAt: Date.now() }] })
+  await json('/api/bridge/wakes-due', {})
+  // Past the wake passes of about 10 and 60 seconds after the board's start (one of them writes review 8's word above). The word's doubt
+  // lasts 5 minutes (DOUBT_MS).
+  await new Promise(done => setTimeout(done, 70_000))
+  assert.deepEqual((await words()).filter(one => one.command === 'wake-carry' && one.of === WAKE_WORD.id), [])
+})
+
 test('the courier: wakes-due hands each word once with a fresh window; never a carrier\'s word, never a target that woke; wakes-sent closes it once', { timeout: 240_000 }, async t => {
   const word = { id: 'c0c0c0c0c0c0c001', at: NOW - MIN, to: 'the courier', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'The worker board holds words for you: run work next', text: 'Wake Worker 2 for the worker board', state: 'waiting' }
   const taken = { ...word, id: 'c0c0c0c0c0c0c002', to: 'Worker 1' }

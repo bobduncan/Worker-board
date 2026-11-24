@@ -6413,7 +6413,7 @@ the turn-time fallback. In landing 1 a wake handed to the courier counts as sent
 back with their attempts; the refusal the record's old attempts show is seeded as its own fact; the daily probe goes to any free chat.*
 *Landing 1 check (chat 1, 2026-11-14): a start or wake word's carry (`of`) taken and never said sent closes after CARRY_VERDICT_MS and never
 holds a wake need, Send again or the launch off (only another such word); wakes-due closes one whose target has a wake on its way; a
-carry word keeps as long as an answer (the courier's 15-min wait); only a pause holds the wakes, Resume all does not; a raw refusal in
+carry word keeps as long as an answer (the courier's wait, 25 min since F59's review); only a pause holds the wakes, Resume all does not; a raw refusal in
 the record is read plain at load, and the could-not-wake evidence uses plain words.*
 *Re-check (chat 1, 2026-11-14): while Resume all runs, the main chat's model sends the resume line to its list itself; a resume-list need
 gets no courier word and no launch for RESUME_GRACE_MS (3 min) from the resume's start while the main chat runs or its own wake is on its
@@ -6444,7 +6444,7 @@ code calls it. Have Claude make the call."). Only a model turn may send to anoth
   (the reconciler's start, B577's wake of a stopped chat) gets one carry word too (`of`), which types the hands' line; the word closes
   once its carrier's turn on it began.
 - **B, the fallback** (`tools/wake-courier.md`, a scheduled task chat 1 makes): the board counts on the courier only while it called
-  wakes-due within 25 min (`courierAlive`); then a need with no free carrier gets a word for it (it waits 15 min for the courier's
+  wakes-due within 25 min (`courierAlive`); then a need with no free carrier gets a word for it (it waits 25 min, F59 review 6, for the courier's
   run), else the message try stays unspent and the launch goes as before (the board-wide one included). `POST /api/bridge/wakes-due`
   (the board key) first closes what ended, then hands each due word ONCE (a word to the courier, a carrier's word not taken within
   3 min, any when nobody runs; only for a target that still sleeps with its attempt pending), taken in the same step it is checked,
@@ -6504,6 +6504,20 @@ it in that same call (`wakesDue` runs the carry pass first while no hand runs), 
 failed (then once, `sayVerdict`, the notice). Without a courier that calls, the launch goes as before; the person's pause holds it all
 (`isHolding`, `carryPaused`; wakes-due makes no word while paused). Tests: `test/wakeNoHands.test.mjs` (the rule, the 10:23 case, a
 failed launch then the courier, the pause), `test/wakeNoHandsBoard.test.mjs` (the same on a running board copy with recorded launches).
+*Core review (chat 1, 2026-11-24, `.claude/plans/2026-11-24-f59-review.md`):*
+1. A hand that may send and comes back while a courier word waits takes it over: its claim gives back the courier's words not yet taken
+   (`carryCloses` with `handSends`, the attempt given back unspent; a word the courier holds stays its own), and sends them in that claim.
+   Only a word whose message that hand takes over (`handMayTakeOver`): B1279's word after a hand's send that brought no report stays the
+   courier's, else the next pass would make it anew at every claim.
+2. "No hands" for the courier's words is its own quiet, NO_HANDS_MS (3 min, `handsNow`'s `quiet`): a live hand that pauses just over the
+   minute is no hand gone. From the hands' window to that quiet the launch waits while the courier calls (`sendersNow`).
+3. The carry pass never carries a start or wake word still in doubt (B891, `isCarriedWord`).
+4. "nobody answers the board's wake-ups" and the Supervisor's rule `nobody-answers-wakes` read the hands' own claim (`handsClaim`,
+   `wakeHandsClaim`), not the courier. The rule also fires with no board-wide launch when no hand that may send claims. A chat nothing
+   needs a wake for reads its wake by the hands' claim too, so it keeps "could not wake" when the courier starts counting: no courier
+   word goes to it.
+5. The courier's last call is kept in data/wakes.json (`courierAt`), so a restarted board still counts on it.
+6. COURIER_WAIT_MS is COURIER_ALIVE_MS (25 min): one missed courier run no longer spends the try. Each why says its own window.
 
 ## A lane's own chat, and one way back for a held step (B986, X140, 2026-11-04)
 

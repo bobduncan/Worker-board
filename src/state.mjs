@@ -3268,6 +3268,9 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   const record = wakes?.record ?? null
   if (record === null) return { ...built, wakeNotice: null, wakes: {} }
   const senderClaims = wakes.senderClaims === true
+  // F59 review 4: whether a hand that may send claims (the hands' own claim; `senderClaims` counts the courier too while no hand runs). A
+  // chat nothing needs a wake for reads its wake by it (no courier word is made for it), and so does "nobody answers".
+  const handsClaim = typeof wakes.handsClaim === 'boolean' ? wakes.handsClaim : senderClaims
   const main = (built.chats ?? []).find(lane => lane.isMain && !lane.isLeftover)?.name ?? ''
   const lanes = [...(built.chats ?? []).filter(lane => !lane.isLeftover), ...[built.advisor, built.advisorHelper, built.supervisorChat, built.productOwner].filter(Boolean)]
   const resumeList = pauseRecord?.state === 'resuming' && items !== null ? pauseAnswer({ pause: pauseRecord, items, lanes, prefix, chat: main, role: 'main', assets }).resumeList : []
@@ -3298,7 +3301,7 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
     const target = targetOf(lane)
     if (target !== null && !hasRunSince(lane, target)) {
       targets.push(target)
-      return { ...wakeOf(record, target, { senderClaims }), need: target.need, spell: target.spell }
+      return { ...wakeOf(record, target, { senderClaims: target.need === true ? senderClaims : handsClaim }), need: target.need, spell: target.spell }
     }
     return { ...wakeStatusOf(record, lane.name, spellOf(lane)), final: false, need: false, shown: false }
   }
@@ -3316,10 +3319,12 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
   return {
     ...built, chats, ...roles,
     // P5: the kept reports the lanes read (the same `lane.report` the hasRunSince above reads), so the notice itself leaves out a chat that ran since its failed wake.
-    wakeNotice: withReplacement(noticeOf(record, targets, now, ms => sinceClock(ms, now), { senderClaims, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }), built.reconciled?.replacement ?? null, ms => sinceClock(ms, now)),
+    wakeNotice: withReplacement(noticeOf(record, targets, now, ms => sinceClock(ms, now), { senderClaims, handsClaim, nobody, nothingWaits: new Set(lanes.filter(lane => nothingWaitsFor(lane, { outbox: sent, isPaused: isHolding(pauseRecord), owed: owedChatsOf(items, { main, partner: built.advisor?.name ?? null }) })).map(lane => lane.name)), reports: Object.fromEntries(lanes.map(lane => [lane.name, lane.report ?? lane.ownReport ?? null])) }), built.reconciled?.replacement ?? null, ms => sinceClock(ms, now)),
     wakes: newestSpells(record),
     // The review of 2026-11-02 (7): the board-wide spell now (nobody runs since), for the rule nobody-answers-wakes.
     wakeBoardSince: nobody?.since ?? null,
+    // F59 review 4: and whether a hand that may send claims (no board-wide launch goes while no hand runs and the courier calls).
+    wakeHandsClaim: handsClaim,
   }
 }
 

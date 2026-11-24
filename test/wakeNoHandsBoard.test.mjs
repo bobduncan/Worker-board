@@ -1,8 +1,9 @@
 // F59 on a running board (a copy on a made-up project in a temporary folder), the real case of 2026-11-24: at 10:23 the app relaunched
 // itself and every board chat's process ended; no hand claimed, the board launched five chats (all "the app did not start it") and the
 // courier got an empty list at each run. Here five closed chats (Main, Workers 1, 2, 4 and 5) each have a word waiting, no hand claims
-// (the hands' window, HANDS_GONE_MS, passes a minute after the board's start), and the copy records its launches in a file
-// (WORKER_BOARD_OPEN_STUB) instead of starting the program.
+// (the hands' window, HANDS_GONE_MS, passes a minute after the board's start; F59 review 2's quiet, NO_HANDS_MS, is 90 seconds in this
+// copy: WORKER_BOARD_NO_HANDS_MS, so it falls between the wake passes of about 60 and 120 seconds), and the copy records its launches in a
+// file (WORKER_BOARD_OPEN_STUB) instead of starting the program.
 
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -69,9 +70,10 @@ async function until(check, what, ms = 60_000) {
 
 /**
  * A board whose five chats are closed: each reported its session ended at `spell` (40 minutes ago), none claims the hands. `waiting` the
- * chats a word (the person's answer) waits for; `attempts` more tries of each chat's spell, by name; `pause` the person's pause.
+ * chats a word (the person's answer) waits for; `attempts` more tries of each chat's spell, by name; `pause` the person's pause;
+ * `courierAgo` minutes since the courier's last call as data/wakes.json keeps it (F59 review 5), or null.
  */
-async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null } = {}) {
+async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null, courierAgo = null } = {}) {
   const now = Date.now()
   const spell = now - 40 * MIN
   const dir = await mkdtemp(join(tmpdir(), 'board-nohands-'))
@@ -90,7 +92,7 @@ async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null
   const lines = waiting.map((name, index) => ({ id: `answer00000000${index}`, at: now - 5 * MIN, to: name, ask: `chat:${name}`, step: null, title: null, version: null, verdict: null, text: 'Yes, go on.', state: 'waiting' }))
   await put(join(board, 'data', 'outbox.jsonl'), lines.length === 0 ? '' : `${lines.map(line => JSON.stringify(line)).join('\n')}\n`)
   const wakes = Object.fromEntries(Object.entries(attempts).map(([name, list]) => [name, [{ spell, attempts: list(spell, now), turnEndedAt: null, told: { failed: false, nobody: false } }]]))
-  await put(join(board, 'data', 'wakes.json'), `${JSON.stringify({ wakes })}\n`)
+  await put(join(board, 'data', 'wakes.json'), `${JSON.stringify({ wakes, ...(courierAgo === null ? {} : { courierAt: now - courierAgo * MIN }) })}\n`)
   if (paused !== null) await put(join(project, '.claude', 'work', 'pause.json'), JSON.stringify(paused(now)))
   await put(join(project, '.claude', 'chats', 'list.json'), '{"prefix":"Game - ","main":"Main"}')
   for (const name of NAMES) {
@@ -100,7 +102,7 @@ async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'nohands', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
   const launchFile = join(dir, 'launches.jsonl')
-  const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_CARRY_BY_MODEL: '0', WORKER_BOARD_OPEN_STUB: launchFile })
+  const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_CARRY_BY_MODEL: '0', WORKER_BOARD_OPEN_STUB: launchFile, WORKER_BOARD_NO_HANDS_MS: '90000' })
   const upAt = Date.now()
   const base = `http://127.0.0.1:${port}`
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
@@ -120,30 +122,37 @@ async function boardOf(t, { waiting = NAMES, attempts = {}, pause: paused = null
   const carried = async () => (await words()).filter(one => one.command === 'wake-carry')
   const record = async () => JSON.parse(await readFile(join(board, 'data', 'wakes.json'), 'utf8'))
   const launches = () => readFile(launchFile, 'utf8').then(text => text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line)), () => [])
-  /** Waits until the hands' window (a minute) has passed since the board's start: from then no hand runs. */
+  // The state as the page reads it (the lanes' wake).
+  const token = /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
+  const state = () => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
+  /** Waits until the hands' window (a minute) has passed since the board's start. */
   const handsGone = () => pause(Math.max(0, upAt + 65_000 - Date.now()))
-  return { out, call, json, claim, courier, words, carried, record, launches, handsGone, spell }
+  /** Waits until F59's quiet (90 s here) has passed since the board's start: from then the board reads no hands. */
+  const handsQuiet = () => pause(Math.max(0, upAt + 95_000 - Date.now()))
+  return { out, call, json, claim, courier, words, carried, record, launches, state, handsGone, handsQuiet, upAt, spell }
 }
 
-test('F59, the 10:23 case: no hand, five wakes due, the courier calling: ONE courier word each, no launch before its window, none for a hand that comes back; the courier takes each once', { timeout: 300_000 }, async t => {
-  const { claim, courier, carried, record, launches } = await boardOf(t)
-  // The courier calls while the hands' window still runs: from now the board counts on it; nothing is due yet.
-  assert.deepEqual(await courier(), [])
-  // The wake pass once the hands' window passed (once a minute): one word for each closed chat, all to the courier.
-  await until(async () => (await carried()).length >= NAMES.length, 'a courier word for each closed chat', 150_000)
+test('F59, the 10:23 case: no hand, five wakes due, the courier called before the board started (kept, review 5): nothing until the hands are quiet (review 2), then ONE courier word each, no launch before its window; the courier takes each once and keeps them', { timeout: 300_000 }, async t => {
+  const { claim, courier, carried, record, launches, handsQuiet } = await boardOf(t, { courierAgo: 5 })
+  // Past the hands' window (the wake pass of about 60 s), before the quiet: no word yet, and the launch waits (the courier counts).
+  await handsQuiet()
+  assert.deepEqual(await carried(), [], 'no courier word before NO_HANDS_MS of quiet')
+  assert.deepEqual(await launches(), [], 'no launch while the hands may be back and the courier calls')
+  // The wake pass after the quiet: one word for each closed chat, all to the courier, with no call of it on this board yet.
+  await until(async () => (await carried()).length >= NAMES.length, 'a courier word for each closed chat', 90_000)
   // A moment for a launch that would come in the same pass.
   await pause(3000)
   const first = await carried()
   assert.deepEqual(first.map(one => [one.about, one.to, one.state]).sort(), NAMES.map(name => [name, 'the courier', 'waiting']), JSON.stringify(first))
   assert.deepEqual(await launches(), [], 'no launch while the courier\'s words wait (the board-wide one neither)')
-  // A hand comes back while the words wait: no message job for any of them, and no second word.
-  const jobs = await claim('Main')
-  assert.deepEqual(jobs.filter(job => NAMES.includes(job.chat)), [], JSON.stringify(jobs))
   // The courier's run: each word once; then nothing.
   const due = await courier()
   assert.deepEqual(due.map(one => one.chat).sort(), [...NAMES].sort())
   assert.deepEqual(due.map(one => one.session).sort(), NAMES.map(appId).sort())
   assert.deepEqual(await courier(), [], 'never handed twice')
+  // A hand comes back after the courier took them: no message job beside the courier's (a held word stays the courier's).
+  const jobs = await claim('Main')
+  assert.deepEqual(jobs.filter(job => NAMES.includes(job.chat)), [], JSON.stringify(jobs))
   assert.equal((await carried()).length, NAMES.length, 'never a second word for a spell')
   await until(async () => {
     const saved = await record()
@@ -151,7 +160,22 @@ test('F59, the 10:23 case: no hand, five wakes due, the courier calling: ONE cou
   }, 'the hand-offs saved', 10_000)
   const kept = await record()
   for (const name of NAMES) assert.deepEqual(kept.wakes[name].at(-1).attempts.map(one => [one.path, one.by, one.carry]), [['message', 'the courier', 'courier']], name)
+  assert.equal(typeof kept.courierAt, 'number', 'the courier\'s call kept')
   assert.deepEqual(await launches(), [])
+})
+
+test('F59 review 1: a hand that may send comes back while the courier\'s words wait: it takes the messages in that claim, the words go back unspent, the courier gets none', { timeout: 300_000 }, async t => {
+  const { claim, courier, carried, handsQuiet } = await boardOf(t)
+  assert.deepEqual(await courier(), [])
+  await handsQuiet()
+  await until(async () => (await carried()).length >= NAMES.length, 'the courier\'s words', 90_000)
+  // Main's hands are back and may send: the four workers' messages are its jobs now.
+  const jobs = await claim('Main')
+  const workers = NAMES.filter(name => name !== 'Main')
+  assert.deepEqual(jobs.filter(job => workers.includes(job.chat)).map(job => [job.chat, job.to]).sort(), workers.map(name => [name, appId(name)]).sort(), JSON.stringify(jobs))
+  const words = await carried()
+  assert.deepEqual(words.filter(one => workers.includes(one.about)).map(one => [one.state, one.why]), workers.map(() => ['dropped', 'a hand that may send is back: it sends the wake']))
+  assert.deepEqual(await courier(), [], 'the courier gets none of them')
 })
 
 test('F59: the courier\'s window passed untaken: the launch goes (the main chat first), and the courier gets no second word', { timeout: 300_000 }, async t => {
@@ -162,7 +186,7 @@ test('F59: the courier\'s window passed untaken: the launch goes (the main chat 
   await until(async () => (await launches()).length >= 1, 'the first launch')
   assert.deepEqual((await launches())[0].chat, 'Main')
   assert.equal((await launches())[0].session, sessionOf('Main'))
-  // Past the hands' window, the courier calling: the next launch, one per check; still no word for the courier.
+  // Past the hands' window, the courier calling (it counts as the sender): the next launch, one per check; still no word for it.
   await handsGone()
   await courier()
   await until(async () => (await launches()).length >= 2, 'the next launch, no hand and the courier calling', 150_000)
@@ -173,9 +197,11 @@ test('F59: the courier\'s window passed untaken: the launch goes (the main chat 
 test('F59 point 3: a launch that failed before the courier called: at the courier\'s next call its word is made and handed in that very call', { timeout: 300_000 }, async t => {
   // 10:24 Worker 4's launch, which the app did not start (2 minutes without its report). Only Worker 4 has a word waiting.
   const launchFailed = (spell, now) => [{ path: 'launch', at: now - 20 * MIN, by: 'board', jobId: `launch:${now - 20 * MIN}:Worker 4`, sentAt: now - 20 * MIN, runBefore: 1, verdict: 'failed', verdictAt: now - 18 * MIN, why: 'the app did not start it', step: null }]
-  const { courier, record, launches, handsGone } = await boardOf(t, { waiting: ['Worker 4'], attempts: { 'Worker 4': launchFailed } })
-  // No courier yet; past the hands' window the spell would end here ("could not wake").
-  await handsGone()
+  // Worker 5's launch failed too, and nothing waits for it (no wake need): the review's unverified point.
+  const launchFailed5 = (spell, now) => launchFailed(spell, now).map(one => ({ ...one, jobId: one.jobId.replace('Worker 4', 'Worker 5') }))
+  const { courier, record, launches, state, handsQuiet } = await boardOf(t, { waiting: ['Worker 4'], attempts: { 'Worker 4': launchFailed, 'Worker 5': launchFailed5 } })
+  // No courier yet; past the quiet the spell would end here ("could not wake").
+  await handsQuiet()
   const due = await courier()
   assert.deepEqual(due.map(one => [one.chat, one.session]), [['Worker 4', appId('Worker 4')]], 'handed in the call that found it')
   await until(async () => (await record()).wakes['Worker 4'].at(-1).attempts.length === 2, 'the courier\'s attempt saved', 10_000)
@@ -183,12 +209,17 @@ test('F59 point 3: a launch that failed before the courier called: at the courie
   assert.deepEqual(attempts.map(one => [one.path, one.verdict, one.carry ?? null]), [['launch', 'failed', null], ['message', null, 'courier']])
   assert.deepEqual(await courier(), [], 'once')
   assert.deepEqual((await launches()).filter(one => one.chat === 'Worker 4'), [], 'Worker 4 is not launched again')
+  // The courier counts now: Worker 4 waits for it; Worker 5, which no wake needs and no courier word goes to, keeps "could not wake".
+  const lanes = (await state()).chats
+  const wake = name => lanes.find(lane => lane.name === name).wake
+  assert.deepEqual([wake('Worker 4').state, wake('Worker 4').final], ['sent', false])
+  assert.deepEqual([wake('Worker 5').state, wake('Worker 5').final, wake('Worker 5').need], ['failed', true, false], JSON.stringify(wake('Worker 5')))
 })
 
 test('F59: the person\'s pause holds it: no hand, the courier calling, nothing for it and no launch', { timeout: 300_000 }, async t => {
-  const { courier, carried, launches, handsGone } = await boardOf(t, { pause: now => ({ state: 'pausing', since: now - 2 * MIN, by: 'person' }) })
+  const { courier, carried, launches, handsQuiet } = await boardOf(t, { pause: now => ({ state: 'pausing', since: now - 2 * MIN, by: 'person' }) })
   assert.deepEqual(await courier(), [])
-  await handsGone()
+  await handsQuiet()
   assert.deepEqual(await courier(), [], 'the courier\'s call makes no word while the person pauses')
   // Past a wake pass with no hand and the courier calling.
   await pause(10_000)

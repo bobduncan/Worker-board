@@ -247,6 +247,17 @@ export function handTried(record, { chat, spell, hand }) {
 }
 
 /**
+ * F59 review 1: whether a hand that may send takes over the message of the carried attempt `jobId` once it is given back: no other try
+ * of its spell is on its way or woke it, none was "not found", and no message went beside it but a refused one (a hand's send that went
+ * and brought no report, B1279, is followed by its carry word, never by a hand's send again: giving that word back would only make it anew).
+ */
+export function handMayTakeOver(record, chat, jobId) {
+  const entry = entriesOf(record, chat).findLast(one => one.attempts.some(attempt => attempt.jobId === jobId)) ?? null
+  if (entry === null) return false
+  return !countedOf(entry).some(one => one.jobId !== jobId && (isPending(one) || one.verdict === 'woke' || one.unlisted === true || (one.path === 'message' && one.refused !== true)))
+}
+
+/**
  * Claims an attempt for `chat`'s spell, synchronously, before the job is made (or the launch awaited): the attempt, or
  * false when `nextPath` does not give this path now (one attempt per path per spell, never two pending at once).
  * `runBefore` the chat's report's `run` at the attempt; `by` the hand's chat for a message, 'board' for a launch.
@@ -421,10 +432,12 @@ export function pass(record, now, { verdictMs = WAKE_VERDICT_MS, sendMs = WAKE_S
       for (const attempt of entry.attempts.filter(isPending)) {
         // F17: a wake a model carries (a carrier's turn, or the courier) has its own, longer windows.
         const isCarried = attempt.carry != null
+        // F59 review 6: the window it had, in its why (the courier's untaken word waits COURIER_WAIT_MS, a carrier's or a held one CARRY_SEND_MS).
+        const sendWindow = !isCarried ? sendMs : attempt.carry === 'courier' && !isTime(attempt.heldAt) ? Math.max(sendMs, COURIER_WAIT_MS) : Math.max(sendMs, CARRY_SEND_MS)
         if (isTime(attempt.sentAt) && now - attempt.sentAt >= (isCarried ? Math.max(verdictMs, CARRY_VERDICT_MS) : verdictMs)) {
           attempt.why = FAILED_WHY[attempt.path]
-        } else if (attempt.sentAt === null && now - (isTime(attempt.heldAt) ? attempt.heldAt : attempt.at) >= (!isCarried ? sendMs : attempt.carry === 'courier' && !isTime(attempt.heldAt) ? Math.max(sendMs, COURIER_WAIT_MS) : Math.max(sendMs, CARRY_SEND_MS))) {
-          attempt.why = attempt.path === 'launch' ? LAUNCH_CUT_WHY : isCarried ? `${carrierWords(attempt.by)} did not carry the message within 10 minutes` : `the message was not sent within 3 minutes (held by ${attempt.by})`
+        } else if (attempt.sentAt === null && now - (isTime(attempt.heldAt) ? attempt.heldAt : attempt.at) >= sendWindow) {
+          attempt.why = attempt.path === 'launch' ? LAUNCH_CUT_WHY : isCarried ? `${carrierWords(attempt.by)} did not carry the message within ${Math.round(sendWindow / 60_000)} minutes` : `the message was not sent within 3 minutes (held by ${attempt.by})`
         } else continue
         attempt.verdict = 'failed'
         attempt.verdictAt = now
@@ -565,9 +578,12 @@ export function nothingWaitsFor(lane, { outbox = [], isPaused = false, owed = nu
  * its failed wake (`ranSince`) leaves the notice, the line is stale. A chat nothing waits for any more (`need.need === false`) gets a QUIET line
  * ("could not wake X at 10:32; nothing waits for it now", only for a chat in `nothingWaits`, a Set of chat names): the tone is 'quiet' when every line is quiet, 'attention' as soon as one is not.
  */
-export function noticeOf(record, targets, now, timeOf, { senderClaims = false, senderSince = -Infinity, nobody = null, reports = null, nothingWaits = null } = {}) {
+export function noticeOf(record, targets, now, timeOf, { senderClaims = false, handsClaim = undefined, senderSince = -Infinity, nobody = null, reports = null, nothingWaits = null } = {}) {
   const reportOf = chat => (reports instanceof Map ? reports.get(chat) : reports?.[chat]) ?? null
-  const wakes = (targets ?? []).map(need => ({ need, wake: wakeOf(record, need, { senderClaims, senderSince }) }))
+  // F59 review 4: `handsClaim`, whether a hand that may send claims (the hands' own claim, never the courier): "nobody answers" reads it,
+  // and so does a chat nothing needs a wake for (no courier word is made for it). Without it, `senderClaims` as before.
+  const hands = handsClaim === undefined ? senderClaims : handsClaim === true
+  const wakes = (targets ?? []).map(need => ({ need, wake: wakeOf(record, need, { senderClaims: need.need === false ? hands : senderClaims, senderSince }) }))
   const failed = wakes.filter(one => one.wake.final && !ranSince(record, one.need.chat, one.need.spell ?? null, reportOf(one.need.chat), now))
   const quiet = []
   const lines = failed.map(({ need, wake }) => {
@@ -585,7 +601,7 @@ export function noticeOf(record, targets, now, timeOf, { senderClaims = false, s
   const board = nobody === null ? null : statusOf(record, BOARD_KEY, nobody.since ?? null)
   const isBoardFailed = board !== null && board.state === 'failed'
   const needs = wakes.filter(one => one.need.need !== false)
-  const isEveryone = senderClaims !== true && needs.length > 0 && needs.every(one => one.wake.final || one.wake.state === 'waiting-sender')
+  const isEveryone = hands !== true && needs.length > 0 && needs.every(one => one.wake.final || one.wake.state === 'waiting-sender')
   if (isBoardFailed || isEveryone) lines.unshift('nobody answers the board\'s wake-ups: open any chat')
   return lines.length === 0 ? null : { tone: lines.every(line => quiet.includes(line)) ? 'quiet' : 'attention', text: lines.join(' · ') }
 }
@@ -865,8 +881,8 @@ export function savedSpell(value) {
 }
 
 /** The record as the file holds it: `{ "wakes": { "<chat>": [spellEntry, ...] } }`. */
-/** F17: the record's facts of the refusal of the hands' sends (src/wakeCarry.mjs). */
-const SEND_FACTS = ['sendsRefusedSince', 'sendsLiftedAt', 'probeAt', 'handSentAt']
+/** F17: the record's facts of the refusal of the hands' sends (src/wakeCarry.mjs). F59 review 5: and when the courier last called. */
+const SEND_FACTS = ['sendsRefusedSince', 'sendsLiftedAt', 'probeAt', 'handSentAt', 'courierAt']
 /** B1271: the per-hand facts: the hands the app refused (`refusedHands`) and each one's last probe (`probeBy`), `{ <chat>: <ms> }`. */
 const HAND_FACTS = ['refusedHands', 'probeBy']
 const handFactOf = value => (value === null || typeof value !== 'object' || Array.isArray(value) ? {}
