@@ -113,7 +113,7 @@ import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, keepPersonAction, workApi } from './src/work/api.mjs'
 import { effortOf, setsRefusedOf } from './src/work/effort.mjs'
-import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
+import { PAUSE_FILE, chatsAsking, chatsWithoutProcess, isHolding, parsePause, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
@@ -1867,8 +1867,12 @@ async function main(args) {
    */
   const keptStateFor = async (chat, action, of = null, forYou = false) => {
     const last = readState.last() ?? null
+    // B1139: pause-state may answer from the kept state only while the store's pause (pause.json, read now) is running or none.
+    // A pause.json that is there but cannot be read now (Windows holds it) is no "running": the state is read fresh then.
+    const pause = action !== 'pause-state' || workDir === null ? null
+      : await readFile(join(workDir, PAUSE_FILE), 'utf8').then(text => parsePause(text)?.state ?? null, error => (error?.code === 'ENOENT' ? null : 'unreadable'))
     // `dirty`: a write reset the state since it was read (folders.mjs `cached`: readAt -Infinity until the next whole read).
-    const why = keptStateWhy({ last, now: clock(), chat, action, of, forYou, dirty: readState.readAt() === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS })
+    const why = keptStateWhy({ last, now: clock(), chat, action, of, forYou, dirty: readState.readAt() === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS, pause })
     return why === 'kept' ? last : readState()
   }
   const workCtx = async ({ kept = false, chat = null, action = null, of = null, forYou = false } = {}) => {
