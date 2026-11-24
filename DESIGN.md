@@ -9112,3 +9112,21 @@ read-back, both answered yes, and the loser learnt it only at its next check. No
   something other than EEXIST or a held file: the claim is then written under its own name with `wx` (exclusive still, only no longer
   never-empty), so a board on such a folder runs its loops at all. (b) A `create` that meets a claim Windows holds for the moment (EPERM,
   its removal under way) is the other's this round, no loop-lock failure, as the read path already had it.
+
+## F61: a goal's open asks on its own page (2026-11-24, chat 3, chat 1's finding)
+
+The person, 2026-11-24 ("you say there are questions but i dont see anything"): G40's four looks stood on the Focus tab as "For your
+recap (4)" until the focus moved to G106 at 11:33; the board's pass then routed them to the person ("Its goal is not the focus now, so its
+recap will not come: it is yours", api.mjs recapGoneWords), so they became four ordinary cards in Needs your attention, counted in the top
+bar and opening from #details=Q<n> (B993's /api/ask fallback, test/askAbout.test.mjs). Nothing on the Focus tab or on G40's page in Goals
+named them. Page code only; the store is unchanged:
+- **A goal's frame on Goals** lists "For you (n)": the open asks of its steps that stand with the person (state.forYou, by the goal
+  node's steps) and those still waiting for its recap (state.routedAway, route recap): each a link to the ask's own window (the card's
+  form answers it), a recap wait with the recap panel's Looks right / Send back (`goalForYouRows`, goals region; `recapAsksList` takes
+  the stand per ask).
+- **The Focus tab** says, under the focus head, "n asks of G40 · Four more heroes wait for you in Needs your attention (its recap will not
+  come: it is not the focus)", linking the goal's page (`otherGoalsAsks`, in the redraw region so focusPageView carries it as `elsewhere`
+  and the page draws anew when it changes).
+- Tests: goalsPage (the rows: by goal, closed cards and step cards left out, a recap wait keeps the state's object), focusPage (the line's
+  view by goal, the focus goal's own left out), redrawKeys (the view's field). Pictures: .claude/plans/f61-before-*.jpg and f61-after-*.jpg
+  (a board copy on a made-up project).

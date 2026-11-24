@@ -7153,6 +7153,8 @@ function focusPageView(state, ui) {
     // Autopilot (2026-10-31): the switch it covers, and the asks that wait for the goal's recap.
     autopilot: state.autopilot ?? null,
     routedAway: (state.routedAway ?? []).filter(one => one.route === 'recap'),
+    // F61: the asks of other goals that stand with the person, by goal (the one line under the focus head).
+    elsewhere: otherGoalsAsks(state),
     // 2026-11-01: the recap card (src/recapCard.mjs): the parts of the goal's recap that wait for the person's verdict.
     recapCard: state.recapCard ?? null,
     // T17.1: the same while round N+1 of the recap is being made.
@@ -7193,6 +7195,28 @@ const rethinkUiView = () => ({ on: rethinkBox.on, topic: rethinkBox.topic, pictu
  * keeps), and what is picked, sent, refused or open on its cards (the switches, the gathered recaps and asks).
  */
 const focusPageUi = () => ({ busy: focusUi.busy, note: focusUi.note, notYet: focusUi.notYet, picked: focusUi.picked, picking: focusUi.picking, dropping: focusUi.dropping, partsOpen: { ...focusUi.partsOpen }, blocksView: focusUi.blocksView, chosen: [...chosen], problems: [...problems], sending: [...sending], openForms: [...openForms], starting: [...starting], rethink: rethinkUiView() })
+// elsewhere:start
+/**
+ * F61: the open asks of OTHER goals' steps that stand with the person (the cards of Needs your attention), for one line under the
+ * focus head: `[{ goal, title, count, ids }]` by goal, most asks first; the focus goal's own are not in it (its recap card has them).
+ */
+function otherGoalsAsks(state) {
+  const focusId = state?.focus?.id ?? null
+  const nodes = state?.goals?.nodes ?? []
+  const goalOf = step => nodes.find(node => (node.steps ?? []).includes(step)) ?? null
+  const byGoal = new Map()
+  for (const need of state?.forYou ?? []) {
+    if (typeof need?.workId !== 'string' || !/^Q\d+$/.test(need.workId) || need.isClosed === true || typeof need.of !== 'string') continue
+    const node = goalOf(need.of)
+    if (node === null || node.id === focusId) continue
+    const one = byGoal.get(node.id) ?? { goal: node.id, title: node.title, count: 0, ids: [] }
+    one.count += 1
+    one.ids.push(need.workId)
+    byGoal.set(node.id, one)
+  }
+  return [...byGoal.values()].sort((a, b) => b.count - a.count || a.goal.localeCompare(b.goal, 'en', { numeric: true }))
+}
+// elsewhere:end
 // redraw:end
 
 /** B408: Needs your attention, drawn from its view when that changed. */
@@ -12512,6 +12536,26 @@ function goalTreeDrop(goals, layout, fromId, x, y) {
   if (layout.frame !== null && hit(layout.frame)) return { place: 'into', over: layout.frame.id, target: goalDropTarget(goals, fromId, layout.frame.id, 'into') }
   return null
 }
+/**
+ * F61 (the person, 2026-11-24: "you say there are questions but i dont see anything"; G40's four looks moved to Needs your attention
+ * when the focus left it): the open asks of a goal's steps that stand with the person (`state.forYou`, the cards of Needs your
+ * attention) or wait for the goal's recap (`state.routedAway`, route recap), for its frame on the Goals part: `[{ id, title, step,
+ * stand, ask }]`, `stand` 'yours' (its card's window answers it) or 'recap' (the recap panel's buttons), oldest id first.
+ */
+function goalForYouRows(state, node) {
+  if (node === null || node === undefined) return []
+  const steps = new Set(node.steps ?? [])
+  const rows = new Map()
+  for (const need of state?.forYou ?? []) {
+    if (typeof need?.workId !== 'string' || !/^Q\d+$/.test(need.workId) || need.isClosed === true || !steps.has(need.of)) continue
+    rows.set(need.workId, { id: need.workId, title: need.question ?? need.title ?? need.workId, step: need.of, stand: 'yours', ask: { id: need.workId, title: need.question ?? need.title ?? need.workId, of: need.of, ofTitle: need.ofTitle ?? null, pictures: need.pictures ?? [], route: 'person' } })
+  }
+  for (const ask of state?.routedAway ?? []) {
+    if (ask?.route !== 'recap' || rows.has(ask.id) || !(ask.goal === node.id || steps.has(ask.of))) continue
+    rows.set(ask.id, { id: ask.id, title: ask.title ?? ask.id, step: ask.of ?? null, stand: 'recap', ask })
+  }
+  return [...rows.values()].sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
+}
 // goals:end
 
 // goalsteps:start
@@ -12774,6 +12818,15 @@ function drawGoals(state) {
     const parts = [head, summary, goalsLinesOpen && lines.length > 0 ? fill(el('ul', 'goals-frame-lines'), lines.map(line => el('li', '', line))) : null]
     // Rule 15: the person's words said in any chat, one quiet line each, with the chat and the time.
     for (const words of goalWordsRows(focus.yourWords)) parts.push(el('p', 'muted goals-words', words))
+    // F61: the goal's open asks that are the person's (their cards' windows) or wait for its recap (the recap panel's buttons), here too,
+    // so a goal that is not the focus still shows what waits for them.
+    const forYou = goalForYouRows(state, focus)
+    if (forYou.length > 0) {
+      const block = el('div', 'goals-for-you')
+      block.append(el('h4', 'focus-recap-head', `For you (${forYou.length})`))
+      block.append(recapAsksList(forYou.map(row => row.ask), { stands: new Map(forYou.map(row => [row.id, row.stand])) }))
+      parts.push(block)
+    }
     if (canEdit) {
       // The links it has, each with its ×.
       const links = [...focus.enables.map(target => ['Enables', target]), ...focus.alsoPartOf.map(target => ['Also part of', target])]
@@ -19309,7 +19362,7 @@ function autopilotLineText(autopilot) {
 }
 
 /** Autopilot: one line per ask that waits for the recap: its question, its picture, its step; each opens the ask's window. */
-function recapAsksList(asks) {
+function recapAsksList(asks, { stands = new Map() } = {}) {
   const list = el('ul', 'focus-recap-asks')
   for (const ask of asks) {
     const item = el('li', '')
@@ -19325,6 +19378,9 @@ function recapAsksList(asks) {
       item.append(' ', see)
     }
     if (ask.of !== null && ask.of !== undefined) item.append(el('small', 'muted', ` ${[ask.of, ask.ofTitle].filter(Boolean).join(' ')}`))
+    // F61: on a goal's frame an ask that is the person's says so (its window has the buttons); one for the recap keeps its buttons below.
+    if (stands.get(ask.id) === 'yours') item.append(el('small', 'muted', ' · yours: answer it in its window'))
+    else if (stands.get(ask.id) === 'recap') item.append(el('small', 'muted', ' · waits for the goal\'s recap'))
     const row = recapRowAnswer(lookAnswerOf(ask), { isSending: sending.has(`look:${ask.id}`), problem: problems.get(`look:${ask.id}`) ?? null })
     if (row !== null) item.append(row)
     list.append(item)
@@ -19497,6 +19553,15 @@ function drawFocus(state) {
     }
     head.append(title, side)
     parts.push(head)
+    // F61: asks of another goal that stand with the person (G40's looks after the focus moved to G106) are named here, with the way to them.
+    for (const other of state.elsewhere ?? otherGoalsAsks(state)) {
+      const line = el('p', 'muted focus-elsewhere')
+      const open = el('a', 'focus-recap-ask', `${other.goal} · ${other.title}`)
+      open.href = `#advice/goals/${other.goal}`
+      open.title = `Open ${other.goal} on Goals: its asks are listed there`
+      line.append(`${other.count} ask${other.count === 1 ? '' : 's'} of `, open, ` wait${other.count === 1 ? 's' : ''} for you in Needs your attention (its recap will not come: it is not the focus).`)
+      parts.push(line)
+    }
   }
   // T22 wave 2: what Go and Change this goal asked of the partner, with where it stands.
   const waitStrip = focusWaitStrip(state, view)
