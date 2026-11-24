@@ -14,6 +14,7 @@
 
 import { linkGoneNames, wordLanesOf } from '../../modGone.mjs'
 import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
+import { SIDE_WORD } from '../../work/sideWord.mjs'
 import { RETIRED_WATCH_RULES, givenBackFrom, goOnWaitMs, isGoOnWord } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
 import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
@@ -36,6 +37,7 @@ import { isSleep, stallWords } from '../../stallWords.mjs'
 import { STOP_HANDS_MS, isHandTaken, isTaskStopWord } from '../../hands.mjs'
 import { triedWords } from '../../wake.mjs'
 import { isRethinkHold, rethinkWords } from '../../work/rethink.mjs'
+import { isFolderOf } from '../../testQueue.mjs'
 import { focusGoalsOf } from '../../stepStatus.mjs'
 
 const MIN = 60_000
@@ -555,6 +557,8 @@ export function isUndelivered(view, message, judged = undeliveredJudged(view)) {
   if (!(typeof message?.to === 'string' && Number.isFinite(message.at) && message.command !== 'sweep' && !waking.has(message.to) && !gone.has(message.to))) return false
   // F17: a wake's carry word is the wake record's: its attempt's verdict and the board's "could not wake" name it, never rule 8 too.
   if (isCarryWord(message)) return false
+  // B1307 (chat 1's review 4): a side word has its own end: the person's Waits late card says what became of it.
+  if (message.command === SIDE_WORD) return false
   // The time the person's pause held it does not count (as for the outbox's own expiry, store.mjs isLate), nor a
   // hold before its release (B285).
   const held = message.at + heldMs(message, view.now, view.pause)
@@ -1006,7 +1010,9 @@ const lasting = ms => (ms < HOUR ? `${minutes(ms)} min` : `${Math.floor(ms / HOU
  * person's last pause at the earliest, less the time its worker stood suspended for the limit (the review: it cannot
  * write a checkpoint meanwhile). A checkpoint from before the step's current stretch in progress (it waited on you
  * since) counts as none: the stretch counts from its start. Null when it is not late, not in progress, the person
- * pauses, a limit is full, or its worker does not work now (paused for the limit, stopped, asleep). `{ kind, step,
+ * pauses, a limit is full, or its worker does not work now (paused for the limit, stopped, asleep). B1302 (X211): also null while
+ * a run of the step's folder waits or runs in the PC's test queue (`testQueueOf`), and the quiet time counts from the last pass
+ * that saw such a run (`queueSeen` in the late record: when, after the checkpoint). `{ kind, step,
  * checkpoint, quiet }`: `step` how long it has been in progress, `quiet` how long since its last checkpoint (or since
  * the stretch began, without one).
  */
@@ -1016,15 +1022,71 @@ export function checkpointLate(item, view) {
   const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
   // The asset wait: while the provider draws, the holder runs no turn and writes no checkpoint: a quiet checkpoint is no fault then.
   if (owner?.state !== 'working' || owner.heldBy === 'asset') return null
+  const stretch = stretchOf(item, view, owner)
+  if (stretch === null) return null
+  const { began, checkpoint, written, counted } = stretch
+  // B1302 (X211): the holder's test run waits its turn in the PC's one-at-a-time queue (or runs there): it writes no checkpoint
+  // meanwhile (a run waited up to 1 h 45 min), so no case; and the quiet time counts from the last pass that saw it there. The cap
+  // (queueExcuseOf): past 3 x checkpointMinutes from the last checkpoint the queue excuses nothing, so a chat that loops on test runs is reported.
+  const excused = queueExcuseOf(item, view)
+  if (excused.run !== null) return null
+  const from = Math.max(written ?? began, excused.seenAt ?? 0)
+  const quiet = counted(from)
+  // B1175 (X196): `stopped` is the time its lane stood stopped since the checkpoint (the quiet time already leaves it out).
+  const late = { step: view.now - began, checkpoint, quiet, stopped: standingStillMs(view, owner.name, afterPause(view, from)), queueSeen: excused.seenAt !== null && excused.seenAt > (written ?? began) ? excused.seenAt : null }
+  return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+}
+
+/**
+ * B1302: where a step's stretch in progress stands, for the quiet-time rule and the queue's cap: `began` (its Since), `checkpoint`, `written`
+ * (the checkpoint's time when it is from this stretch, else null) and `counted(at)` (the running time since `at`: the person's pauses, the
+ * board off and the worker's stopped time left out). Null when its Since is not a time. `owner` the worker's lane, or undefined.
+ */
+function stretchOf(item, view, owner) {
   const began = sinceMs(valueOf(item, 'Since'))
   if (!Number.isFinite(began)) return null
   const checkpoint = checkpointOf(item)
   const written = Number.isFinite(checkpoint?.at) && checkpoint.at >= began ? checkpoint.at : null
-  const counted = from => view.now - afterPause(view, from) - boardOffMs(view, afterPause(view, from)) - (owner === undefined ? 0 : standingStillMs(view, owner.name, afterPause(view, from)))
-  const quiet = counted(written ?? began)
-  // B1175 (X196): `stopped` is the time its lane stood stopped since the checkpoint (the quiet time already leaves it out).
-  const late = { step: view.now - began, checkpoint, quiet, stopped: standingStillMs(view, owner.name, afterPause(view, written ?? began)) }
-  return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+  const counted = at => view.now - afterPause(view, at) - boardOffMs(view, afterPause(view, at)) - (owner === undefined ? 0 : standingStillMs(view, owner.name, afterPause(view, at)))
+  return { began, checkpoint, written, counted }
+}
+
+/** B1302 (the review of c055ddd2): the queue excuses a quiet step for at most this many times the checkpoint limit, from its last checkpoint (or the start of its stretch). */
+const QUEUE_EXCUSE_TIMES = 3
+
+/**
+ * B1302 (X211): what the PC's test queue excuses of a step in progress: `{ run, seenAt }` (`testQueueOf`), or none (`{ run: null, seenAt: null }`)
+ * once more than QUEUE_EXCUSE_TIMES x checkpointMinutes of running time passed since its last checkpoint: a chat that runs tests again
+ * and again without a checkpoint is the loop the rule is for (the longest honest wait, 105 min in the line and 120 min of run, stays
+ * under 360 min; X211's 2 h 15 too). Capped, the queue is neither used nor shown, also while a run still goes.
+ */
+export function queueExcuseOf(item, view) {
+  const none = { run: null, seenAt: null }
+  const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
+  const stretch = stretchOf(item, view, owner)
+  if (stretch === null) return none
+  if (stretch.counted(stretch.written ?? stretch.began) > QUEUE_EXCUSE_TIMES * view.settings.checkpointMinutes * MIN) return none
+  return testQueueOf(item, view)
+}
+
+/**
+ * B1302 (X211): a step's place in the PC's test queue (tools/one-at-a-time.mjs, src/testQueue.mjs), from `view.testQueue`
+ * (`{ runs, seen }`; none without a look): `run` its run that waits or runs there now (the oldest, or null), the folder being
+ * the step's own or its Quality Assurance task's checked step's (`-b<id>`, `isFolderOf`: another step's folder is not it),
+ * and `seenAt` the last pass that saw such a run (the supervisor's memory per folder; null never).
+ */
+export function testQueueOf(item, view) {
+  const ids = [idOf(item), valueOf(item, 'Checks')]
+  const queue = view.testQueue
+  if (queue === undefined || queue === null) return { run: null, seenAt: null }
+  const run = (queue.runs ?? []).filter(one => isFolderOf(one.cwd, ids)).sort((a, b) => a.since - b.since)[0] ?? null
+  const seen = [...(queue.seen ?? new Map())].filter(([key, at]) => Number.isFinite(at) && isFolderOf(key, ids)).map(([, at]) => at)
+  return { run, seenAt: seen.length === 0 ? null : Math.max(...seen) }
+}
+
+/** B1302: how a step's test run reads in a line of words: "waits in the test queue since 10:58, 1 ahead" or "runs in the test queue since 12:25". */
+export function testQueueWords(run) {
+  return run.state === 'running' ? `its test run goes since ${clockOf(run.since)}` : `waits in the test queue since ${clockOf(run.since)}, ${run.ahead} ahead`
 }
 
 /**
@@ -1058,7 +1120,7 @@ function staleCheckpoint(view) {
       // stale checkpoint of the same step is the same case, which must not read as gone and open again.
       rule: 'stale-checkpoint', key: `stale-checkpoint ${id}`, subject: id, text,
       evidence: `in progress since ${clockOf(sinceMs(valueOf(item, 'Since')))}; ${checkpoint === null ? 'no checkpoint in its record'
-        : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}; worked ${lasting(late.quiet)} since then, stopped ${lasting(late.stopped)} meanwhile`,
+        : `checkpoint ${checkpoint.commit ?? 'none'} · ${checkpoint.next} at ${Number.isFinite(checkpoint.at) ? clockOf(checkpoint.at) : 'a time not known'}`}; worked ${lasting(late.quiet)} since then, stopped ${lasting(late.stopped)} meanwhile${late.queueSeen === null ? '' : `; its test run left the test queue at ${clockOf(late.queueSeen)}`}`,
     })
   }
   return found
