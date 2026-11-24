@@ -27,8 +27,14 @@ function readRun(file, read) {
  * began (ms; a ticket's is when it came), `ahead` how many runs go before it (the ones running and the tickets served
  * first; 0 for a run that runs). Only runs whose process lives (a lock the tool calls stale is none); an empty list when
  * there is no queue or it cannot be read. `tool` the tool's module; `env`, `now`, `runs` (pidRuns), `read` and `list` are the tests' seams.
+ * F56: `landing`, the landing lock as `lockHolder` reads it (or null): a run of a landing gate's folder (`<temp>/land-gate-xxxxxxxx`,
+ * tools/land.ps1) is read as the lock's branch (`asLandingRun`), so a worker that waits for its own landing gate is no stale checkpoint.
  */
-export function readTestQueue({ tool, env = process.env, now = Date.now(), runs = tool.pidRuns, read = readFileSync, list = readdirSync }) {
+export function readTestQueue({ tool, env = process.env, now = Date.now(), runs = tool.pidRuns, read = readFileSync, list = readdirSync, landing = null }) {
+  return collectTestQueue({ tool, env, now, runs, read, list }).map(run => asLandingRun(run, landing))
+}
+
+function collectTestQueue({ tool, env, now, runs, read, list }) {
   const { BEAT_STALE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, lockPath, queueOrder, slotCountOf, slotPath, slotsOf, whyStale } = tool
   const file = lockPath(env)
   const found = []
@@ -61,6 +67,22 @@ export function readTestQueue({ tool, env = process.env, now = Date.now(), runs 
     found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'waiting', since: Date.parse(info.startedAt), ahead: running.length + order.findIndex(one => one.name === name) })
   }
   return found
+}
+
+/** F56: the folder of a landing's gate, as tools/land.ps1 names it in the temp folder: `land-gate-` and 8 hex characters. */
+export const LAND_GATE = /^land-gate-[0-9a-f]{8}$/
+
+/**
+ * F56: a run whose folder is a landing gate's (no step's folder matches it) is read as the landing lock's `branch` (`landing`, as
+ * src/landing.mjs `lockHolder` gives it): its `cwd` becomes the branch, so `isFolderOf` finds the step id in it (b1442-sandbox is
+ * B1442's), and `gate` keeps the folder. Without a lock, or a lock whose branch is not known, the run is as it was; a branch without a
+ * step id stays unmatched. Any other run is as it was. PURE.
+ */
+export function asLandingRun(run, landing) {
+  if (!LAND_GATE.test(baseOf(run?.cwd))) return run
+  const branch = typeof landing?.branch === 'string' ? landing.branch.trim() : ''
+  if (branch === '' || branch === 'unknown') return run
+  return { ...run, cwd: branch, gate: run.cwd }
 }
 
 /** A folder's key for the memory of when it was last seen in the queue: its path, lower case, with "/" (Windows paths match whatever their case or slash). */

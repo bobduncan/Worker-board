@@ -9161,3 +9161,14 @@ named them. Page code only; the store is unchanged:
 - Tests: goalsPage (the rows: by goal, closed cards and step cards left out, a recap wait keeps the state's object), focusPage (the line's
   view by goal, the focus goal's own left out), redrawKeys (the view's field). Pictures: .claude/plans/f61-before-*.jpg and f61-after-*.jpg
   (a board copy on a made-up project).
+
+## F56: a worker that waits for its own landing gate is no stale checkpoint (2026-11-24, chat 3, chat 1's finding)
+
+The stale-checkpoint rule reads the PC's test queue (B1302) and excuses a step whose own folder waits or runs there, by the folder's
+name (`isFolderOf`, `namesStep`). A landing's gate (tools/land.ps1) runs its queue ticket in `<temp>/land-gate-xxxxxxxx`, which names no
+step, so a worker that waits for its own landing was still reported. Now (src/testQueue.mjs): `readTestQueue` takes the landing lock as
+`lockHolder` reads it (`landing`, from the server's port: data/landing.lock), and `asLandingRun` reads a run of a land-gate folder as the
+lock's `branch` (its `cwd` becomes the branch, `gate` keeps the folder), so b1442-sandbox is B1442's; a lock that is not there, or a branch
+that is unknown, leaves the run as it was, and a branch without a step id stays unmatched. The memory of the last pass keys the branch as
+it keys a folder. Tests: test/supervisor/testQueueWait.test.mjs (the reading, the rule at 130 minutes of quiet, the memory, the server's
+wiring); 4 mutants red.
