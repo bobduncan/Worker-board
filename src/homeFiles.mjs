@@ -7,7 +7,7 @@
 // board never writes either way by itself. With `data` unset there are no home files: today's files, untouched.
 
 import { access, mkdir, readFile } from 'node:fs/promises'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 
 import { loadConfig } from './config.mjs'
 import { chatFile, chatHomeOf, dataOf, wordsPath } from './projectPaths.mjs'
@@ -42,7 +42,8 @@ export function homeFilesOf(config) {
   const placed = (one, kind) => {
     const file = one.top === undefined ? chatFile(config, ...one.chat) : join(home, one.top)
     const path = relative(home, file)
-    return { name: slashes(path), kind, file, template: join(data, 'home', path), words: one.words ?? null }
+    // Chat 1's review: a relative `data` (from the config file's folder) still gives the chats a whole path to point at.
+    return { name: slashes(path), kind, file, template: resolve(data, 'home', path), words: one.words ?? null }
   }
   return [...POINTERS.map(one => placed(one, 'pointer')), ...COPIES.map(one => placed(one, 'copy'))]
 }
@@ -111,6 +112,15 @@ export async function fixHomeFile(config, { name, action } = {}) {
     return { ok: true, result: { name, action, state: 'same' } }
   }
   if (text === null) return { ok: false, status: 409, why: `The chat home has no ${name} to copy into the template.` }
+  // Chat 1's review: a pointer file that still holds its pointer line (with a byte-order mark, CRLF, or a rule added under it) is no
+  // rules text: copied into the template it would wipe the rules. Its own rules belong in the template itself.
+  if (entry.kind === 'pointer') {
+    const pointer = wanted(entry, home, '').trim()
+    const lines = String(text).replace(/^﻿/, '').replace(/\r\n/g, '\n').split('\n').map(one => one.trim())
+    if (lines.includes(pointer)) {
+      return { ok: false, status: 409, why: `${name} in the chat home still points at its template (${pointer}): write the rules into ${slashes(entry.template)} itself, then Write again.` }
+    }
+  }
   await mkdir(dirname(entry.template), { recursive: true })
   await writeAtomic(entry.template, text)
   if (entry.kind === 'pointer') await writeAtomic(entry.file, wanted(entry, home, text))

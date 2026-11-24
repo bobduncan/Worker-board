@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
@@ -175,5 +175,25 @@ test('a real board: a CLAUDE.md that differs is in the state, the person\'s Writ
   assert.deepEqual((await state()).homeFiles, [])
   } finally {
     await stop()
+  }
+})
+
+test('chat 1\'s review 3: a relative data folder still points the chats at a whole path', () => {
+  const entries = homeFilesOf({ project: join(process.cwd(), 'kiwi'), chatHome: process.cwd(), data: join('kiwi', '.workerboard') })
+  for (const one of entries) assert.equal(isAbsolute(one.template), true, one.name)
+  const [claude] = entries
+  assert.equal(wanted(claude, process.cwd(), ''), '@kiwi/.workerboard/home/CLAUDE.md\n')
+})
+
+test('chat 1\'s review 4: Copy this PC\'s into the template is refused while the chat home\'s file still holds its pointer line', async t => {
+  const one = await world(t)
+  await writeMissingPointers(one.config)
+  const rules = await readFile(join(one.data, 'home', 'CLAUDE.md'), 'utf8')
+  for (const text of ['\uFEFF@kiwi/.workerboard/home/CLAUDE.md\r\n', '@kiwi/.workerboard/home/CLAUDE.md\n\n- a rule added here\n']) {
+    await writeFile(join(one.wrapper, 'CLAUDE.md'), text)
+    const refused = await fixHomeFile(one.config, { name: 'CLAUDE.md', action: 'adopt' })
+    assert.equal(refused.status, 409)
+    assert.match(refused.why, /still points at its template/)
+    assert.equal(await readFile(join(one.data, 'home', 'CLAUDE.md'), 'utf8'), rules, 'the rules template stays')
   }
 })
