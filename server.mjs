@@ -63,10 +63,10 @@ import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { gapsNow, keptSinceJump, readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
-import { hearingLog } from './src/hearing.mjs'
+import { hearingLog, sentAtOf } from './src/hearing.mjs'
 import { callTracer } from './src/callTrace.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
-import { workCallRecord } from './src/workCalls.mjs'
+import { callFrom, workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
@@ -869,7 +869,7 @@ async function main(args) {
   const workCalls = workCallRecord({ now: clock, file: isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'work-calls.json') })
   let rebuilds = 0
   /** B934: a chat's work call as the stall log names it (by its chat once checked); one answered after 2 s is a stall. */
-  const callStall = (action, session) => {
+  const callStall = (action, session, request = null) => {
     const begun = clock()
     const rebuildsBefore = rebuilds
     const what = by => `work ${String(action ?? 'call').slice(0, 30)} by ${by}`
@@ -880,8 +880,11 @@ async function main(args) {
       by: name => end.as(words = what(chat = name)),
       done: () => {
         end()
-        stalls.slowCall(words, begun, clock())
-        workCalls.note({ action, chat, ms: clock() - begun, rebuilds: rebuilds - rebuildsBefore, at: begun })
+        const answered = clock()
+        stalls.slowCall(words, begun, answered)
+        // B1139 (one clock): the day record times the call from the chat's send, as the chat waits (src/workCalls.mjs `callFrom`).
+        const from = callFrom({ sent: sentAtOf(request), begun, answered, startedAt })
+        workCalls.note({ action, chat, ms: answered - from, rebuilds: rebuilds - rebuildsBefore, at: begun, request })
       },
     }
   }
@@ -3893,7 +3896,7 @@ async function main(args) {
         trace?.set({ repeat: true })
         return kept
       }
-      const stall = callStall(asked.action, session)
+      const stall = callStall(asked.action, session, request)
       trace?.mark('begin')
       const rebuildsAt = rebuilds
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.

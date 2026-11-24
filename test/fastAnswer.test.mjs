@@ -92,9 +92,11 @@ test('the side effects run after the answer, in order: the guard, the supervisor
 })
 
 test('every work call is counted with the rebuilds that started during it, and the day\'s figures travel to the health line', () => {
-  const stall = bodyOf('  const callStall = (action, session) => {')
+  const stall = bodyOf('  const callStall = (action, session, request = null) => {')
   assert.match(stall, /const rebuildsBefore = rebuilds/)
-  assert.match(stall, /workCalls\.note\(\{ action, chat, ms: clock\(\) - begun, rebuilds: rebuilds - rebuildsBefore, at: begun \}\)/)
+  // B1139 (one clock): from the chat's send, by its request id (a repeat counts once).
+  assert.match(stall, /const from = callFrom\(\{ sent: sentAtOf\(request\), begun, answered, startedAt \}\)/)
+  assert.match(stall, /workCalls\.note\(\{ action, chat, ms: answered - from, rebuilds: rebuilds - rebuildsBefore, at: begun, request \}\)/)
   assert.match(server, /const readState = cached\(\(\) => readAfterSleep\(built => trackJob\('state rebuild', async \(\) => \{\n\s+rebuilds \+= 1/)
   assert.match(server, /workCalls: workCalls\.today\(clock\(\)\),/)
   assert.match(server, /await workCalls\.load\(\)/)
