@@ -45,7 +45,7 @@ import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
-import { assetsOf, backlogViewOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, storedOfWholePath, wordsPath } from './src/projectPaths.mjs'
+import { assetsOf, backlogViewOf, chatFile, chatHomeOf, storedOfChatPath, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, storedOfWholePath, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -128,7 +128,7 @@ import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { readTestQueue } from './src/testQueue.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { listedWhere, parseList, readAccountFolders } from './src/appChats.mjs'
-import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
+import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideKeepOf, sideKeptFor, sideKeptOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
 import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
@@ -1928,7 +1928,7 @@ async function main(args) {
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
       viewFile, boardUrl: boardAddress(HOST, config), backlogFile: backlogViewOf(config),
       // Part C of the asset providers: the requests' folder and the provider in use for each kind (the work tool's `asset`).
-      ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
+      ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), base: resolve(HERE, chatHomeOf(config)), abs: path => resolve(HERE, resolveStored(config, path, { boardDir: HERE })), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // Stop and rethink: the goal's parts, for the topic of a rethink-hold (src/work/rethinkTopic.mjs).
@@ -1941,8 +1941,13 @@ async function main(args) {
       // 2026-10-24: an ask's picture the board cannot show is refused with where to put it (api.mjs ask).
       pictureProblem: path => pictureProblem(pictureHome(), shownRoots(config), path),
       shownFolders: shownFolders(config),
+      // T5.2 A6a: a chat's picture path (from its own folder) in the stored form, and the shown folders as a chat reaches them.
+      storedPicture: path => storedOfChatPath(config, path),
+      shownFoldersWords: shownFolders(config).map(folder => wordsPath(config, resolveStored(config, folder, { boardDir: HERE }))),
       // Q311: a picture a chat's For you block names outside them is copied into the picture folder instead.
-      adoptPicture: (path, subject) => adoptPicture(pictureHome(), shownFolders(config)[0], subject, path),
+      // T5.2 A6a: with the data moved, a picture in the chat home (a worker's worktree there) is copied in as well.
+      adoptPicture: async (path, subject) => (await adoptPicture(pictureHome(), shownFolders(config)[0], subject, path))
+        ?? (dataOf(config) === null ? null : await adoptPicture(pictureHome(), shownFolders(config)[0], subject, path, resolve(HERE, chatHomeOf(config)))),
       // B814: the port of a worker's own test server, named in its take answer.
       testPort: who => workerPort(config.gamePort, who),
       // The guard (2026-10-21): a step of a kind waits for its standard's confirm and its foundation (the product plan).
@@ -4658,6 +4663,16 @@ async function main(args) {
         if (!isHolding(state.pause)) {
           let sides = 0
           for (const { id, why } of state.sideWordsClose ?? []) if (await store.close(id, 'dropped', why, now)) sides += 1
+          // F53 (b): a card shown because a limit is full is written down once per wait, checked against the outbox: keepCard on the
+          // word still to go, or a record of its own, so the card stays until the one word went (a restart too).
+          for (const one of state.sideCardsKept ?? []) {
+            const key = sideKeyOf(one.id, one.wait)
+            const keep = sideKeepOf({ side: { full: true }, word: sideWordOf(store.outbox(), key), kept: sideKeptOf(store.outbox(), key) })
+            if (keep === null) continue
+            if (keep.word === null) await store.say({ id: randomBytes(8).toString('hex'), ...sideKeptFor({ late: one, worker: one.chat, wait: one.wait, now }) })
+            else await store.update(keep.word, { keepCard: true })
+            sides += 1
+          }
           const due = (state.sideWordsDue ?? []).filter(one => sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) === null)
           if (due.length > 0) {
             const chats = sideChatsOf((await readHead(localFile(config, SIDE_CHATS_FILE), 16 * 1024).catch(error => { loops.failed('side-chats', error); return null }))?.text ?? '')

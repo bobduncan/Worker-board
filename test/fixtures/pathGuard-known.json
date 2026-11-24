@@ -2,7 +2,7 @@
   "server.mjs": [
     "claude: // Part C of the asset providers (spec 2026-11-01, part 4): the chats' asset requests, kept in `.claude/assets` beside the",
     "claude: // Part C of the asset providers: where the chats' asset requests are kept (`.claude/assets`, beside the work store); none on a",
-    "project: ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => as",
+    "project: ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), base: resolve(HERE, chatHomeOf(config)), abs: path => resolve(",
     "project: // T5.2 P2: a stored path's place, through the table (today: `join(project, path)`; P3 moves the pictures and the store with it).",
     "project: const assetTools = () => ({ ...providerTools(), project: resolve(HERE, config.project), seconds: settings.seconds })",
     "project: const file = inProject(config.project, path)",
@@ -131,9 +131,7 @@
   "src/talkPicture.mjs": [
     "project: const folder = typeof project === 'string' ? join(project, ...talkFolder(pictures).split('/')) : project.abs(talkFolder(pictures))"
   ],
-  "src/work/api.mjs": [
-    "project: const whole = isAbsolute(path) ? path : typeof assets.project === 'string' && assets.project !== '' ? join(assets.project, ...path.split(/[\\\\/]/)) : null"
-  ],
+  "src/work/api.mjs": [],
   "src/work/check.mjs": [
     "project: const place = typeof abs === 'function' ? abs : path => join(project, ...path.split('/'))"
   ],

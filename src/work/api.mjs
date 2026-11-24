@@ -966,7 +966,11 @@ async function ask(body, w, { alone = false } = {}) {
   // person's "no" counted against the wrong step): a worker's ask whose pictures all sit under one step's folder in the project's picture
   // folder (`pictureStepOf`) is filed of that step when the chat holds, or held, it; when it holds neither step, it is refused.
   let placed = null
-  const named = !isAlone && w.role === 'worker' ? pictureStepOf(body.pictures, w.shownFolders?.[0]) : null
+  // T5.2 A6a (chat 1's review): the pictures in the stored form first (a chat names them from its own folder), so the step they belong to
+  // is read from the same paths the ask is filed with.
+  const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
+    .map(one => (typeof w.storedPicture === 'function' ? w.storedPicture(one) : one))
+  const named = !isAlone && w.role === 'worker' ? pictureStepOf(pictures, w.shownFolders?.[0]) : null
   if (named !== null && named !== valueOf(of.item, 'Id')) {
     const that = w.store.items.get(named)
     if (that !== undefined && kindOf(that) === 'step' && heldByChat(that, w)) {
@@ -1050,7 +1054,6 @@ async function ask(body, w, { alone = false } = {}) {
   if (isChatAsk && asksNothingOf(askShape({ owner: w.who, kind, of: isAlone ? goal : valueOf(of.item, 'Id'), options, advice: line(body.advice, 120), via, text })) !== null) {
     return askedNothing({ of: of.item, kind, text, options, play: line(body.play, 300), via, goal }, w)
   }
-  const pictures = (Array.isArray(body.pictures) ? body.pictures : typeof body.pictures === 'string' ? body.pictures.split(',') : []).map(one => line(one, 200)).filter(Boolean).slice(0, 8)
   // 2026-10-24: a picture the board cannot show is refused here, with where to put it, so the person never meets a
   // link that opens nothing (Worker 1 linked one in its worktree). The mod's own asks (`via`) keep theirs as they came.
   // An ask filed from a chat's For you block (`via`) keeps its question: a picture outside is copied in instead (Q311).
@@ -1068,7 +1071,8 @@ async function ask(body, w, { alone = false } = {}) {
         const subject = String((isAlone ? goal : valueOf(of.item, 'Id')) ?? 'asks').toLowerCase()
         const name = path.replace(/\\/g, '/').split('/').pop()
         // The first shown folder is the settings' own picture folder (pictureRoots), the place for a step's pictures.
-        const folders = w.shownFolders ?? []
+        // T5.2 A6a: the folders as the chat reaches them from its own folder (today the stored names themselves).
+        const folders = w.shownFoldersWords ?? w.shownFolders ?? []
         const example = folders.length === 0 ? '' : `, for example to ${folders[0]}/${subject}/${name}`
         return refuse(400, `The board cannot show ${path}: it shows pictures only from ${folders.length === 0 ? 'the settings\' picture folders' : folders.join(', ')} in the project's folder. Copy it there${example}, and ask again with that path.`)
       }
@@ -1440,7 +1444,12 @@ async function asset(body, w) {
   if (given.length > ASSET_PICTURES) return refuse(400, `At most ${ASSET_PICTURES} reference pictures.`)
   const pictures = []
   for (const path of given) {
-    const whole = isAbsolute(path) ? path : typeof assets.project === 'string' && assets.project !== '' ? join(assets.project, ...path.split(/[\\/]/)) : null
+    // T5.2 A6a: a relative reference from the chat's own folder (`assets.base`, the chat home), else where the board keeps it
+    // (`assets.abs`, the stored form); today both are the project folder.
+    const base = typeof assets.base === 'string' && assets.base !== '' ? assets.base : assets.project
+    const fromChat = isAbsolute(path) ? path : typeof base === 'string' && base !== '' ? join(base, ...path.split(/[\\/]/)) : null
+    const isThere = async file => file !== null && (await stat(file).then(found => found.isFile(), () => false))
+    const whole = (await isThere(fromChat)) || typeof assets.abs !== 'function' || isAbsolute(path) ? fromChat : assets.abs(path)
     const isFile = whole === null ? false : await stat(whole).then(found => found.isFile(), () => false)
     if (!isFile) return refuse(400, `There is no picture at ${path}: give a whole path, or a path in the project.`)
     pictures.push(whole)
