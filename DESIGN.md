@@ -7950,6 +7950,24 @@ heard were awaited inside the answer. The person (2026-11-11): the held items on
   the answer, turn-ended unchanged, the queue; the figures through the state to the health line), `test/workCalls.test.mjs` (the
   record), and `test/boardSlowRead.test.mjs` (a copy of the board with 5 s reads answers a worker's note within 2 s).
 
+### Where a work call waits: the call trace (B1139, X93, 2026-11-24)
+
+X93 came back after the fast answer (200 work calls over 5 s in the week of 11-15 to 11-23, the worst 41 s; pause-state, which needs
+no rebuild, among them). Two clocks hid the wait: the day record starts when the handler begins, hearing.mjs at the chat's send (the
+request id's time); on 11-23 the record's slowest was 6.9 s while X93 saw 19 s, with no loop stall in the stall log. So, measure
+first: every chat work call (`/api/bridge/work`) gets one line in `data/call-trace.jsonl` (src/callTrace.mjs, the newest day, local
+only), one per arrival: `sent` (the request id's time, the first send of a repeated id), `arrived` (the handler took it), `marks`
+in ms after `arrived` (lock: the loop lock's check, body, known: a repeat looked up, begin: the day record's clock, fresh:
+checkFresh, ctx: the call's context, action: the store's answer, decide and handout: turn-ended's hand-over, answered: the answer
+out), `total` and `beforeBoard` from the send, the action, chat, status, `repeat`, `attempt` (the mod's repeats of one id), the
+rebuilds that started, the calls in flight, and from the send to the answer the board's jobs that ran (the stall log's
+`jobsDuring`), the loop's delay, the file system's (a `stat` timed every 500 ms: it waits in libuv's threadpool behind every other
+file call, so a full threadpool shows here while the loop itself runs free) and the PC's CPU share. Measure only: no order and no
+answer changes. `node tools/call-trace-read.mjs --minutes 30` prints the calls over 5 s from their send, part by part, and where
+they waited in all. Pinned by `test/callTrace.test.mjs` (the live case: a call sent 19 s before its answer with a 2 s handler
+reads 19 s; a repeated id counts once from its first send; the probes; the file; the route; the marks in order) and
+`test/boardSlowRead.test.mjs` (a copy of the board traces its late calls with every part).
+
 ## The boards survive a Claude app update (F10, 2026-11-14)
 
 The person, 2026-11-11 ("Yes, build it"): the Claude app updated itself at 22:42 (AppX Register, "TerminateApplications") and ended
@@ -9143,6 +9161,11 @@ read-back, both answered yes, and the loser learnt it only at its next check. No
   something other than EEXIST or a held file: the claim is then written under its own name with `wx` (exclusive still, only no longer
   never-empty), so a board on such a folder runs its loops at all. (b) A `create` that meets a claim Windows holds for the moment (EPERM,
   its removal under way) is the other's this round, no loop-lock failure, as the read path already had it.
+- **F58 (2026-11-24, chat 1's finding)**: on Linux and macOS a folder without hard links answers `link` with EPERM, which the port read as a
+  held claim: that board never got its loops. Now a held code from `link` is a held claim only while the claim is there (`read`: only ENOENT
+  says it is not; a read that is itself held counts the claim as there), and then the answer is EEXIST, a claim stands, so loopOwner reads
+  it and judges whether it is abandoned on such a folder too; with no claim there the code is the folder's and the claim is written with
+  `wx`. Windows keeps its behaviour. test/supervisor/claimFile.test.mjs (the fake fs; the two-process race still green); 4 mutants red.
 
 ## F61: a goal's open asks on its own page (2026-11-24, chat 3, chat 1's finding)
 
@@ -9161,3 +9184,14 @@ named them. Page code only; the store is unchanged:
 - Tests: goalsPage (the rows: by goal, closed cards and step cards left out, a recap wait keeps the state's object), focusPage (the line's
   view by goal, the focus goal's own left out), redrawKeys (the view's field). Pictures: .claude/plans/f61-before-*.jpg and f61-after-*.jpg
   (a board copy on a made-up project).
+
+## F56: a worker that waits for its own landing gate is no stale checkpoint (2026-11-24, chat 3, chat 1's finding)
+
+The stale-checkpoint rule reads the PC's test queue (B1302) and excuses a step whose own folder waits or runs there, by the folder's
+name (`isFolderOf`, `namesStep`). A landing's gate (tools/land.ps1) runs its queue ticket in `<temp>/land-gate-xxxxxxxx`, which names no
+step, so a worker that waits for its own landing was still reported. Now (src/testQueue.mjs): `readTestQueue` takes the landing lock as
+`lockHolder` reads it (`landing`, from the server's port: data/landing.lock), and `asLandingRun` reads a run of a land-gate folder as the
+lock's `branch` (its `cwd` becomes the branch, `gate` keeps the folder), so b1442-sandbox is B1442's; a lock that is not there, or a branch
+that is unknown, leaves the run as it was, and a branch without a step id stays unmatched. The memory of the last pass keys the branch as
+it keys a folder. Tests: test/supervisor/testQueueWait.test.mjs (the reading, the rule at 130 minutes of quiet, the memory, the server's
+wiring); 4 mutants red.
