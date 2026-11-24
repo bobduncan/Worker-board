@@ -9143,6 +9143,11 @@ read-back, both answered yes, and the loser learnt it only at its next check. No
   something other than EEXIST or a held file: the claim is then written under its own name with `wx` (exclusive still, only no longer
   never-empty), so a board on such a folder runs its loops at all. (b) A `create` that meets a claim Windows holds for the moment (EPERM,
   its removal under way) is the other's this round, no loop-lock failure, as the read path already had it.
+- **F58 (2026-11-24, chat 1's finding)**: on Linux and macOS a folder without hard links answers `link` with EPERM, which the port read as a
+  held claim: that board never got its loops. Now a held code from `link` is a held claim only while the claim is there (`read`: only ENOENT
+  says it is not; a read that is itself held counts the claim as there), and then the answer is EEXIST, a claim stands, so loopOwner reads
+  it and judges whether it is abandoned on such a folder too; with no claim there the code is the folder's and the claim is written with
+  `wx`. Windows keeps its behaviour. test/supervisor/claimFile.test.mjs (the fake fs; the two-process race still green); 4 mutants red.
 
 ## F61: a goal's open asks on its own page (2026-11-24, chat 3, chat 1's finding)
 

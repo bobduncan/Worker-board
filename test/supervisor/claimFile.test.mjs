@@ -17,7 +17,7 @@ test('the claim is never written under its own name: the text goes whole to a fi
     writeFile: async (file, text, options) => { calls.push(['writeFile', file, options?.flag]); if (options?.flag === 'wx' && made.has(file)) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' }); made.set(file, text) },
     link: async (from, to) => { calls.push(['link', from, to]); if (made.has(to)) throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' }); made.set(to, made.get(from)) },
     rm: async file => { calls.push(['rm', file]); made.delete(file) },
-    readFile: async file => { if (!made.has(file)) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return made.get(file) },
+    readFile: async file => { calls.push(['readFile', file]); if (!made.has(file)) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return made.get(file) },
   }
   const claim = claimFileOf('D:/p/.claude/sync-loop.json')
   assert.equal(claim, 'D:/p/.claude/sync-loop.json.claim')
@@ -52,15 +52,33 @@ test('the claim is never written under its own name: the text goes whole to a fi
     await assert.rejects(noLinks.create('{"pid":8}'), error => error.code === 'EEXIST', `${code}: a standing claim still refuses (wx)`)
     assert.equal(await noLinks.read(), '{"pid":7}')
   }
-  // ... but EEXIST and a held file (EPERM, EBUSY) from the link are the claim's own answers: no fallback write
+  // ... but EEXIST, and a held file (EPERM, EBUSY) while the claim IS there, are the claim's own answers (EEXIST: a claim stands, so the
+  // owner reads it and judges it): no fallback write
   for (const code of ['EEXIST', 'EPERM', 'EBUSY']) {
     calls.length = 0
     made.clear()
+    if (code !== 'EEXIST') made.set(claim, '{"pid":9}')
     const refusing = claimPorts(claim, { ...fs, link: async () => { throw Object.assign(new Error(code), { code }) } })
-    await assert.rejects(refusing.create('{"pid":7}'), error => error.code === code, code)
+    await assert.rejects(refusing.create('{"pid":7}'), error => error.code === 'EEXIST' && (code === 'EEXIST' || error.cause?.code === code), code)
     assert.ok(calls.every(([what, file]) => what !== 'writeFile' || file !== claim), `${code}: nothing written under the claim's name`)
-    assert.deepEqual([...made.keys()], [], `${code}: the file beside is gone`)
+    assert.deepEqual([...made.keys()], code === 'EEXIST' ? [] : [claim], `${code}: the file beside is gone, the standing claim untouched`)
   }
+  // F58: a held code from the link while NO claim is there (Linux and macOS answer EPERM for a folder without hard links): the folder's, not a
+  // held claim: the claim is written with wx; a read that is itself held (EPERM) still counts the claim as there
+  for (const code of ['EPERM', 'EBUSY', 'EACCES']) {
+    calls.length = 0
+    made.clear()
+    const noLinksUnix = claimPorts(claim, { ...fs, link: async () => { calls.push(['link']); throw Object.assign(new Error(code), { code }) } })
+    await noLinksUnix.create('{"pid":7}')
+    assert.deepEqual(calls.map(([what, file, flag]) => [what, file === claim ? 'claim' : 'beside', flag ?? null]), [['writeFile', 'beside', 'wx'], ['link', 'beside', null], ['readFile', 'claim', null], ['writeFile', 'claim', 'wx'], ['rm', 'beside', null]], `${code} with no claim there: the claim is written with wx`)
+    assert.deepEqual([[...made.keys()], await noLinksUnix.read()], [[claim], '{"pid":7}'])
+    await assert.rejects(noLinksUnix.create('{"pid":8}'), error => error.code === 'EEXIST', `${code}: a standing claim still refuses (wx)`)
+  }
+  calls.length = 0
+  made.clear()
+  const heldRead = claimPorts(claim, { ...fs, link: async () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }) }, readFile: async () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }) } })
+  await assert.rejects(heldRead.create('{"pid":7}'), error => error.code === 'EEXIST' && error.cause?.code === 'EPERM', 'a read that is held: the claim may stand, no fallback')
+  assert.ok(calls.every(([what, file]) => what !== 'writeFile' || file !== claim), 'nothing written under the claim\'s name while its read is held')
 })
 
 test('on the real file system: of many creates at once exactly one wins, the claim is never read empty, and no file is left beside it', { timeout: 60_000 }, async t => {
