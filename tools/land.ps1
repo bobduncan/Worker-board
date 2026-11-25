@@ -128,7 +128,9 @@ $boards = @()
 $gateBoardCommand = 'npm test'
 $gateModCommand = ''
 # F39, review 8: the rerun alone goes through tools/test.mjs too (its per-test timeout and stall watchdog).
-$gateFileCommand = 'node tools/test.mjs {file}'
+# F68 (chat 1, 2026-11-25): through the one-at-a-time queue, first-class as the gate (HEAVY_RUN_FIRST), so a rerun never runs beside
+# another heavy run; at below normal priority, asked by name (the PC plan: no lag in Full until the core fence, S5, which may raise it).
+$gateFileCommand = 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}'
 $claudeExeSetting = ''
 $dataDir = $null
 $tempRoot = $null
@@ -256,7 +258,7 @@ function Initialize-Settings {
   }
   $script:gateBoardCommand = [string](Get-Setting 'gateBoard' 'npm test')
   $script:gateModCommand = [string](Get-Setting 'gateMod' '')
-  $script:gateFileCommand = [string](Get-Setting 'gateFile' 'node tools/test.mjs {file}')
+  $script:gateFileCommand = [string](Get-Setting 'gateFile' 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}')
   $script:claudeExeSetting = [string](Get-Setting 'claudeExe' '')
   $script:nodeModules = Get-Full (Get-Setting 'nodeModules' (Join-Path $script:mainDir 'node_modules'))
   $script:nodeModulesMarker = [string](Get-Setting 'nodeModulesMarker' 'happy-dom')
@@ -842,6 +844,16 @@ function Get-GateWhy($Checked) {
   return $why
 }
 
+# F68: the priority a run had, in the words of a refusal ("at below normal priority"), from the line tools/test.mjs writes first
+# ("test run: priority <word>"); a run that wrote none says so.
+function Get-RunPriority([string]$Path) {
+  $text = ''
+  try { $text = [System.IO.File]::ReadAllText($Path) } catch { }
+  $found = [regex]::Match($text, '(?m)^test run: priority ([a-z][a-z ]*?)\s*$')
+  if ($found.Success) { return "at $($found.Groups[1].Value) priority" }
+  return 'at a priority it did not report'
+}
+
 function Invoke-Gate {
   New-Item -ItemType Directory -Force -Path $landingsDir | Out-Null
   $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
@@ -879,9 +891,13 @@ function Invoke-Gate {
       # names its failing files gets each of them run again ALONE, one at a time, once; the first that fails again refuses the landing.
       # Never a second full run (chat 1's rule, 2026-11-07).
       $why = Get-GateWhy $checked
+      # F68: which priority each run had, so a refusal says whether the file also failed alone at normal priority.
+      $fullAt = Get-RunPriority $script:gateLog
+      $failedOn = "$(Short $script:headFull) (full run $fullAt)"
+      $aloneSeen = @()
       $files = @()
       if ($null -ne $checked.json.PSObject.Properties['files']) { $files = @($checked.json.files) }
-      if ($files.Count -eq 0) { Refuse "the gate failed on $(Short $script:headFull): $why (see $($script:gateLog))" }
+      if ($files.Count -eq 0) { Refuse "the gate failed on ${failedOn}: $why (see $($script:gateLog))" }
       Say "note: the gate failed with $($files.Count) failing test file(s): each is run again alone, once"
       # F39, review 8: first what the full run left running in the worktree, so it cannot hold the reruns up.
       $left = @(Stop-FolderProcesses $temp)
@@ -892,11 +908,13 @@ function Invoke-Gate {
         $aloneCode = Invoke-GateCommand ($gateFileCommand.Replace('{file}', $file)) $temp $aloneLog
         if (Test-Path -LiteralPath $aloneLog) { Add-FileBytes $script:gateLog $aloneLog }
         $alone = Invoke-Landing @('gate-check', '--kind', 'board', '--file', $aloneLog, '--exit', "$aloneCode")
+        $aloneAt = Get-RunPriority $aloneLog
+        $aloneSeen += $aloneAt
         Remove-Item -LiteralPath $aloneLog -ErrorAction SilentlyContinue
-        if ($null -eq $alone.json) { Refuse "the gate failed on $(Short $script:headFull): $why; the rerun alone of $file could not be read: $($alone.err) (see $($script:gateLog))" }
-        if (-not $alone.json.ok) { Refuse "the gate failed on $(Short $script:headFull): $why; rerun alone: $file failed again ($($alone.json.why)) (see $($script:gateLog))" }
+        if ($null -eq $alone.json) { Refuse "the gate failed on ${failedOn}: $why; the rerun alone $aloneAt of $file could not be read: $($alone.err) (see $($script:gateLog))" }
+        if (-not $alone.json.ok) { Refuse "the gate failed on ${failedOn}: $why; rerun alone ${aloneAt}: $file failed again ($($alone.json.why)) (see $($script:gateLog))" }
       }
-      $passedAlone = "$($files.Count) test file(s) failed under load, all passed alone: the gate counts as passed"
+      $passedAlone = "$($files.Count) test file(s) failed under load (full run $fullAt), all passed alone ($((@($aloneSeen) | Select-Object -Unique) -join '; ')): the gate counts as passed"
       [System.IO.File]::AppendAllText($script:gateLog, "`r`nrerun: $passedAlone`r`n")
       Say "note: $passedAlone"
     }
