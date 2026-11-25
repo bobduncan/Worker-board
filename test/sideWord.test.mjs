@@ -701,3 +701,22 @@ test('F63, chat 1\'s review 2: no hand takes a side word whose window is over, b
   const isHand = server.split('\n').find(line => line.includes('const isHand = message =>'))
   assert.match(isHand ?? '', /isHandWord\(message, \{[^}]*sideCloses: state\.sideWordsClose[^}]*\}\)/)
 })
+
+test('F66 (chat 1\'s check of F63): a hand takes the word at 12:28:50, inside its window; the look at 12:29 shows no "no hand sent it" while it sends; it lands at 12:30 and no card showed and vanished', async () => {
+  // Made at 12:19, no limit full: its window ends at 12:29. A hand's claim at 12:28:50 (after the 12:28 look) takes it; it lands at 12:30.
+  const { seen, outbox } = await minutes({
+    from: at(12, 19), to: at(12, 35), isFullAt: () => false, sweep: true,
+    before: async (store, now) => { if (now === at(12, 30)) assert.equal(await store.settle('chat 1', { typed: ['w1'] }, now), 1) },
+    after: async (store, now) => { if (now === at(12, 28)) assert.deepEqual((await handClaims(store, at(12, 28, 50))).map(one => one.id), ['w1']) },
+  })
+  assert.deepEqual(seen['12:19'], { cards: [], due: 1 })
+  for (let minute = 20; minute <= 35; minute += 1) assert.deepEqual(seen[`12:${minute}`], { cards: [], due: 0 }, `12:${minute}`)
+  assert.deepEqual(said(outbox).map(one => [one.id, one.state, one.deliveredAt, one.closedAt]), [['w1', 'delivered', at(12, 30), undefined]])
+  // A taken word past its window: the card it had (keepCard: "the board is asking chat 1"), or none; never the window's.
+  const taken = more => lateCards(build({ now: at(12, 29, 30), outbox: [word({ state: 'taken', takenBy: 'Worker 2', takenAt: at(12, 28, 50), ...more })] }))
+    .map(card => card.text.match(/Then [^.]*\./)?.[0] ?? 'the card')
+  assert.deepEqual(taken({ keepCard: true }), [ASKING])
+  assert.deepEqual(taken({}), [])
+  // A word still waiting past its window keeps the window's card, as before.
+  assert.deepEqual(lateCards(build({ now: at(12, 29, 30), outbox: [word()] })).map(card => card.text.match(/Then [^.]*\./)?.[0]), [NO_HAND])
+})

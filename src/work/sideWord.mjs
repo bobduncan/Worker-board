@@ -226,7 +226,9 @@ export function sideStateOf({ late, word, runningMs, isFull = false, kept = fals
   if (['waiting', 'taken'].includes(word.state) || isRetryDue(word)) {
     if (isFull && word.state !== 'taken') return notAsked
     // F63: the hand window counts from the limit's return when the word waited through a full one (`windowFrom`).
-    if (!(runningMs(windowFrom(word)) < SIDE_HAND_MS)) return { ...plain, note: `no hand sent the board's word to ${who} within ${SIDE_HAND_MS / 60_000} min` }
+    // F66 (chat 1's check of F63): a word a hand holds has no window card: the hand is sending it now (a claim inside the window may
+    // land after it). Its hold ends in HAND_HOLD_MS (hands.mjs): it lands, or goes back as waiting, in doubt, and the window counts again.
+    if (word.state !== 'taken' && !(runningMs(windowFrom(word)) < SIDE_HAND_MS)) return { ...plain, note: `no hand sent the board's word to ${who} within ${SIDE_HAND_MS / 60_000} min` }
     return word.keepCard === true ? { ...plain, note: `the board is asking ${who}` } : { ...plain, hold: true }
   }
   // B1394 (principle 16): the person's card names no file; the outbox record keeps the whole why.
