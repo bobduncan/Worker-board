@@ -1884,10 +1884,14 @@ async function main(args) {
       : await readFile(join(workDir, PAUSE_FILE), 'utf8').then(text => parsePause(text)?.state ?? null, error => (error?.code === 'ENOENT' ? null : 'unreadable'))
     // `dirty`: a write reset the state since it was read (folders.mjs `cached`: readAt -Infinity until the next whole read).
     const why = keptStateWhy({ last, now: clock(), chat, action, of, forYou, dirty: readState.readAt() === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS, pause })
-    return why === 'kept' ? last : readState()
+    // B1502 (chat 1's third review): `why` goes to the call's trace, so a call answered from the kept state shows apart
+    // from one that waited for a read (`stateWhy`: kept, or why it read: none, old, unknown, dirty).
+    return { state: why === 'kept' ? last : await readState(), why }
   }
-  const workCtx = async ({ kept = false, chat = null, action = null, of = null, forYou = false } = {}) => {
-    const state = kept ? readState.last() ?? await readState() : await keptStateFor(chat, action, of, forYou)
+  const workCtx = async ({ kept = false, chat = null, action = null, of = null, forYou = false, trace = null } = {}) => {
+    const found = kept ? { state: readState.last() ?? await readState(), why: 'kept' } : await keptStateFor(chat, action, of, forYou)
+    trace?.set({ stateWhy: found.why })
+    const state = found.state
     const lanes = (state.chats ?? []).filter(lane => !lane.isLeftover)
     const roles = new Map(lanes.map(lane => [lane.name, lane.isMain ? 'main' : 'worker']))
     if (state.advisor) roles.set(state.advisor.name, 'advisor')
@@ -2061,7 +2065,7 @@ async function main(args) {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
-    const ctx = await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null, action: body?.action ?? null, of: typeof body?.of === 'string' ? body.of : null, forYou: Array.isArray(body?.forYou) && body.forYou.length > 0 })
+    const ctx = await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null, action: body?.action ?? null, of: typeof body?.of === 'string' ? body.of : null, forYou: Array.isArray(body?.forYou) && body.forYou.length > 0, trace })
     // B1139: the call's context is there (a kept state, or the rebuild it waited for).
     trace?.mark('ctx')
     const done = await workApi(body, { ...ctx, ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
@@ -2249,7 +2253,9 @@ async function main(args) {
       callsNow -= 1
       // B1502 (chat 1's reviews): a call taken by its card chain was answered from the kept state; now the state is read again in the
       // background (stale while revalidate), never reset: a reset would make the chat's next `work next` wait for a whole read.
-      if (body !== null && typeof body === 'object' && movedBodies.delete(body)) readState.revalidate()?.catch(error => loops.failed('state-revalidate', error))
+      // Chat 1's third review: only while the kept state still lacks the session (a take, hands or typed call often waited for a
+      // read that shows it), and as a loop, so one failed read shows until the next good one and no longer.
+      if (body !== null && typeof body === 'object' && movedBodies.delete(body) && isUnknownSession(body, readState.last() ?? {})) void loops.run('state-revalidate', () => readState.revalidate())
     }
   }
   // B319: the Workers mod this folder carries against the one the PC runs (one per PC, for every project's board).
@@ -3165,10 +3171,12 @@ async function main(args) {
   }
   /**
    * B1502: the calls taken by their card chain (`movedCall`), by their body. Such a call is answered from the kept state, which
-   * still shows the chat's old session (and a build under way may have begun before the card moved): once its answer is made,
-   * `counted` starts a read in the background (`revalidate`) whose answer replaces the kept state when it lands: the new session
-   * shows and the old one is refused again. Never a reset (chat 1's second review): every call of the new session (its report,
-   * its take ping, the typed clear stage) is a moved one, and a reset would make its next `work next` wait for a whole read.
+   * still shows the chat's old session: once its answer is made, while the kept state still lacks the session, `counted` starts
+   * a read in the background (`revalidate`, loop `state-revalidate`) whose answer replaces the kept state when it lands: the new
+   * session shows and the old one is refused again. When a read is already under way it starts none; should that read have begun
+   * before the card moved, it lands without the session, and the chat's next moved call starts the read again (it heals itself:
+   * meanwhile the card chain serves the new session). Never a reset (chat 1's second review): every call of the new session (its
+   * report, its take ping, the typed clear stage) is a moved one, and a reset would make its next `work next` wait for a whole read.
    */
   const movedBodies = new WeakSet()
   const movedCall = async (body, state) => {

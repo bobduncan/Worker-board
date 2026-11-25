@@ -57,6 +57,8 @@ export const LOOP_WORDS = {
   'self-update': 'starting the new version by itself',
   // T13 part 4: the board opens a chat when none runs and work waits for one.
   opener: 'opening a chat when none runs',
+  // B1502: the read of the board's state in the background after a chat's first calls following its clear.
+  'state-revalidate': 'reading the board again after a chat\'s clear',
 }
 
 /** The page's words for a loop; `check:<id>` is the check after the report of that step. */

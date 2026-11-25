@@ -182,3 +182,14 @@ test('a check failing for one step is shown by its step, and its next success cl
   await loops.run('check:B7', async () => 'ok')
   assert.deepEqual(loops.failing(), [])
 })
+
+test('B1502: one failed state-revalidate shows in its own words until the next good one, and no longer', async () => {
+  const clock = clockAt(Date.UTC(2026, 10, 25, 9, 0))
+  const loops = loopRecord({ now: clock.now, write: () => {} })
+  assert.equal(await loops.run('state-revalidate', () => Promise.reject(new Error('EBUSY: the state'))), undefined)
+  assert.deepEqual(loops.failing().map(one => [one.name, one.words, one.failures]), [['state-revalidate', 'reading the board again after a chat\'s clear', 1]])
+  clock.add(5000)
+  // A revalidate that starts none (a read under way) counts as good too.
+  assert.equal(await loops.run('state-revalidate', () => null), null)
+  assert.deepEqual(loops.failing(), [])
+})

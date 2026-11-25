@@ -179,7 +179,9 @@ test('B1502: a worker\'s first call after its clear is answered from the kept st
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'moved', project, port, gamePort: 7310, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
   const log = join(dir, 'rebuilds.log')
-  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_STATE_MS: String(60 * MIN), WORKER_BOARD_READ_LOG: log })
+  // Chat 1's third review: each read of the state takes 1.5 s here, so a read started after a moved call is still under way when the
+  // chat's next arrives: only a next answered from the kept state (`stateWhy` kept) shows apart from one that waited for it.
+  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_STATE_MS: String(60 * MIN), WORKER_BOARD_READ_LOG: log, WORKER_BOARD_READ_DELAY_MS: '1500' })
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   const work = body => fetch(`http://127.0.0.1:${port}/api/bridge/work`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key }, body: JSON.stringify(body),
@@ -236,7 +238,7 @@ test('B1502: a worker\'s first call after its clear is answered from the kept st
   assert.equal(next.status, 200, JSON.stringify(next.body))
   assert.match(next.body.text, /B13/)
   const traced = await traceOf('next', firstAt)
-  assert.deepEqual([traced.status, traced.moved, traced.rebuilds], [200, true, 0], 'the first call after the clear read the board anew')
+  assert.deepEqual([traced.status, traced.moved, traced.rebuilds, traced.stateWhy], [200, true, 0, 'kept'], 'the first call after the clear read the board anew')
   // Its answer read the state again in the background: once that read lands the session the clear left is refused.
   await until(async () => (await work({ action: 'next', chat: 'Units', session: 'units-old' })).status === 409, 'the session the clear left refused once the read landed')
 
@@ -255,7 +257,7 @@ test('B1502: a worker\'s first call after its clear is answered from the kept st
   const second = await work({ action: 'next', chat: 'Units', session: 'units-new2' })
   assert.equal(second.status, 200, JSON.stringify(second.body))
   const secondTrace = await traceOf('next', secondAt)
-  assert.deepEqual([secondTrace.status, secondTrace.rebuilds], [200, 0], 'the next after the report, take ping and typed stage read the board anew')
+  assert.deepEqual([secondTrace.status, secondTrace.rebuilds, secondTrace.stateWhy], [200, 0, 'kept'], 'the next after the report, take ping and typed stage read the board anew')
   // The same calls in another order (the typed stage first, the take ping last before the next): a moved call right before the
   // next. With a reset after a moved call (chat 1's second review) this next waits for a whole read; with the read in the
   // background it does not.
@@ -270,13 +272,25 @@ test('B1502: a worker\'s first call after its clear is answered from the kept st
   const third = await work({ action: 'next', chat: 'Units', session: 'units-new3' })
   assert.equal(third.status, 200, JSON.stringify(third.body))
   const thirdTrace = await traceOf('next', thirdAt)
-  assert.deepEqual([thirdTrace.status, thirdTrace.rebuilds], [200, 0], 'the next right after a moved take ping read the board anew')
+  assert.deepEqual([thirdTrace.status, thirdTrace.rebuilds, thirdTrace.stateWhy], [200, 0, 'kept'], 'the next right after a moved take ping read the board anew')
+  // And a moved call that neither reads nor changes the state right before the next (a work list; the take ping and the typed post
+  // read the state themselves, and a busy report changes it, so after those a reset would cost the next nothing). The read the list
+  // started is still under way (1.5 s): the next is answered from the kept state, never after a reset that makes it wait for that read.
+  await put(join(chats, 'units-new4.json'), JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW }))
+  await put(join(chats, 'units-new3.json'), JSON.stringify({ movedTo: 'units-new4', at: NOW }))
+  before = await settle()
+  assert.equal((await work({ action: 'list', chat: 'Units', session: 'units-new4' })).status, 200)
+  const fourthAt = Date.now()
+  const fourth = await work({ action: 'next', chat: 'Units', session: 'units-new4' })
+  assert.equal(fourth.status, 200, JSON.stringify(fourth.body))
+  const fourthTrace = await traceOf('next', fourthAt)
+  assert.deepEqual([fourthTrace.status, fourthTrace.moved, fourthTrace.stateWhy], [200, true, 'kept'], 'the next right after a moved list waited for a read')
   // A stranger is still refused after the move: the chain ends at the chat's new session, not at the stranger's.
   assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-stranger-2' })).status, 409)
   // End to end under the chat's name: the take and a checkpoint are the chat's (the store's owner and state), not refused.
-  const take = await work({ action: 'take', chat: 'Units', session: 'units-new3', id: 'B13', branch: 'b13', minutes: 30 })
+  const take = await work({ action: 'take', chat: 'Units', session: 'units-new4', id: 'B13', branch: 'b13', minutes: 30 })
   assert.equal(take.status, 200, JSON.stringify(take.body))
-  const step = await work({ action: 'step', chat: 'Units', session: 'units-new3', id: 'B13', step: 1, steps: 2, minutes: 30 })
+  const step = await work({ action: 'step', chat: 'Units', session: 'units-new4', id: 'B13', step: 1, steps: 2, minutes: 30 })
   assert.equal(step.status, 200, JSON.stringify(step.body))
   const stored = await readFile(join(project, '.claude', 'work', 'B13.md'), 'utf8')
   assert.match(stored, /^State: in progress$/m)

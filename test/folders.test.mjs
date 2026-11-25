@@ -179,3 +179,35 @@ test('B1502: revalidate reads in the background and keeps serving the kept answe
   gates.shift()()
   assert.equal(await after, 4)
 })
+
+test('B1502: a revalidate that fails keeps the kept answer clean and hangs nothing; the next one lands', async () => {
+  let now = 1000
+  let fail = false
+  let count = 0
+  const read = cached(async () => { count += 1; if (fail) throw new Error('EBUSY'); return count }, 60_000, () => now)
+  assert.equal(await read(), 1)
+  now += 500
+  fail = true
+  await assert.rejects(read.revalidate(), /EBUSY/)
+  // Not poisoned: the kept answer and its readAt stand, a read answers at once, and nothing is under way any more.
+  assert.equal(read.readAt(), 1000)
+  assert.equal(await read(), 1)
+  fail = false
+  assert.equal(await read.revalidate(), 3)
+  assert.equal(await read(), 3)
+  assert.equal(read.readAt(), 1500)
+})
+
+test('B1502: a revalidate while a normal read of the same round runs starts no second read, and that read\'s answer is kept', async () => {
+  let count = 0
+  const gates = []
+  const read = cached(() => new Promise(resolve => { count += 1; const mine = count; gates.push(() => resolve(mine)) }), 60_000, () => 0)
+  const normal = read()
+  assert.equal(read.revalidate(), null)
+  assert.equal(count, 1)
+  gates.shift()()
+  assert.equal(await normal, 1)
+  assert.equal(await read(), 1)
+  assert.equal(read.last(), 1)
+  assert.equal(count, 1)
+})
