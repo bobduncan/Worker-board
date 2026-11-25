@@ -19,6 +19,9 @@ test('a chat file is read again only when its stamp changed; the chats, texts an
   await writeFile(join(folder, 'local_Lead.json'), chat('Lead', 100))
   await writeFile(join(folder, 'local_Digger.json'), chat('Digger', 200))
   await writeFile(join(folder, 'local_broken.json'), '{ not json')
+  // Files that stand still (a file written in the last 2 s is read again each time: git's racy rule).
+  const still = new Date(Date.now() - 60_000)
+  for (const name of ['local_Lead.json', 'local_Digger.json', 'local_broken.json']) await utimes(join(folder, name), still, still)
 
   const before = appChatReads()
   const first = await readAppChatList(dir)
@@ -35,7 +38,7 @@ test('a chat file is read again only when its stamp changed; the chats, texts an
 
   // A chat the app wrote anew (another stamp): that one file is read again, and its new words count.
   await writeFile(join(folder, 'local_Lead.json'), chat('Lead', 300))
-  await utimes(join(folder, 'local_Lead.json'), new Date(), new Date(Date.now() + 5_000))
+  await utimes(join(folder, 'local_Lead.json'), still, new Date(Date.now() - 30_000))
   const again = await readAppChatList(dir)
   assert.equal(appChatReads() - before, 4)
   assert.equal(again.find(found => found.title === 'Garden · Lead').lastActivityAt, 300)
@@ -43,6 +46,13 @@ test('a chat file is read again only when its stamp changed; the chats, texts an
   // What a read hands out never changes the kept parse.
   again[0].title = 'changed by a reader'
   assert.ok((await readAppChatList(dir)).every(found => found.title !== 'changed by a reader'))
+
+  // A file the app wrote a moment ago is read again at every look until it stands still, even at the same stamp.
+  await writeFile(join(folder, 'local_Digger.json'), chat('Digger', 201))
+  const reads = appChatReads()
+  await readAppChatList(dir)
+  await readAppChatList(dir)
+  assert.equal(appChatReads() - reads, 2)
 
   // A file gone is gone from the chats.
   await rm(join(folder, 'local_Digger.json'))

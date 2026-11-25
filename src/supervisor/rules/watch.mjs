@@ -1323,7 +1323,7 @@ function boardSlow(view) {
 }
 
 /** B1535: a part of a call as the evidence names it (callTrace.mjs `PARTS`). */
-const PART_WORDS = { beforeBoard: 'before the board took it', decide: 'the hand-over\'s decide', ctx: 'the state it read', action: 'the store', fresh: 'the check of its chat', answered: 'the answer', handout: 'the hand-out' }
+const PART_WORDS = { beforeBoard: 'before the board took it', lock: 'the loop lock', body: 'reading the call', known: 'the repeat check', begin: 'the call\'s start',decide: 'the hand-over\'s decide', ctx: 'the state it read', action: 'the store', fresh: 'the check of its chat', answered: 'the answer', handout: 'the hand-out' }
 
 /**
  * B1535 (X93): the cause of the slow calls, so a full PC and a busy board read apart: where they waited, the board's own CPU over

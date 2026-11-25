@@ -360,9 +360,12 @@ export function pcTop({ list = null, now = Date.now, everyMs = PC_TOP_EVERY_MS, 
       lastLook = now()
       try {
         const before = await list()
+        const from = now()
         await wait(gapMs)
         const after = await list()
-        latest = { at: now(), top: busiestOf(before, after, gapMs) }
+        // Lens 2: the time between the two listings as it was (a listing takes seconds on a full PC), not the wait alone.
+        const at = now()
+        latest = { at, top: busiestOf(before, after, Math.max(gapMs, at - from)) }
       } catch {
         // no reading this time
       } finally {

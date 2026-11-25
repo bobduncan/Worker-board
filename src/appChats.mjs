@@ -244,11 +244,8 @@ export async function readAccountFolders(dir) {
       if (texts.length > 0 || ids.length > 0) folders.push({ account: outer.name, org: inner.name, texts, ids, chats, at: ats.length === 0 ? 0 : Math.max(...ats) })
     }
   }
-  // A file gone from the folders is forgotten.
-  if (typeof dir === 'string' && dir !== '') {
-    const under = `${folderKey(dir, process.platform)}${process.platform === 'win32' ? '\\' : '/'}`
-    for (const path of chatFiles.keys()) if (!seen.has(path) && folderKey(path, process.platform).startsWith(under)) chatFiles.delete(path)
-  }
+  // A file gone from the folders is forgotten, and so is every file of a folder the board no longer reads (the app moved it: lens 2).
+  for (const path of chatFiles.keys()) if (!seen.has(path)) chatFiles.delete(path)
   return folders
 }
 
@@ -260,6 +257,8 @@ export async function readAccountFolders(dir) {
  */
 const chatFiles = new Map()
 let chatReads = 0
+/** Lens 2: a read this close after a file's time written is read again next time (see `chatFileOf`). */
+const RACY_MS = 2000
 /** B1535: how many chat files were read whole since the board began (the tests'). */
 export const appChatReads = () => chatReads
 
@@ -273,14 +272,17 @@ async function chatFileOf(path) {
     return null
   }
   const kept = chatFiles.get(path)
-  if (kept !== undefined && kept.mark === mark) return kept
+  // Lens 2 (git's racy rule): a file read within RACY_MS of its time written may be written again in the same tick at the same size,
+  // so such a read is never trusted: the file is read again until it has stood still.
+  if (kept !== undefined && kept.mark === mark && !kept.racy) return kept
+  const readAt = Date.now()
   const head = await readHead(path, CHAT_FILE_BYTES)
   chatReads += 1
   if (head === null || !head.isWhole) {
     chatFiles.delete(path)
     return null
   }
-  const one = { mark, text: head.text, chat: parseAppChat(head.text), at: activeAt(head.text) }
+  const one = { mark, racy: readAt - Number(mark.split(':')[0]) < RACY_MS, text: head.text, chat: parseAppChat(head.text), at: activeAt(head.text) }
   chatFiles.set(path, one)
   return one
 }
