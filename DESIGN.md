@@ -6530,7 +6530,9 @@ idle Main waited untaken (X203, three times by 20:40). Now:
 - The rule `start-untaken` (src/supervisor/rules/watch.mjs): a chat's start untaken 10 minutes while the chat its word waits with runs
   idle. The reconciler renews the start word every 10 minutes and the sweep drops the old one, so the age is the chain's (from the
   oldest start word of the chat since its last taken or delivered one, within its sleep), one finding per chain, keyed by its first
-  word (chat 1's review 3: the live chain 20:35-21:40). `wake-failed` names the refused hand in what was tried ("20:29 by Worker 3:
+  word (chat 1's review 3: the live chain 20:35-21:40). B1277: the age is running time (from the end of the person's last pause, less the
+  board's off time, as `afterPause` and `boardOffMs` do for the other rules), and an open (waiting or taken) `wake-carry` word whose `of` is
+  one of the chain's start words silences it until it closes. `wake-failed` names the refused hand in what was tried ("20:29 by Worker 3:
   the app no longer lets the board's code send to a chat").
 Test: `test/wakeRefusedHand.test.mjs` (X203's record as it was, the per-hand mark, the message again by Main's hands, the launch only
 without a hand that may send, the carry word when every claiming hand is refused, the probe per hand, the file, the rule).
