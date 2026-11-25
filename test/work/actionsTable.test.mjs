@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { CHANGES, GOAL_MAP, MOD_FIELDS, OLDER_MOD_WHY, PERSON, READS, ROLES, SERVER, TOOL_ACTIONS, TOOL_FIELDS, UNOFFERED_FIELDS, unknownFields } from '../../src/work/actions.mjs'
+import { CHANGES, GOAL_MAP, MOD_FIELDS, PERSON, READS, ROLES, SERVER, TOOL_ACTIONS, TOOL_FIELDS, UNOFFERED_FIELDS, unknownFields } from '../../src/work/actions.mjs'
 
 const hooks = name => fileURLToPath(new URL(`../../mods/workers/hooks/${name}`, import.meta.url))
 const board = await readFile(hooks('board.ts'), 'utf8')
@@ -72,13 +72,40 @@ test('a field the table does not know is named, for an action of the tool only',
   assert.deepEqual(unknownFields({ action: 'turn-ended', since: 1, pull: true, forYou: [], word: 'w' }), [])
   assert.deepEqual(unknownFields({ action: 'save-log', stepId: 'B1' }), [])
   assert.deepEqual(unknownFields(null), [])
-  assert.ok(OLDER_MOD_WHY.includes('older than the board') && OLDER_MOD_WHY.includes('restart this chat'))
 })
 
-test('the board refuses an unknown field of a chat\'s call before it acts on it', async () => {
+test('a call from a mod older or newer than the board is never refused for its fields', async () => {
+  // Payloads of the mod before this one (0.36.0 and 0.37.0 send the fields of the table as it stood): none is unknown.
+  const old = [
+    { action: 'take', id: 'B1', branch: 'b1', minutes: 30, chat: 'Worker 1', session: 's', mod: '0.36.0' },
+    { action: 'step', id: 'B1', step: 2, names: ['a', 'b'], commit: 'abc', next: 'go', stepMinutes: 5, minutes: 20, mod: '0.37.0' },
+    { action: 'ask', id: 'B1', kind: 'do', text: 't', blocking: true, via: 'form', options: ['A x'], advice: 'A', pictures: [], play: 'main' },
+    { action: 'new', title: 'x', priority: 'fix', model: 'sonnet: why', effort: 'low: why', standard: 'none (x)', what: ['w'] },
+    { action: 'checked', id: 'B1', evidence: 'none (x)', points: ['pass: a'], score: '80 of 75', size: '5 min' },
+  ]
+  for (const call of old) assert.deepEqual(unknownFields(call), [], call.action)
+  // A newer mod's field is left out of the call and said once; the call itself goes on (server.mjs bridgeWorkOnce).
   const server = await readFile(fileURLToPath(new URL('../../server.mjs', import.meta.url)), 'utf8')
-  const once = server.slice(server.indexOf('const bridgeWorkOnce = async'))
-  assert.ok(once.indexOf('unknownFields(body)') > 0 && once.indexOf('unknownFields(body)') < once.indexOf('await workAction('), 'the check comes first')
+  const once = server.slice(server.indexOf('const bridgeWorkOnce = async'), server.indexOf('await workAction(', server.indexOf('const bridgeWorkOnce = async')))
+  assert.ok(once.includes('unknownFields(body)') && once.includes('toldFields') && once.includes('ignored'), 'unknown fields are told once and left out')
+  assert.ok(!/status: 4dd/.test(once), 'and never refused')
+})
+
+test('the board answers a call that carries a field it does not know as if the field were not there (an old board, a new mod)', async () => {
+  const { mkdtemp } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { workApi } = await import('../../src/work/api.mjs')
+  const { migrateBacklog } = await import('../../src/work/migrate.mjs')
+  const { writeStore } = await import('../../src/work/store.mjs')
+  const now = new Date(2026, 10, 25, 22, 0).getTime()
+  const dir = await mkdtemp(join(tmpdir(), 'work-table-'))
+  await writeStore(dir, migrateBacklog(['# Backlog', '', '## Garden', '- [ ] B1 Plant the hedge (for Digger; about 1 h)', ''].join('\n'), { now }), undefined, { now })
+  const ctx = { dir, now, roleOf: name => ({ Digger: 'worker' })[name] ?? null }
+  const plain = await workApi({ action: 'next', chat: 'Digger' }, ctx)
+  const extra = await workApi({ action: 'next', chat: 'Digger', brandNewField: 'x' }, ctx)
+  assert.equal(extra.ok, true)
+  assert.deepEqual(extra.result, plain.result)
 })
 
 test('the mod forwards what it was given but its own fields (the source of workFieldsOf)', () => {

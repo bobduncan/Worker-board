@@ -3707,7 +3707,7 @@ async function workToolCall($: EngineInterface, e: { agentId?: string }, input: 
   }
   // Clear after each step: the log before a clear is the mod's own call, never the model's.
   if (action === 'save-log') return { result: 'save-log is the Workers mod\'s own call: nothing was done.' }
-  // B421: every field the chat gave goes on but the mod's own; the board names one it does not know.
+  // B421: every field the chat gave goes on but the mod's own; the board leaves out one it does not know and says so once.
   const fields = workFieldsOf(input)
   // Chat 1's review (9): the call's follow-up (the card, the flags, the open instructions) runs on the board's answer, here or from a
   // background repeat that got it (bound to this turn for the per-turn flags).

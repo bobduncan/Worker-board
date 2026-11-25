@@ -35,7 +35,7 @@ import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyp
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
 import { landedLines, runningLanding } from './src/landing.mjs'
-import { OLDER_MOD_WHY, unknownFields } from './src/work/actions.mjs'
+import { unknownFields } from './src/work/actions.mjs'
 import { landedWaitOf } from './src/work/landedWait.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { backgroundOf } from './src/chatReport.mjs'
@@ -3213,11 +3213,20 @@ async function main(args) {
    */
   const checkedOrSide = (fresh, asked, body) => (sideWordsOf(fresh.checked, asked, body, fresh.state) ? { ok: true, chat: body.chat.trim().slice(0, 80), isSide: true } : fresh.checked)
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
+  const toldFields = new Set()
   const bridgeWorkOnce = async (body, checked, trace = null) => {
     // T8.5: the version its mod said with this very call (noteMod keeps it before the call is answered).
-    // B421: a field the board's table of actions does not know is refused by name; the mod forwards every field but its own.
+    // B421: a field the board's table does not know (a mod newer or older than the board: chats keep their mod until their process
+    // restarts) is never a refusal: it is left out of the call and said once on the console.
     const unknown = unknownFields(body)
-    if (unknown.length > 0) return { ok: false, status: 400, why: `${unknown.map(key => `"${String(key).slice(0, 40)}"`).join(', ')}: no field of the work tool; ${OLDER_MOD_WHY}.` }
+    if (unknown.length > 0) {
+      for (const key of unknown) {
+        if (toldFields.has(key)) continue
+        toldFields.add(key)
+        console.error(`Work call field "${String(key).slice(0, 40)}" is not in the board's table of actions: ignored (the chat's Workers mod runs another version).`)
+      }
+      body = Object.fromEntries(Object.entries(body).filter(([key]) => !unknown.includes(key)))
+    }
     const mod = modOf.get(checked.chat)?.version ?? null
     const done = await workAction({ ...body, chat: checked.chat }, checked.isSide === true ? 'side' : undefined, trace)
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.

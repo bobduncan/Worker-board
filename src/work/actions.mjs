@@ -87,13 +87,10 @@ export const UNOFFERED_FIELDS = ['name']
 /** What the mod itself adds to a call, never the chat's: the board takes these and no others besides TOOL_FIELDS. */
 export const MOD_FIELDS = ['chat', 'session', 'request', 'mod', 'via']
 
-/** The words of the refusal of a field the board does not know. */
-export const OLDER_MOD_WHY = 'your Workers mod is older than the board; restart this chat'
-
 /**
  * B421: the fields of a chat's work-tool call that the table does not know, none for an action the tool does not offer (the mod's
- * own calls, turn-ended or pull, carry fields of their own). A field the table lacks was never named by this board: the mod runs
- * another version, so the call is refused instead of losing the field. PURE.
+ * own calls, turn-ended or pull, carry fields of their own). A field the table lacks comes from a mod of another version
+ * (newer, or older than the board: a chat keeps its mod until its process restarts): the board leaves it out and says so once. PURE.
  */
 export function unknownFields(body) {
   if (body === null || typeof body !== 'object' || Array.isArray(body) || !TOOL_ACTIONS.includes(body.action)) return []
