@@ -373,8 +373,9 @@ const reasons = (value, of) => Object.fromEntries(of.filter(id => typeof value?.
  * What the mod reports after a take: the messages it typed into its chat, and the ones it could not type. B532: `why`
  * says why per id, `refused` names the ones it refused for good (too long, no text), which are not tried again.
  */
-export function checkTyped(body, state) {
-  const checked = checkTake(body, state)
+export function checkTyped(body, state, moved = false) {
+  // B1502: `moved`, the caller found the chat's card chain ends at this session (`movedHere`): the chat after its clear.
+  const checked = moved === true && typeof body?.chat === 'string' && typeof body.session === 'string' ? { ok: true, chat: body.chat.trim() } : checkTake(body, state)
   if (!checked.ok) return checked
   const failed = ids(body.failed)
   const refused = ids(body.refused)

@@ -59,7 +59,8 @@ async function stop(child) {
 
 async function until(check, what) {
   for (const end = Date.now() + 30_000; Date.now() < end;) {
-    if (await check()) return
+    const found = await check()
+    if (found) return found
     await new Promise(done => setTimeout(done, 100))
   }
   throw new Error(`Not within 30 s: ${what}`)
@@ -122,9 +123,13 @@ test('save-log through the bridge keeps a worker\'s conversation, the chat goes 
   const next = await work({ action: 'next', chat: 'Units', session: 'units-new' })
   assert.equal(next.status, 200, JSON.stringify(next.body))
   assert.match(next.body.text, /B13/)
-  // B1502: that first call was answered from the kept state (its card chain); once the board has read anew, the session the
-  // clear left is refused.
-  await until(async () => (await work({ action: 'next', chat: 'Units', session: 'units-old' })).status === 409, 'the session the clear left refused')
+  // B1502: that first call was answered from the kept state (its card chain) and reset it after its answer: the board's next read
+  // (here the main chat's typed post, which reads the state) shows the new session, and the session the clear left is refused.
+  const typedAs = body => fetch(`http://127.0.0.1:${port}/api/bridge/typed`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key }, body: JSON.stringify(body),
+  }).then(reply => reply.status)
+  assert.equal(await typedAs({ chat: 'Main', session: 'main-id', typed: [] }), 200)
+  assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-old' })).status, 409)
 
   // The board stops before a log is written; its next start finishes it.
   await stop(started.pop())
@@ -165,9 +170,13 @@ test('B1502: a worker\'s first call after its clear is answered from the kept st
   await put(join(chats, 'list.json'), '{"prefix":"Game - ","main":"Main","afterStep":"clear"}')
   await put(join(chats, 'main-id.json'), JSON.stringify({ name: 'Main', role: 'main', state: 'waiting', task: null, at: NOW }))
   await put(join(chats, 'units-old.json'), JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW }))
+  await put(join(chats, 'shields-old.json'), JSON.stringify({ name: 'Shields', role: 'worker', state: 'waiting', task: null, at: NOW }))
   const appChat = (name, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId: `local_${name}`, cliSessionId, cwd: project, isArchived: false, createdAt: name.length, lastActivityAt: NOW })
   await put(join(app, 'a', 'b', 'local_main.json'), appChat('Main', 'main-id'))
   await put(join(app, 'a', 'b', 'local_units.json'), appChat('Units', 'units-old'))
+  await put(join(app, 'a', 'b', 'local_shields.json'), appChat('Shields', 'shields-old'))
+  await put(join(transcripts, 'shields-old.jsonl'), `${typed(NOW - 30 * MIN, 'Draw the buckler.')}
+`)
   await put(join(transcripts, 'main-id.jsonl'), `${typed(NOW - 9 * MIN, 'Status?')}\n`)
   await put(join(transcripts, 'units-old.jsonl'), `${typed(NOW - 30 * MIN, 'Draw the knight.')}\n${answer(NOW - 20 * MIN, 'B12 is in.')}\n`)
   await writeStore(join(project, '.claude', 'work'), migrateBacklog('## Art\n- [ ] B13 Draw the shield (for Units; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
@@ -179,11 +188,14 @@ test('B1502: a worker\'s first call after its clear is answered from the kept st
   const work = body => fetch(`http://127.0.0.1:${port}/api/bridge/work`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key }, body: JSON.stringify(body),
   }).then(async reply => ({ status: reply.status, body: reply.ok ? await reply.json() : await reply.text() }))
+  const typedAs = body => fetch(`http://127.0.0.1:${port}/api/bridge/typed`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key }, body: JSON.stringify(body),
+  }).then(reply => reply.status)
   const rebuilt = async () => (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean).length
-  // The board has settled once a known chat's call reads nothing anew for a while.
+  // The board has settled once a read of its state (the main chat's typed post reads it) rebuilds nothing for a while.
   const settle = async () => {
     for (let last = -1, end = Date.now() + 60_000; Date.now() < end;) {
-      assert.equal((await work({ action: 'list', chat: 'Main', session: 'main-id' })).status, 200)
+      assert.equal(await typedAs({ chat: 'Main', session: 'main-id', typed: [] }), 200)
       await new Promise(done => setTimeout(done, 1_500))
       const now = await rebuilt()
       if (now === last) return now
@@ -206,15 +218,29 @@ test('B1502: a worker\'s first call after its clear is answered from the kept st
   assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-stranger' })).status, 409)
   assert.equal(await rebuilt(), once, 'the stranger was read anew twice within FRESH_MS')
 
+  // Chat 1's review, point 1: the mod's typed post (its hand-over outcome, the clear's stages) from the NEW session, while the state
+  // the board keeps still shows the old one, is the chat's by its card chain, not refused (its outcome would be lost).
+  await put(join(chats, 'shields-new.json'), JSON.stringify({ name: 'Shields', role: 'worker', state: 'waiting', task: null, at: NOW }))
+  await put(join(chats, 'shields-old.json'), JSON.stringify({ movedTo: 'shields-new', at: NOW }))
+  before = await settle()
+  assert.equal(await typedAs({ chat: 'Shields', session: 'shields-stranger', typed: [] }), 409)
+  assert.equal(await typedAs({ chat: 'Shields', session: 'shields-new', typed: [] }), 200)
+
   // The /clear: the mod moves the card; the app still names the old session. The first next of the new session is the chat's,
-  // answered with no read anew.
+  // answered with no read anew (its trace line: moved, no rebuild during the call).
+  before = await settle()
   await put(join(chats, 'units-new.json'), JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW, cleared: { at: NOW, step: 'B12', log: 'x.txt' } }))
   await put(join(chats, 'units-old.json'), JSON.stringify({ movedTo: 'units-new', at: NOW }))
   before = await settle()
   const next = await work({ action: 'next', chat: 'Units', session: 'units-new' })
   assert.equal(next.status, 200, JSON.stringify(next.body))
   assert.match(next.body.text, /B13/)
-  assert.equal(await rebuilt(), before, 'the first call after the clear read the board anew')
+  const traced = await until(async () => (await readFile(join(board, 'data', 'call-trace.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line))
+    .find(one => one.chat === 'Units' && one.action === 'next' && one.moved === true), 'the trace marks the moved call')
+  assert.deepEqual([traced.status, traced.rebuilds], [200, 0], 'the first call after the clear read the board anew')
+  // Its answer reset the kept state: the board's next read shows the new session, and the session the clear left is refused at once.
+  assert.equal(await typedAs({ chat: 'Main', session: 'main-id', typed: [] }), 200)
+  assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-old' })).status, 409)
   // A stranger is still refused after the move: the chain ends at the chat's new session, not at the stranger's.
   assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-stranger-2' })).status, 409)
   // End to end under the chat's name: the take and a checkpoint are the chat's (the store's owner and state), not refused.
@@ -225,7 +251,4 @@ test('B1502: a worker\'s first call after its clear is answered from the kept st
   const stored = await readFile(join(project, '.claude', 'work', 'B13.md'), 'utf8')
   assert.match(stored, /^State: in progress$/m)
   assert.match(stored, /^Owner: Units$/m)
-  // The call trace marks the first call as taken by its card chain (the live proof counts these).
-  await until(async () => (await readFile(join(board, 'data', 'call-trace.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line))
-    .some(one => one.chat === 'Units' && one.action === 'next' && one.moved === true && one.status === 200), 'the trace marks the moved call')
 })

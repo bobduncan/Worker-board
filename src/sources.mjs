@@ -1,7 +1,7 @@
 // Reads the real files into texts, in the shape `buildState` takes. Everything outside this folder is read-only
 // for the board, and a file that is missing or cannot be read comes back as null: the page shows it as unknown.
 
-import { lstat, readdir, stat } from 'node:fs/promises'
+import { lstat, readFile, readdir, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 
 import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mjs'
@@ -53,11 +53,25 @@ async function conversationAt(file) {
 }
 
 /**
- * Clear after each step: the session the card of `id` says its chat moved to (`movedTo`), or null (no card, an unreadable one,
- * a card that names no move, or a name that is no session id). B1502: the bridge's check of a chat's first call after its clear.
+ * B1502 (chat 1's review): the session the card of `id` says its chat moved to (`movedTo`), for the bridge's check of a chat's
+ * first call after its clear. null only for no card (ENOENT) or a card that names no move; it THROWS for a card it cannot read
+ * (Windows holds it, a torn or empty file, no card object, a `movedTo` that is no session id) or an id that is none, so the
+ * caller never reads an unreadable card as the end of the chain. (The state's own `followMoves` stays lenient.)
  */
 export async function readMove(claude, id) {
-  return SAFE_ID.test(String(id ?? '')) ? movedTo(await readCard(join(claude, 'chats', `${id}.json`))) : null
+  if (!SAFE_ID.test(String(id ?? ''))) throw new Error('Not a session id.')
+  let text
+  try {
+    text = await readFile(join(claude, 'chats', `${id}.json`), 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+  const raw = JSON.parse(text.replace(/\u0000+$/, ''))
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Not a card.')
+  if (!('movedTo' in raw)) return null
+  if (typeof raw.movedTo !== 'string' || !SAFE_ID.test(raw.movedTo) || raw.movedTo.length > 120) throw new Error('Not a session id.')
+  return raw.movedTo
 }
 
 /**
@@ -68,7 +82,7 @@ export async function followMoves(claude, id) {
   let current = id
   const seen = new Set([id])
   for (;;) {
-    const next = await readMove(claude, current)
+    const next = movedTo(await readCard(join(claude, 'chats', `${current}.json`)))
     if (next === null || seen.has(next) || !SAFE_ID.test(next)) break
     seen.add(next)
     current = next

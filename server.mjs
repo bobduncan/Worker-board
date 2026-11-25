@@ -2239,6 +2239,8 @@ async function main(args) {
       return await answer(body, ...more)
     } finally {
       callsNow -= 1
+      // B1502 (chat 1's review): a call taken by its card chain was answered from the kept state; now the next reader builds it fresh.
+      if (body !== null && typeof body === 'object' && movedBodies.delete(body)) readState.reset()
     }
   }
   // B319: the Workers mod this folder carries against the one the PC runs (one per PC, for every project's board).
@@ -3144,6 +3146,19 @@ async function main(args) {
     // T13 part 4: and the board's own opening of a chat when none runs.
     return { ...view, rows: [...view.rows, wakeRowNow()], canAllow: !isShowOnly, taskLine: view.needsTask ? taskWords({ folder, prefix, board: HERE, slots: view.missingRoutines, owner }) : null }
   }
+  /**
+   * B1502: the calls taken by their card chain (`movedCall`), by their body. Such a call is answered from the kept state, which
+   * still shows the chat's old session (and a build under way may have begun before the card moved): once its answer is made,
+   * `counted` resets the state, so the next reader builds it fresh, the new session shows and the old one is refused again.
+   * Not before the answer: a reset would make the call's own context (workCtx) wait for that whole read after all.
+   */
+  const movedBodies = new WeakSet()
+  const movedCall = async (body, state) => {
+    const claude = chatFile(config)
+    if (claude === '' || !await movedHere(body, state, id => readMove(claude, id))) return false
+    movedBodies.add(body)
+    return true
+  }
   const checkFresh = async body => {
     // B736 (X73, X87: no chat's report was kept from 21:12 to 21:21 while each waited for a whole read of the board): a
     // chat the board knows is checked against the state it has, however busy it is; only one it does not know waits.
@@ -3153,8 +3168,7 @@ async function main(args) {
     // B1502 (X93: a worker's first call after its clear waited 1.3 to 11.2 s here for a whole read): the chat's card chain,
     // followed from the session the kept state shows it under, ends at the asking session: the same chat after its clear,
     // checked against the kept state with no read anew. Anything else (another end, no card, a loop, too long) reads anew below.
-    const claude = chatFile(config)
-    if (claude !== '' && await movedHere(body, state, id => readMove(claude, id))) return { checked: { ok: true, chat: body.chat.trim() }, state, moved: true }
+    if (await movedCall(body, state)) return { checked: { ok: true, chat: body.chat.trim() }, state, moved: true }
     // Once in a while per session: a chat the board never shows asks every few seconds, and is not read anew each time.
     const session = String(body.session)
     if (clock() - (freshFor.get(session) ?? -Infinity) < FRESH_MS) return { checked, state }
@@ -4364,7 +4378,11 @@ async function main(args) {
       return answerWhoami(state, body, card)
     }),
     typed: counted(async body => {
-      const checked = checkTyped(body, await readState())
+      // B1502 (chat 1's review): the mod's outcome and clear stages come from the chat's NEW session right after its clear, maybe
+      // while the state still shows the old one (a build begun before the card moved): its card chain makes it the chat, as for a
+      // work call, so the outcome is not refused and lost.
+      const typedState = await readState()
+      const checked = checkTyped(body, typedState, checkTake(body, typedState).ok !== true && await movedCall(body, typedState))
       noteMod(body, checked)
       if (!checked.ok) return checked
       if (await store.settle(checked.chat, checked, clock()) > 0) readState.reset()
