@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url'
 
 
 import { minutesOf } from './src/backlog.mjs'
-import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, modSaid, noteCall, noteReport, noteWhoami, shownChats, shownSessions, sideWordsOf, whoamiOf, whoamiSession, withModHeader } from './src/bridge.mjs'
+import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyped, clearRefusal, fitsMod, isUnknownSession, laneRole, messageText, modSaid, movedHere, noteCall, noteReport, noteWhoami, shownChats, shownSessions, sideWordsOf, whoamiOf, whoamiSession, withModHeader } from './src/bridge.mjs'
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
 import { landedLines, runningLanding } from './src/landing.mjs'
@@ -93,7 +93,7 @@ import { goalsToFree, rethinkHolds } from './src/work/rethink.mjs'
 import { rowWordsOf, rowWordsText } from './src/work/rowWords.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { evaluationFor } from './src/goalGuard.mjs'
-import { productPlanFile, readSources } from './src/sources.mjs'
+import { productPlanFile, readMove, readSources } from './src/sources.mjs'
 import { partnerPageAt } from './src/planWrite.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { modAtLeast } from './src/clearOwed.mjs'
@@ -3147,6 +3147,11 @@ async function main(args) {
     const state = readState.last() ?? await readState()
     const checked = checkTake(body, state)
     if (checked.ok || checked.status !== 409 || !isUnknownSession(body, state)) return { checked, state }
+    // B1502 (X93: a worker's first call after its clear waited 1.3 to 11.2 s here for a whole read): the chat's card chain,
+    // followed from the session the kept state shows it under, ends at the asking session: the same chat after its clear,
+    // checked against the kept state with no read anew. Anything else (another end, no card, a loop, too long) reads anew below.
+    const claude = chatFile(config)
+    if (claude !== '' && await movedHere(body, state, id => readMove(claude, id))) return { checked: { ok: true, chat: body.chat.trim() }, state, moved: true }
     // Once in a while per session: a chat the board never shows asks every few seconds, and is not read anew each time.
     const session = String(body.session)
     if (clock() - (freshFor.get(session) ?? -Infinity) < FRESH_MS) return { checked, state }
@@ -3912,6 +3917,8 @@ async function main(args) {
       try {
         const fresh = await checkFresh(body)
         trace?.mark('fresh')
+        // B1502: the first call of a chat after its clear, taken by its card chain (the live proof counts these).
+        if (fresh.moved === true) trace?.set({ moved: true })
         const checked = checkedOrSide(fresh, asked, body)
         if (checked.isSide !== true) noteMod(body, checked)
         if (checked.isSide !== true) noteRefused(body, checked)

@@ -53,6 +53,14 @@ async function conversationAt(file) {
 }
 
 /**
+ * Clear after each step: the session the card of `id` says its chat moved to (`movedTo`), or null (no card, an unreadable one,
+ * a card that names no move, or a name that is no session id). B1502: the bridge's check of a chat's first call after its clear.
+ */
+export async function readMove(claude, id) {
+  return SAFE_ID.test(String(id ?? '')) ? movedTo(await readCard(join(claude, 'chats', `${id}.json`))) : null
+}
+
+/**
  * Clear after each step: the session a chat goes on under, following the cards that say it moved, to the end of the chain.
  * G2 (2026-11-05): no cap on the hops (a copy 12 clears behind ended at a wrong session at eight); a seen set ends a loop.
  */
@@ -60,7 +68,7 @@ export async function followMoves(claude, id) {
   let current = id
   const seen = new Set([id])
   for (;;) {
-    const next = movedTo(await readCard(join(claude, 'chats', `${current}.json`)))
+    const next = await readMove(claude, current)
     if (next === null || seen.has(next) || !SAFE_ID.test(next)) break
     seen.add(next)
     current = next

@@ -122,7 +122,9 @@ test('save-log through the bridge keeps a worker\'s conversation, the chat goes 
   const next = await work({ action: 'next', chat: 'Units', session: 'units-new' })
   assert.equal(next.status, 200, JSON.stringify(next.body))
   assert.match(next.body.text, /B13/)
-  assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-old' })).status, 409)
+  // B1502: that first call was answered from the kept state (its card chain); once the board has read anew, the session the
+  // clear left is refused.
+  await until(async () => (await work({ action: 'next', chat: 'Units', session: 'units-old' })).status === 409, 'the session the clear left refused')
 
   // The board stops before a log is written; its next start finishes it.
   await stop(started.pop())
@@ -140,4 +142,90 @@ test('save-log through the bridge keeps a worker\'s conversation, the chat goes 
   const size = (await stat(join(transcripts, 'units-old.jsonl'))).size
   await until(async () => JSON.parse(await readFile(join(board, 'data', 'task-times.json'), 'utf8')).scans?.['units-old']?.offset === size, 'the old session read to its end')
   await until(async () => JSON.parse(await readFile(join(board, 'data', 'chat-logs.json'), 'utf8')).left.length === 0, 'the old session read out')
+})
+
+// B1502 (X93, the live case of 2026-11-25 00:13:19: Worker 1's first next after its clear took 16 s, 11.2 s of it a whole read of the
+// board). The board's state is kept an hour here (WORKER_BOARD_STATE_MS), so only a reset makes it read anew, and each read is a line
+// of WORKER_BOARD_READ_LOG. Chat 1's review pinned: the call before the card moved reads anew; the one after does not and works end to
+// end (next, then take and step, under the chat's name); a stranger under a shown name is refused as before, read anew once per FRESH_MS.
+test('B1502: a worker\'s first call after its clear is answered from the kept state once its card moved; a stranger is not', { timeout: 300_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'board-moved-'))
+  const started = []
+  t.after(async () => {
+    await Promise.all(started.map(stop))
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+  const [board, project, app, transcripts] = ['board', 'project', 'app', 'transcripts'].map(name => join(dir, name))
+  for (const part of COPIED) await cp(join(ROOT, part), join(board, part), { recursive: true })
+  const put = async (path, text) => {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, text)
+  }
+  const chats = join(project, '.claude', 'chats')
+  await put(join(chats, 'list.json'), '{"prefix":"Game - ","main":"Main","afterStep":"clear"}')
+  await put(join(chats, 'main-id.json'), JSON.stringify({ name: 'Main', role: 'main', state: 'waiting', task: null, at: NOW }))
+  await put(join(chats, 'units-old.json'), JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW }))
+  const appChat = (name, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId: `local_${name}`, cliSessionId, cwd: project, isArchived: false, createdAt: name.length, lastActivityAt: NOW })
+  await put(join(app, 'a', 'b', 'local_main.json'), appChat('Main', 'main-id'))
+  await put(join(app, 'a', 'b', 'local_units.json'), appChat('Units', 'units-old'))
+  await put(join(transcripts, 'main-id.jsonl'), `${typed(NOW - 9 * MIN, 'Status?')}\n`)
+  await put(join(transcripts, 'units-old.jsonl'), `${typed(NOW - 30 * MIN, 'Draw the knight.')}\n${answer(NOW - 20 * MIN, 'B12 is in.')}\n`)
+  await writeStore(join(project, '.claude', 'work'), migrateBacklog('## Art\n- [ ] B13 Draw the shield (for Units; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
+  const port = await freePort()
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'moved', project, port, gamePort: 7310, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
+  const log = join(dir, 'rebuilds.log')
+  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_STATE_MS: String(60 * MIN), WORKER_BOARD_READ_LOG: log })
+  const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
+  const work = body => fetch(`http://127.0.0.1:${port}/api/bridge/work`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key }, body: JSON.stringify(body),
+  }).then(async reply => ({ status: reply.status, body: reply.ok ? await reply.json() : await reply.text() }))
+  const rebuilt = async () => (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean).length
+  // The board has settled once a known chat's call reads nothing anew for a while.
+  const settle = async () => {
+    for (let last = -1, end = Date.now() + 60_000; Date.now() < end;) {
+      assert.equal((await work({ action: 'list', chat: 'Main', session: 'main-id' })).status, 200)
+      await new Promise(done => setTimeout(done, 1_500))
+      const now = await rebuilt()
+      if (now === last) return now
+      last = now
+    }
+    throw new Error('The board did not settle within 60 s')
+  }
+
+  // The call before the mod wrote movedTo: the board does not know the session and reads anew (as before), then refuses it.
+  let before = await settle()
+  const early = await work({ action: 'next', chat: 'Units', session: 'units-new' })
+  assert.equal(early.status, 409, JSON.stringify(early.body))
+  assert.ok(await rebuilt() > before, 'the call before the card moved read the board anew')
+
+  // A stranger under the name of a shown chat (the card names no move): refused, read anew once, then not again within FRESH_MS.
+  before = await settle()
+  assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-stranger' })).status, 409)
+  const once = await rebuilt()
+  assert.ok(once > before, 'the stranger\'s first call read the board anew')
+  assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-stranger' })).status, 409)
+  assert.equal(await rebuilt(), once, 'the stranger was read anew twice within FRESH_MS')
+
+  // The /clear: the mod moves the card; the app still names the old session. The first next of the new session is the chat's,
+  // answered with no read anew.
+  await put(join(chats, 'units-new.json'), JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW, cleared: { at: NOW, step: 'B12', log: 'x.txt' } }))
+  await put(join(chats, 'units-old.json'), JSON.stringify({ movedTo: 'units-new', at: NOW }))
+  before = await settle()
+  const next = await work({ action: 'next', chat: 'Units', session: 'units-new' })
+  assert.equal(next.status, 200, JSON.stringify(next.body))
+  assert.match(next.body.text, /B13/)
+  assert.equal(await rebuilt(), before, 'the first call after the clear read the board anew')
+  // A stranger is still refused after the move: the chain ends at the chat's new session, not at the stranger's.
+  assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-stranger-2' })).status, 409)
+  // End to end under the chat's name: the take and a checkpoint are the chat's (the store's owner and state), not refused.
+  const take = await work({ action: 'take', chat: 'Units', session: 'units-new', id: 'B13', branch: 'b13', minutes: 30 })
+  assert.equal(take.status, 200, JSON.stringify(take.body))
+  const step = await work({ action: 'step', chat: 'Units', session: 'units-new', id: 'B13', step: 1, steps: 2, minutes: 30 })
+  assert.equal(step.status, 200, JSON.stringify(step.body))
+  const stored = await readFile(join(project, '.claude', 'work', 'B13.md'), 'utf8')
+  assert.match(stored, /^State: in progress$/m)
+  assert.match(stored, /^Owner: Units$/m)
+  // The call trace marks the first call as taken by its card chain (the live proof counts these).
+  await until(async () => (await readFile(join(board, 'data', 'call-trace.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line))
+    .some(one => one.chat === 'Units' && one.action === 'next' && one.moved === true && one.status === 200), 'the trace marks the moved call')
 })
