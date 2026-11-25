@@ -30,6 +30,11 @@
 //   1, and every slot file a run holds counts, also one beyond this run's own slots: a copy of this helper that still
 //   allows two (the game's) never makes this one start beside it. A landing's gate is `npm test` too, so it waits in the
 //   same queue.
+// - F70 (2026-11-25, the person's yes: "allow two test runs at once"): two at a time again, HEAVY_RUN_SLOTS defaults to 2.
+//   Every heavy run starts at low priority now (the board's tools/test.mjs, the game's startLow, B1515/B1520), so two side by
+//   side do not lag the PC, while one at a time kept workers waiting an hour or more (five runs queued at 19:35).
+//   HEAVY_RUN_SLOTS still sets another count; every slot file still counts, so no copy starts a third run beside two held
+//   slots, and a landing's gate still goes ahead of the ordinary runs (HEAVY_RUN_FIRST).
 // - F14 (2026-11-14): a run with HEAVY_RUN_FIRST=1 (a landing's gate, tools/land.ps1) goes ahead of the ordinary runs in the
 //   queue: its ticket carries `first`, and an ordinary run counts every first-class ticket as ahead of it, also one that came
 //   later. When a run takes its slot it says "one-at-a-time: <label> runs now (waited N s)", so a log of the run shows the
@@ -108,8 +113,8 @@ export function lockPath(env = process.env) {
   return env.HEAVY_RUN_LOCK || path.join(os.tmpdir(), LOCK_NAME)
 }
 
-/** How many heavy runs may go at once (HEAVY_RUN_SLOTS, default 1). */
-export const DEFAULT_SLOTS = 1
+/** How many heavy runs may go at once (HEAVY_RUN_SLOTS, default 2 since F70). */
+export const DEFAULT_SLOTS = 2
 export function slotsOf(env = process.env) {
   const number = Math.floor(Number(env.HEAVY_RUN_SLOTS))
   return Number.isFinite(number) && number >= 1 ? number : DEFAULT_SLOTS

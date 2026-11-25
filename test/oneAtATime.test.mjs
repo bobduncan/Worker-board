@@ -290,7 +290,7 @@ test('F39: the holder beats while its command runs, and gives the lock back afte
 test('npm test runs through the helper, and the README says that the tests wait their turn', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(pkg.scripts.test, 'node tools/one-at-a-time.mjs test -- node tools/test.mjs')
-  assert.match(readFileSync(new URL('../README.md', import.meta.url), 'utf8'), /one heavy run at a time/i)
+  assert.match(readFileSync(new URL('../README.md', import.meta.url), 'utf8'), /two heavy runs at a time/i)
 })
 
 // The person, 2026-10-31: "yes do 2 at a time", and a run that waited longest goes first. Two slots stay possible with
@@ -343,17 +343,15 @@ test('a ticket whose process is gone does not hold up the queue', async () => {
 })
 
 // The person, 2026-11-11: "too often claude slows down my pc very often ... the test suite", then "lets do A": one run at
-// a time across all chats. The lock lies in the PC's temporary folder, so every worktree and chat shares it.
-test('one at a time by default, across two folders: a run from another worktree waits for the first', async () => {
-  assert.equal(DEFAULT_SLOTS, 1)
-  assert.equal(slotsOf({}), 1)
-  assert.equal(slotsOf({ HEAVY_RUN_SLOTS: 'x' }), 1)
+// a time across all chats. The lock lies in the PC's temporary folder, so every worktree and chat shares it. F70 (2026-11-25):
+// two at a time by default again (below); HEAVY_RUN_SLOTS=1 still gives one.
+test('with HEAVY_RUN_SLOTS=1, across two folders: a run from another worktree waits for the first', async () => {
   const lock = newLock()
   const here = join(scratch, `worktree-a-${counter}`)
   const there = join(scratch, `worktree-b-${counter}`)
   mkdirSync(here)
   mkdirSync(there)
-  const plain = { HEAVY_RUN_SLOTS: '' }
+  const plain = { HEAVY_RUN_SLOTS: '1' }
   const first = start(lock, 'first', node('setTimeout(() => console.log(Date.now()), 700)'), plain, here)
   await until(() => existsSync(lock), 'the first run to take the lock')
   const second = start(lock, 'second', node('console.log(Date.now())'), plain, there)
@@ -362,6 +360,44 @@ test('one at a time by default, across two folders: a run from another worktree 
   assert.equal(two.code, 0)
   assert.ok(Number(two.out) >= Number(one.out), 'the second ran only after the first was done')
   assert.match(two.err, /waiting for first in .*worktree-a/)
+})
+
+// F70 (2026-11-25, the person's yes: "allow two test runs at once"): every heavy run starts at low priority, so two go at once.
+test('F70: two at a time by default: a run goes beside one held slot; a third waits while two are held, also slots beyond its own', { timeout: 30000 }, async () => {
+  assert.equal(DEFAULT_SLOTS, 2)
+  assert.equal(slotsOf({}), 2)
+  assert.equal(slotsOf({ HEAVY_RUN_SLOTS: 'x' }), 2)
+  assert.equal(slotsOf({ HEAVY_RUN_SLOTS: '1' }), 1)
+  const plain = { HEAVY_RUN_SLOTS: '' }
+  // Beside one: slot 1 held by another run, this one takes slot 2 and never waits.
+  const beside = newLock()
+  writeFileSync(beside, lockText({ label: 'the game check' }))
+  const second = await start(beside, 'board tests', quick, plain).done
+  assert.equal(second.code, 0)
+  assert.match(second.out, /ran/)
+  assert.doesNotMatch(second.err, /waiting for/)
+  assert.equal(existsSync(beside), true, 'the other run keeps its slot')
+  assert.equal(existsSync(slotPath(beside, 2)), false, 'its own slot is given back')
+  // A third: both slots held, it waits until one is free.
+  const full = newLock()
+  writeFileSync(full, lockText({ label: 'the game check' }))
+  writeFileSync(slotPath(full, 2), lockText({ label: 'a landing gate' }))
+  const third = start(full, 'board tests', quick, plain)
+  await until(() => /waiting for/.test(third.err), 'the third run waiting')
+  assert.equal(third.out, '', 'not started beside two')
+  rmSync(slotPath(full, 2))
+  const done = await third.done
+  assert.equal(done.code, 0)
+  assert.match(done.out, /ran/)
+  // Every slot file counts: slot 1 and a copy's slot 3 held, slot 2 free, still two runs: the third waits.
+  const beyond = newLock()
+  writeFileSync(beyond, lockText({ label: 'the game check' }))
+  writeFileSync(slotPath(beyond, 3), lockText({ label: 'a three-slot copy' }))
+  const fourth = start(beyond, 'board tests', quick, plain)
+  await until(() => /waiting for/.test(fourth.err), 'the run waiting beside two held slots')
+  assert.equal(existsSync(slotPath(beyond, 2)), false, 'slot 2 not taken')
+  rmSync(slotPath(beyond, 3))
+  assert.equal((await fourth.done).code, 0)
 })
 
 test('a slot beyond this run\'s own counts: a run allowed one waits while another copy holds its second slot', async () => {

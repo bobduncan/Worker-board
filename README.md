@@ -91,9 +91,9 @@ and the briefings for the main chat and the workers.
    npm test
    ```
    → the tests end with `fail 0`. They run at low priority (below normal) on half the PC's cores (`tools/test.mjs`), so
-   games and programs get the CPU first. One heavy run at a time happens on the PC, across every chat, worktree and
-   landing (2026-11-11; `HEAVY_RUN_SLOTS=2` allows two), first come first served: `npm test` waits its turn while
-   another run holds it (`tools/one-at-a-time.mjs`). `npm run demo -- --port 4311` shows the page with made-up data, if you
+   games and programs get the CPU first. Two heavy runs at a time happen on the PC, across every chat, worktree and
+   landing (F70, 2026-11-25; `HEAVY_RUN_SLOTS=1` allows one), first come first served: `npm test` waits its turn while
+   two other runs hold it (`tools/one-at-a-time.mjs`). `npm run demo -- --port 4311` shows the page with made-up data, if you
    want to look first (Ctrl+C ends it).
 3. **The Workers mod (optional).** The board carries it, in `mods\workers` (B251). In the board's folder:
    ```
