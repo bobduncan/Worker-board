@@ -55,6 +55,13 @@
 //   its lock has stayed the same for two beats of the waiter's own clock. A holder is stopped after 120 minutes (HEAVY_RUN_MAX_MS:
 //   its command ends with code 124), and its lock is stale past that with a margin. Waiters beat their ticket at every look; a ticket
 //   with an old beat, or an old copy's ticket older than 3 hours, is dropped.
+// - S3 (chat 1, 2026-11-25, the PC plan's queue hygiene): work on no step's critical path waits for an idle PC (isIdleRun: the slow
+//   tier, a step's measure, draw and trial jobs, `perf-` runs, the `idle:` prefix, HEAVY_RUN_IDLE=1). Such a run waits in the idle
+//   room beside the lock (`<lock>.idle`, beating tickets as in the queue), oldest first, and goes only when no ticket waits in the
+//   queue and a slot is free: it puts a ticket in the queue for one look, takes the slot, or goes back to the room. The queue's order
+//   and the old copies' rules do not change, and an old copy never sees an idle run waiting ahead of it (no two runs wait for each
+//   other). An idle run that took the slot keeps it: a gate that comes right after waits for it to end (at most the cap). The hold
+//   cap is also checked against the wall clock at every beat, so a run that hung across a PC sleep is stopped at the next beat after.
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import os from 'node:os'
@@ -113,6 +120,21 @@ export const DEFAULT_SLOTS = 1
 export function slotsOf(env = process.env) {
   const number = Math.floor(Number(env.HEAVY_RUN_SLOTS))
   return Number.isFinite(number) && number >= 1 ? number : DEFAULT_SLOTS
+}
+
+/**
+ * S3 (chat 1, 2026-11-25): the labels of work on no step's critical path, which waits for an idle PC: the slow tier, a step's
+ * measure, draw and trial jobs (`b1517-measure2`), `perf-` runs and any label with the `idle:` prefix. A builder's own proof
+ * (related tests, mutants, carry runs) is no such work.
+ */
+export const IDLE_LABEL = /^(?:slow-tier$|idle:|perf-|b\d+-(?:measure|draw|trial))/i
+/** S3: whether a run waits for an idle PC: HEAVY_RUN_IDLE=1, or a label of IDLE_LABEL. */
+export function isIdleRun(label, env = process.env) {
+  return env.HEAVY_RUN_IDLE === '1' || IDLE_LABEL.test(String(label ?? ''))
+}
+/** S3: the idle room beside the lock, where idle runs wait (`<lock>.idle`, tickets as in the queue). */
+export function idleRoomOf(file) {
+  return `${file}.idle`
 }
 
 /** The file of slot `n` (from 1): slot 1 is the lock file itself, slot n is `<name>.n.lock` beside it. */
@@ -314,37 +336,56 @@ export function aheadOf(order, ticketName, first) {
 }
 
 /**
- * Waits for a slot and takes it, first come first served. Resolves to the function that gives it back, or to null when
- * `stop` aborted the wait. The poll and say intervals are in `timing`; `slots` how many may run at once.
+ * A ticket of this run in `folder` (the queue, or S3's idle room), named by `at`: `{ name, beat, leave }`. `beat` writes a new beat
+ * time into it (F39, review: at every look; one dropped meanwhile, an old beat after a PC sleep, is made again), `leave` removes it
+ * while it is still ours.
  */
-async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first = false, holdMaxMs = HOLD_MAX_MS }) {
+function ticketIn(folder, at, { label, cwd, first = false, idle = false }) {
+  mkdirSync(folder, { recursive: true })
+  const name = `${String(at).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`
+  const file = path.join(folder, name)
+  const textOf = (beat) => JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date(at).toISOString(), ...(first ? { first: true } : {}), ...(idle ? { idle: true } : {}), order: ORDER_MARK, beat })
+  let text = textOf(new Date(at).toISOString())
+  createLock(file, text)
+  return {
+    name,
+    beat() {
+      const next = textOf(new Date().toISOString())
+      if (rewriteLock(file, text, next)) {
+        text = next
+        return
+      }
+      // F39, the re-check: the folder itself may be gone (a clean-up of the temporary folder): made again.
+      try {
+        if (createLock(file, next)) text = next
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+        mkdirSync(folder, { recursive: true })
+        if (createLock(file, next)) text = next
+      }
+    },
+    leave: () => giveBack(file, text),
+  }
+}
+
+/**
+ * Waits for a slot and takes it, first come first served. Resolves to the function that gives it back, or to null when
+ * `stop` aborted the wait. The poll and say intervals are in `timing`; `slots` how many may run at once. S3: an `idle` run waits
+ * in the idle room until the queue holds no ticket, then takes a free slot at once or goes back to the room.
+ */
+async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first = false, idle = false, holdMaxMs = HOLD_MAX_MS }) {
   mkdirSync(path.dirname(file), { recursive: true })
   const queue = `${file}.queue`
   mkdirSync(queue, { recursive: true })
   const came = Date.now()
-  const ticketName = `${String(came).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`
-  const ticket = path.join(queue, ticketName)
-  const ticketOf = (beat) => JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date(came).toISOString(), ...(first ? { first: true } : {}), order: ORDER_MARK, beat })
-  let ticketText = ticketOf(new Date(came).toISOString())
-  createLock(ticket, ticketText)
-  // F39, review: the ticket's beat at every look; one dropped meanwhile (an old beat after a PC sleep) is made again.
-  const beatTicket = () => {
-    const next = ticketOf(new Date().toISOString())
-    if (rewriteLock(ticket, ticketText, next)) {
-      ticketText = next
-      return
-    }
-    // F39, the re-check: the queue folder itself may be gone (a clean-up of the temporary folder): made again.
-    try {
-      if (createLock(ticket, next)) ticketText = next
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error
-      mkdirSync(queue, { recursive: true })
-      if (createLock(ticket, next)) ticketText = next
-    }
-  }
+  // S3: an idle run's ticket stays in the room; it is in the queue only for the one look at which it takes its slot.
+  const ticket = ticketIn(idle ? idleRoomOf(file) : queue, came, { label, cwd, first, idle })
+  let placed = null
   const watched = new Map()
-  const leave = () => giveBack(ticket, ticketText)
+  const leave = () => {
+    ticket.leave()
+    placed?.leave()
+  }
   process.on('exit', leave)
   let saidAt = 0
   const nap = async (ms) => {
@@ -353,6 +394,31 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
     } catch {
       // stopped
     }
+  }
+  /** Takes the first free slot we can make: the function that gives it back, or null when another run was quicker. */
+  const takeFree = (free) => {
+    for (const slot of free) {
+      const taken = new Date().toISOString()
+      const held = { pid: process.pid, label, cwd, since: taken, order: ORDER_MARK }
+      // F39, review: `startedAt` moves with every beat (old copies judge a lock by it alone); `since` stays.
+      let text = JSON.stringify({ ...held, startedAt: taken, beat: taken })
+      if (createLock(slot, text)) {
+        // F14: the moment the work begins, for a log of the run (land.ps1 starts the gate's clock here).
+        say(`one-at-a-time: ${label} runs now (waited ${Math.round((Date.now() - came) / 1000)} s)`)
+        // F39: the beat, while the command runs: only into the lock that is still ours.
+        const beat = setInterval(() => {
+          const now = new Date().toISOString()
+          const next = JSON.stringify({ ...held, startedAt: now, beat: now })
+          if (rewriteLock(slot, text, next)) text = next
+        }, timing.beat)
+        beat.unref()
+        return () => {
+          clearInterval(beat)
+          giveBack(slot, text)
+        }
+      }
+    }
+    return null
   }
   try {
     while (!stop.signal.aborted) {
@@ -364,43 +430,44 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
         if (seen) holders.push(seen.info)
         else if (n <= slots) free.push(slot)
       }
-      beatTicket()
+      ticket.beat()
+      // Room is our slots less every run that holds one, ours or beyond (2026-11-11).
+      const room = Math.min(free.length, slots - holders.length)
+      const running = () => holders.map((one) => `${one.label} in ${one.cwd} (since ${clock(one.since ?? one.startedAt)})`).join('; ')
+      if (idle) {
+        // S3: only when no ticket waits in the queue (a gate, a check, an old copy's run) and this run is the oldest in the room.
+        const others = queueOf(queue)
+        const oldest = queueOf(idleRoomOf(file))[0]
+        if (room > 0 && others.length === 0 && (oldest === undefined || oldest.name === ticket.name)) {
+          placed = ticketIn(queue, Date.now(), { label, cwd })
+          // One look in the queue's own order: a run that came a moment before goes first, and this one goes back to the room.
+          const giveBackSlot = aheadOf(queueOf(queue), placed.name, false) < room ? takeFree(free) : null
+          placed.leave()
+          placed = null
+          if (giveBackSlot) return giveBackSlot
+        }
+        if (Date.now() - saidAt >= timing.say) {
+          const queued = others.length > 0 ? `, ${others.length} in the queue` : ''
+          say(`waiting for an idle PC (${running() || 'no run'}${queued})`)
+          saidAt = Date.now()
+        }
+        await nap(timing.poll)
+        continue
+      }
       const order = queueOf(queue)
       // F14: a first-class run (a landing's gate) counts only the first-class tickets before it; an ordinary run counts every ticket
       // before it and every first-class one.
-      const ahead = aheadOf(order, ticketName, first)
-      // Our turn when fewer runs came before us than there is room (a ticket we cannot read: go by the room). Room is our
-      // slots less every run that holds one, ours or beyond (2026-11-11).
-      const room = Math.min(free.length, slots - holders.length)
+      const ahead = aheadOf(order, ticket.name, first)
+      // Our turn when fewer runs came before us than there is room (a ticket we cannot read: go by the room).
       if (room > 0 && ahead < room) {
-        for (const slot of free) {
-          const taken = new Date().toISOString()
-          const held = { pid: process.pid, label, cwd, since: taken, order: ORDER_MARK }
-          // F39, review: `startedAt` moves with every beat (old copies judge a lock by it alone); `since` stays.
-          let text = JSON.stringify({ ...held, startedAt: taken, beat: taken })
-          if (createLock(slot, text)) {
-            // F14: the moment the work begins, for a log of the run (land.ps1 starts the gate's clock here).
-            say(`one-at-a-time: ${label} runs now (waited ${Math.round((Date.now() - came) / 1000)} s)`)
-            // F39: the beat, while the command runs: only into the lock that is still ours.
-            const beat = setInterval(() => {
-              const now = new Date().toISOString()
-              const next = JSON.stringify({ ...held, startedAt: now, beat: now })
-              if (rewriteLock(slot, text, next)) text = next
-            }, timing.beat)
-            beat.unref()
-            return () => {
-              clearInterval(beat)
-              giveBack(slot, text)
-            }
-          }
-        }
+        const giveBackSlot = takeFree(free)
+        if (giveBackSlot) return giveBackSlot
         await nap(50)
         continue
       }
       if (Date.now() - saidAt >= timing.say) {
-        const running = holders.map((one) => `${one.label} in ${one.cwd} (since ${clock(one.since ?? one.startedAt)})`).join('; ')
         const before = ahead > 0 ? `, ${ahead} ahead of this run` : ''
-        say(`waiting for ${running || 'a free slot'}${before}`)
+        say(`waiting for ${running() || 'a free slot'}${before}`)
         saidAt = Date.now()
       }
       await nap(timing.poll)
@@ -445,7 +512,10 @@ export async function runOneAtATime({
   cwd = process.cwd(),
   signals = process,
   say = (line) => process.stderr.write(`${line}\n`),
+  // S3: the wall clock the hold cap is checked against at every beat (the tests' seam for a PC sleep).
+  now = Date.now,
 }) {
+  const idle = isIdleRun(label, env)
   const stop = new AbortController()
   let child = null
   let signalled = null
@@ -473,7 +543,7 @@ export async function runOneAtATime({
   try {
     if (env.HEAVY_RUN_HELD !== '1') {
       const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS) }
-      giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1', holdMaxMs: positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS) })
+      giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1', idle, holdMaxMs: positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS) })
       if (!giveLockBack || signalled) {
         code = signalExit(signalled)
         return code
@@ -484,7 +554,7 @@ export async function runOneAtATime({
     const ownerPid = env.HEAVY_RUN_HELD === '1' && env.HEAVY_RUN_PID ? env.HEAVY_RUN_PID : String(process.pid)
     const exited = new Promise((resolve) => {
       forceExit = () => resolve(signalExit(signalled))
-      const { HEAVY_RUN_FIRST: _first, ...plain } = env
+      const { HEAVY_RUN_FIRST: _first, HEAVY_RUN_IDLE: _idle, ...plain } = env
       child = spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, HEAVY_RUN_HELD: '1', HEAVY_RUN_PID: ownerPid } })
       child.on('error', (error) => {
         say(`one-at-a-time: could not start the command: ${error.message}`)
@@ -494,14 +564,28 @@ export async function runOneAtATime({
       // F39, review: no run holds the PC's slot for good (a hung check or build): stopped at the cap, code 124.
       if (env.HEAVY_RUN_HELD !== '1') {
         const maxMs = positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS)
-        const cap = setTimeout(() => {
+        const beganAt = now()
+        const stopAtCap = () => {
+          if (capped) return
           capped = true
           say(`one-at-a-time: ${label} ran longer than ${Math.round(maxMs / 60000)} minutes and was stopped`)
           stopTree(child, 'SIGTERM')
           setTimeout(() => resolve(124), STOP_WAIT_MS).unref()
-        }, maxMs)
+        }
+        const cap = setTimeout(stopAtCap, maxMs)
         cap.unref()
-        child.on('exit', () => clearTimeout(cap))
+        // S3: a timer's clock stands still while the PC sleeps (holds of 462 and 535 minutes on 11-25); the wall clock does not, and
+        // it is read at every beat.
+        const watch = setInterval(() => {
+          if (now() - beganAt > maxMs) stopAtCap()
+        }, positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS))
+        watch.unref()
+        const quiet = () => {
+          clearTimeout(cap)
+          clearInterval(watch)
+        }
+        child.on('exit', quiet)
+        child.on('error', quiet)
       }
     })
     code = await exited
@@ -511,7 +595,7 @@ export async function runOneAtATime({
       const now = Date.now()
       const waited = (began ?? now) - came
       logRun(env, {
-        at: new Date(came).toISOString(), label, cwd, first: env.HEAVY_RUN_FIRST === '1', slots: slotsOf(env),
+        at: new Date(came).toISOString(), label, cwd, first: env.HEAVY_RUN_FIRST === '1', ...(idle ? { idle: true } : {}), slots: slotsOf(env),
         waitedS: Math.round(waited / 1000), ranS: began === null ? 0 : Math.round((now - began) / 1000),
         exit: code, stopped: began === null ? `before its turn${signalled ? ` (${signalled})` : ''}` : signalled,
       })

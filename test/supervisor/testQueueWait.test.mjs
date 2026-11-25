@@ -12,7 +12,7 @@ import test from 'node:test'
 
 import { healthSummary } from '../../src/supervisor/health.mjs'
 import { memoryOf, queueSeenAfter } from '../../src/supervisor/loop.mjs'
-import { WATCH_RULES, checkpointLate, testQueueOf } from '../../src/supervisor/rules/watch.mjs'
+import { WATCH_RULES, checkpointLate, testQueueOf, testQueueWords } from '../../src/supervisor/rules/watch.mjs'
 import { buildView } from '../../src/supervisor/view.mjs'
 import { asLandingRun, folderKey, isFolderOf, readTestQueue } from '../../src/testQueue.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
@@ -49,6 +49,13 @@ test('X211: a ticket of the checked step\'s folder since 10:58 (a run waits its 
   const line = healthSummary(board, at(12, 25)).split('\n').find(one => /B1297 in progress/.test(one)) ?? ''
   assert.match(line, /waits in the test queue since 10:58, 1 ahead/)
   assert.doesNotMatch(line, /^- ! /, 'not marked odd')
+})
+
+test('S3: a run of the step that waits for an idle PC is no case either, and the health line says since when it waits', () => {
+  const board = view(at(12, 25), { queue: [ticket(FOLDER, at(11, 2), { idle: true, ahead: 3 })] })
+  assert.deepEqual(check(board), [])
+  const line = healthSummary(board, at(12, 25)).split('\n').find(one => /B1297 in progress/.test(one)) ?? ''
+  assert.match(line, /waits for an idle PC since 11:02/)
 })
 
 test('a run of the step that goes now (it holds the slot) is no case either', () => {
@@ -152,6 +159,41 @@ test('readTestQueue: the lock, its slot files and the tickets, live pids only, i
     // nothing was written or removed (read only): the dead ticket still stands
     assert.equal(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: path.join(dir, 'none.lock') }, now }).length, 0)
     assert.deepEqual(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: alive }).length, 4)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('S3: readTestQueue lists the idle room\'s runs after every ticket, oldest first, marked idle with since when they came; a dead or quiet one is left out, one in the queue or a slot is not counted twice', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'testq-'))
+  try {
+    const lock = path.join(dir, 'one-heavy-run.lock')
+    const queue = `${lock}.queue`
+    const room = tool.idleRoomOf(lock)
+    mkdirSync(queue)
+    mkdirSync(room)
+    const now = at(14, 10)
+    const iso = ms => new Date(ms).toISOString()
+    writeFileSync(lock, JSON.stringify({ pid: 11, label: 'test', cwd: 'C:\\Work\\land-b1', startedAt: iso(at(14, 9)), since: iso(at(14, 0)), beat: iso(at(14, 9)), order: 2 }))
+    const put = (folder, name, body) => writeFileSync(path.join(folder, name), JSON.stringify(body))
+    put(queue, '000000000000005-00000022.json', { pid: 22, label: 'check', cwd: 'C:\\Work\\lava-tactics-b5', startedAt: iso(at(14, 5)), order: 2, beat: iso(at(14, 9)) })
+    put(room, '000000000000002-00000033.json', { pid: 33, label: 'slow-tier', cwd: 'C:\\Work\\lava-tactics', startedAt: iso(at(14, 2)), idle: true, order: 2, beat: iso(at(14, 9)) })
+    put(room, '000000000000001-00000044.json', { pid: 44, label: 'b1517-measure2', cwd: 'C:\\Work\\lava-tactics-b1517', startedAt: iso(at(13, 40)), idle: true, order: 2, beat: iso(at(14, 9)) })
+    put(room, '000000000000003-00000055.json', { pid: 55, label: 'idle:dead', cwd: 'C:\\Work\\gone', startedAt: iso(at(13, 0)), idle: true, order: 2, beat: iso(at(14, 9)) })
+    put(room, '000000000000004-00000066.json', { pid: 66, label: 'idle:quiet', cwd: 'C:\\Work\\slept', startedAt: iso(at(13, 0)), idle: true, order: 2, beat: iso(at(13, 50)) })
+    // pid 22's run also stands in the room (it looks once in the queue): counted in the queue only
+    put(room, '000000000000000-00000022.json', { pid: 22, label: 'check', cwd: 'C:\\Work\\lava-tactics-b5', startedAt: iso(at(14, 5)), idle: true, order: 2, beat: iso(at(14, 9)) })
+    const found = readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: pid => pid !== 55 })
+    assert.deepEqual(found.map(one => [one.label, one.state, one.ahead, one.idle === true, one.since]), [
+      ['test', 'running', 0, false, at(14, 0)],
+      ['check', 'waiting', 1, false, at(14, 5)],
+      ['b1517-measure2', 'waiting', 2, true, at(13, 40)],
+      ['slow-tier', 'waiting', 3, true, at(14, 2)],
+    ])
+    assert.equal(testQueueWords(found[2]), 'waits for an idle PC since 13:40')
+    // no queue folder at all: the room is still read (pid 22's room ticket now counts there, by its name)
+    rmSync(queue, { recursive: true, force: true })
+    assert.deepEqual(readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: pid => pid !== 55 }).map(one => [one.label, one.idle === true]), [['test', false], ['check', true], ['b1517-measure2', true], ['slow-tier', true]])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

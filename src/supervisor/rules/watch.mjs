@@ -1084,9 +1084,13 @@ export function testQueueOf(item, view) {
   return { run, seenAt: seen.length === 0 ? null : Math.max(...seen) }
 }
 
-/** B1302: how a step's test run reads in a line of words: "waits in the test queue since 10:58, 1 ahead" or "runs in the test queue since 12:25". */
+/**
+ * B1302: how a step's test run reads in a line of words: "waits in the test queue since 10:58, 1 ahead" or "runs in the test queue since
+ * 12:25"; S3: a run of the idle room "waits for an idle PC since 14:02".
+ */
 export function testQueueWords(run) {
-  return run.state === 'running' ? `its test run goes since ${clockOf(run.since)}` : `waits in the test queue since ${clockOf(run.since)}, ${run.ahead} ahead`
+  if (run.state === 'running') return `its test run goes since ${clockOf(run.since)}`
+  return run.idle === true ? `waits for an idle PC since ${clockOf(run.since)}` : `waits in the test queue since ${clockOf(run.since)}, ${run.ahead} ahead`
 }
 
 /**

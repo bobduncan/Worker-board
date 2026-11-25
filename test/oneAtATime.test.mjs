@@ -4,12 +4,12 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
+import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, idleRoomOf, isIdleRun, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'heavy-run-test-'))
@@ -493,4 +493,98 @@ test('F39, the re-check: a waiter whose queue folder is removed makes it again a
   const result = await waiter.done
   assert.equal(result.code, 0)
   assert.match(result.out, /ran/)
+})
+
+// S3 (chat 1, 2026-11-25, the PC plan's queue hygiene): work on no step's critical path waits for an idle PC, and the hold cap holds
+// across a PC sleep.
+test('S3: the runs that wait for an idle PC: the slow tier, a step\'s measure, draw and trial jobs, perf- and idle: runs, or HEAVY_RUN_IDLE=1; a builder\'s proof is no such run', () => {
+  for (const label of ['slow-tier', 'idle:big-suite', 'perf-gate', 'b1517-measure2', 'B12-draw', 'b3-trial-run']) assert.equal(isIdleRun(label, {}), true, label)
+  for (const label of ['test', 'check', 'check:quick', 'test:screens', 'rerun', 'f68-mutants', 'b1297-mut', 'f68-carryGit-normal', 'b1517-test', 'slow-tier-x', 'my-idle:x', 'b-measure']) assert.equal(isIdleRun(label, {}), false, label)
+  assert.equal(isIdleRun('check', { HEAVY_RUN_IDLE: '1' }), true)
+  assert.equal(isIdleRun('check', { HEAVY_RUN_IDLE: '0' }), false)
+  assert.equal(idleRoomOf('C:/t/one-heavy-run.lock'), 'C:/t/one-heavy-run.lock.idle')
+})
+
+test('S3: an idle run that came first waits in the idle room while a check waits in the queue, and goes once the queue is empty', async () => {
+  const lock = newLock()
+  writeFileSync(lock, lockText())
+  const idle = start(lock, 'slow-tier', node('console.log(Date.now())'))
+  await until(() => /waiting for an idle PC \(someone in C:\/elsewhere/.test(idle.err), 'the idle run waiting')
+  assert.equal(readdirSync(idleRoomOf(lock)).length, 1, 'its ticket in the room')
+  assert.equal(readdirSync(`${lock}.queue`).length, 0, 'none in the queue')
+  const check = start(lock, 'check', node('setTimeout(() => console.log(Date.now()), 300)'))
+  await until(() => /waiting for someone/.test(check.err), 'the check waiting')
+  rmSync(lock)
+  const [one, two] = await Promise.all([idle.done, check.done])
+  assert.deepEqual([one.code, two.code], [0, 0])
+  assert.ok(Number(one.out) >= Number(two.out), 'the idle run went only after the check that came later had run')
+  assert.match(one.err, /one-at-a-time: slow-tier runs now \(waited \d+ s\)/)
+  assert.equal(readdirSync(idleRoomOf(lock)).length, 0, 'the room is empty after')
+  const logged = readFileSync(`${lock}.runs.jsonl`, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+  assert.deepEqual(logged.map((line) => [line.label, line.idle === true]), [['check', false], ['slow-tier', true]])
+})
+
+test('S3: an old copy\'s ticket or lock holds an idle run back too: the two never run at once, and never wait for each other', async () => {
+  const lock = newLock()
+  mkdirSync(`${lock}.queue`)
+  // An old copy's ticket (unmarked, no beat) that came after the idle run.
+  const old = join(`${lock}.queue`, ticketName(Date.now() + 60000))
+  writeFileSync(old, lockText())
+  const idle = start(lock, 'idle:job', quick)
+  await until(() => /waiting for an idle PC \(no run, 1 in the queue\)/.test(idle.err), 'the idle run waiting behind the old ticket')
+  // The old copy takes the slot (its lock has no beat): the idle run still waits.
+  writeFileSync(lock, lockText())
+  rmSync(old)
+  await new Promise((done) => setTimeout(done, 400))
+  assert.equal(idle.child.exitCode, null, 'still waiting while the old copy holds the slot')
+  rmSync(lock)
+  const result = await idle.done
+  assert.equal(result.code, 0)
+  assert.match(result.out, /ran/)
+})
+
+test('S3: two idle runs go oldest first, also when the younger one looks far more often', async () => {
+  const lock = newLock()
+  writeFileSync(lock, lockText())
+  const older = start(lock, 'slow-tier', node('setTimeout(() => console.log(Date.now()), 200)'), { HEAVY_RUN_POLL_MS: '300' })
+  await until(() => /waiting for an idle PC/.test(older.err), 'the older idle run waiting')
+  const younger = start(lock, 'idle:younger', node('console.log(Date.now())'), { HEAVY_RUN_POLL_MS: '10' })
+  await until(() => /waiting for an idle PC/.test(younger.err), 'the younger idle run waiting')
+  rmSync(lock)
+  const [one, two] = await Promise.all([older.done, younger.done])
+  assert.deepEqual([one.code, two.code], [0, 0])
+  assert.ok(Number(two.out) >= Number(one.out), 'the younger idle run went after the older one')
+})
+
+test('S3: a gate that comes right after an idle run took the slot waits for that run to end, and no longer (measured)', async (t) => {
+  const lock = newLock()
+  const idle = start(lock, 'slow-tier', node('setTimeout(() => console.log(Date.now()), 1500)'))
+  await until(() => existsSync(lock) && readFileSync(lock, 'utf8').includes('slow-tier'), 'the idle run holding the slot')
+  const came = Date.now()
+  const gate = start(lock, 'gate', node('console.log(Date.now())'), { HEAVY_RUN_FIRST: '1' })
+  const [one, two] = await Promise.all([idle.done, gate.done])
+  assert.deepEqual([one.code, two.code], [0, 0])
+  const left = Number(one.out) - came
+  const waited = Number(two.out) - came
+  t.diagnostic(`the idle run had ${left} ms left when the gate came; the gate's command began after ${waited} ms`)
+  assert.ok(waited >= left, 'the gate never runs beside the idle run')
+  assert.ok(waited - left < 3000, `the gate waited ${waited - left} ms beyond the idle run's time left (a poll and a node start)`)
+})
+
+test('S3: the hold cap holds across a PC sleep: a wall clock past the cap stops the run at its next beat with code 124 and frees the slot', async () => {
+  const lock = newLock()
+  let jump = 0
+  const said = []
+  const began = Date.now()
+  const run = runOneAtATime({
+    label: 'sleeper', command: node('setTimeout(() => {}, 30000)'), env: envFor(lock, { HEAVY_RUN_BEAT_MS: '100', HEAVY_RUN_MAX_MS: String(60 * 60000) }),
+    signals: new EventEmitter(), say: (line) => said.push(line), now: () => Date.now() + jump,
+  })
+  await until(() => existsSync(lock), 'the run holding the slot')
+  // The PC slept 61 minutes: the timer's clock stood still, the wall clock did not.
+  jump = 61 * 60000
+  assert.equal(await run, 124)
+  assert.ok(Date.now() - began < 20000, 'stopped at a beat, not when the command ended')
+  assert.ok(said.some((line) => /sleeper ran longer than 60 minutes and was stopped/.test(line)), said.join('\n'))
+  assert.equal(existsSync(lock), false)
 })
