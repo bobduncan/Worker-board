@@ -9210,11 +9210,22 @@ clock stands still while the PC sleeps (both ended with 124, late). Plan: .claud
 - **An idle run that took the slot keeps it.** A gate that comes right after it waits until it ends, for up to the idle run's
   whole time and never past the cap. S9's big suite holds about 25 minutes. Measured in test/oneAtATime.test.mjs: a gate that came
   with 1537 ms of the idle run left began its command after 1676 ms, so the wait beyond the time left was a poll and a node start.
-- **The cap holds across a sleep.** The holder also reads the wall clock (`Date.now()`) at every beat (HEAVY_RUN_BEAT_MS, 60 s)
-  against when it took the slot. Past HEAVY_RUN_MAX_MS (120 minutes), it stops its tree and the run ends with code 124. The timer
-  stays as well. So a run that slept past the cap is stopped at its first beat after the PC wakes, even when it was not hung.
-  Both are stopped on every way out of the run. A waiter that finds a live holder past the cap by the wall clock gives it two
-  beats of its own clock to stop itself before it frees the slot (core review: before, the two ran side by side for up to a beat).
+- **The cap counts the time awake; a sleep is no hang** (chat 1's review). The holder also reads the wall clock at every beat
+  (HEAVY_RUN_BEAT_MS, 60 s) against when it took the slot, less the time the PC slept. A sleep is a gap between two beats well over
+  the beat (`sleepGapOf`: 3 beats, at least the beat plus 2 minutes), because the holder only waits on its command, so nothing else
+  holds its timers up. Past HEAVY_RUN_MAX_MS (120 minutes awake), it stops its tree and the run ends with code 124. The timer stays
+  as well, and both are stopped on every way out of the run. Idle runs start when the queue is empty, which is when the PC sleeps;
+  before this, a slow-tier run that spanned a night's sleep was stopped at wake and the gates said "slow tier: RED".
+  - The holder's beats write the time it slept into its lock (`slept`), and `whyStale` leaves it out of the 130-minute rule, so no
+    waiter frees a holder that only slept.
+  - A waiter that finds a live holder past that rule still gives it two beats of its own clock (keyed on pid and `since`). That
+    covers the moments after a wake before the holder's first beat. An old copy that writes no `slept` is freed after them as before.
+- **The game's slow tier** (lava-tactics tools/slow-tier-lib.mjs, chat 1's review):
+  - A run the queue stopped with 124 is "could not run" (it tries again on the next request), never a red of main.
+  - The runner renews its file before each phase: the commit, the run, the result and the clean-up. It stops at once when the file
+    is no longer its own, because another runner took over. So it never plays that runner's commit or removes its folder.
+  - It gives the file back only while it is its own.
+  - `playRequests` takes its steps as a seam, so the takeover is tested.
 - The game's copy (lava-tactics/tools/one-at-a-time.mjs) has the same change and lands right after this one.
 
 ## F46: a build of the state walks the store once (2026-11-23, chat 4)

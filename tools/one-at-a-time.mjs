@@ -61,7 +61,9 @@
 //   queue and a slot is free: it puts a ticket in the queue for one look, takes the slot, or goes back to the room. The queue's order
 //   and the old copies' rules do not change, and an old copy never sees an idle run waiting ahead of it (no two runs wait for each
 //   other). An idle run that took the slot keeps it: a gate that comes right after waits for it to end (at most the cap). The hold
-//   cap is also checked against the wall clock at every beat, so a run that hung across a PC sleep is stopped at the next beat after.
+//   cap is also read against the wall clock at every beat, less the time the PC slept (a gap between beats well over the beat,
+//   sleepGapOf): a sleep is no hang (chat 1's review). The holder's beats write that time into its lock (`slept`), and whyStale
+//   leaves it out, so no waiter frees a holder that only slept.
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import os from 'node:os'
@@ -158,13 +160,23 @@ export function pidRuns(pid) {
   }
 }
 
+/**
+ * S3, chat 1's review: a gap of the wall clock between two beats this much over the beat is a sleep of the PC, not a hang (a holder
+ * waits on its command, so its own timers are never held up by work).
+ */
+export function sleepGapOf(beatMs) {
+  return Math.max(3 * beatMs, beatMs + 2 * 60 * 1000)
+}
+
 /** Why a lock is stale (a sentence), or null when its holder is at work. `info` is null for a lock that cannot be read. */
 export function whyStale(info, now = Date.now(), runs = pidRuns, holdMaxMs = HOLD_MAX_MS) {
   if (!info) return 'it cannot be read'
   if (!runs(info.pid)) return 'its process is gone'
-  // F39, review: no holder keeps the slot for good (its own copy stops its command at the cap; this is the margin past it).
+  // F39, review: no holder keeps the slot for good (its own copy stops its command at the cap; this is the margin past it). S3, chat 1's
+  // review: the time the PC slept while it held the slot (`slept`, which its beats write) does not count.
   const since = Date.parse(info.since ?? info.startedAt)
-  if (Number.isFinite(since) && now - since > holdMaxMs + HOLD_MARGIN_MS) return `it has held the slot for over ${Math.round((holdMaxMs + HOLD_MARGIN_MS) / 60000)} minutes`
+  const slept = Number(info.slept) > 0 ? Number(info.slept) : 0
+  if (Number.isFinite(since) && now - since - slept > holdMaxMs + HOLD_MARGIN_MS) return `it has held the slot for over ${Math.round((holdMaxMs + HOLD_MARGIN_MS) / 60000)} minutes`
   // F39: a holder that beats keeps its slot however long it runs; one whose beat stopped (a reused process id) does not.
   const beat = Date.parse(info.beat)
   if (Number.isFinite(beat)) return now - beat > BEAT_STALE_MS ? 'its beat is older than 5 minutes' : null
@@ -265,10 +277,9 @@ async function holderOf(file, nap, watched = new Map(), beatMs = BEAT_MS, holdMa
     }
     if (performance.now() - first.at < 2 * beatMs) return seen
   }
-  // S3, review: a live holder past the hold cap by the wall clock (the PC slept past it) stops itself at its first beat after the
-  // wake (runOneAtATime's watch); two beats of this waiter's own clock let it give the slot back first (an old copy without the
-  // watch is freed after them all the same, and its command may still run on).
-  // Keyed on its process and `since`, as its beats rewrite the rest.
+  // S3, review: a live holder past the hold cap by the wall clock (the PC slept past it) writes the time it slept into its lock at its
+  // first beat after the wake, and is then no longer past the cap; two beats of this waiter's own clock give it that beat (an old copy
+  // that writes no `slept` is freed after them all the same). Keyed on its process and `since`, as its beats rewrite the rest.
   if (why?.startsWith('it has held the slot for over')) {
     const key = `${file}#since`
     const mark = `${seen.info.pid} ${seen.info.since ?? seen.info.startedAt}`
@@ -469,10 +480,17 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
       if (createLock(slot, text)) {
         // F14: the moment the work begins, for a log of the run (land.ps1 starts the gate's clock here).
         say(`one-at-a-time: ${label} runs now (waited ${Math.round((Date.now() - came) / 1000)} s)`)
-        // F39: the beat, while the command runs: only into the lock that is still ours.
+        // F39: the beat, while the command runs: only into the lock that is still ours. S3, chat 1's review: with the time the PC
+        // slept since the slot was taken (`slept`), which the waiters leave out of the hold.
+        const clockNow = timing.now ?? Date.now
+        let lastBeat = clockNow()
+        let slept = 0
         const beat = setInterval(() => {
-          const now = new Date().toISOString()
-          const next = JSON.stringify({ ...held, startedAt: now, beat: now })
+          const at = clockNow()
+          if (at - lastBeat > sleepGapOf(timing.beat)) slept += at - lastBeat - timing.beat
+          lastBeat = at
+          const now = new Date(at).toISOString()
+          const next = JSON.stringify({ ...held, startedAt: now, beat: now, ...(slept > 0 ? { slept } : {}) })
           if (rewriteLock(slot, text, next)) text = next
         }, timing.beat)
         beat.unref()
@@ -625,7 +643,7 @@ export async function runOneAtATime({
 
   try {
     if (env.HEAVY_RUN_HELD !== '1') {
-      const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS) }
+      const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS), now }
       giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1', idle, holdMaxMs: positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS) })
       if (!giveLockBack || signalled) {
         code = signalExit(signalled)
@@ -657,11 +675,18 @@ export async function runOneAtATime({
         }
         const cap = setTimeout(stopAtCap, maxMs)
         cap.unref()
-        // S3: a timer's clock stands still while the PC sleeps (holds of 535 and 462 minutes on 11-24 and 11-25); the wall clock does not, and
-        // it is read at every beat.
+        // S3: the hold is also read against the wall clock at every beat, whatever clock the timer keeps. Chat 1's review: the time the
+        // PC slept is no hang and does not count (a gap between two beats well over the beat, sleepGapOf), so a slow-tier run that spans
+        // a night's sleep is not stopped with 124 when the PC wakes.
+        const beatMs = positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS)
+        let lastTick = beganAt
+        let slept = 0
         const watch = setInterval(() => {
-          if (now() - beganAt > maxMs) stopAtCap()
-        }, positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS))
+          const at = now()
+          if (at - lastTick > sleepGapOf(beatMs)) slept += at - lastTick - beatMs
+          lastTick = at
+          if (at - beganAt - slept > maxMs) stopAtCap()
+        }, beatMs)
         watch.unref()
         quiet = () => {
           clearTimeout(cap)
