@@ -8193,7 +8193,11 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   in the gate worktree, setting `gateFile`), its output appended to the log under `===== rerun alone: <file> =====`; the first that
   fails again refuses ("rerun alone: <file> failed again (<why>)"); all passing counts as passed, with the log line "N test
   file(s) failed under load, all passed alone". Never a second full run, and no rerun for a run that names no files (no summary,
-  a crash). Cleaned up always: the junction first
+  a crash). F68 (chat 1, 2026-11-25): the rerun alone goes through the queue first-class, so it never runs beside another heavy run
+  (`node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal <file>`), and a refusal names each run's
+  priority from the run's first line `test run: priority <word>` ("the gate failed on <head> (full run at below normal priority):
+  ...; rerun alone at below normal priority: <file> failed again"). The rerun asks below normal by name for now (the PC plan of
+  2026-11-25: no lag in Full unless gaming); the core fence (S5) may raise it to `--priority=normal`. Cleaned up always: the junction first
   with `cmd /c rmdir` (never a recursive delete through it), then two checks BEFORE `git worktree remove` (without force, then
   prune): the junction is gone, and the main checkout's `node_modules` still holds `happy-dom`. Either failing stops the
   landing (2026-11-07 10:04: `node_modules` was emptied at the end of a landing and nothing said so): the worktree is left
@@ -9185,7 +9189,7 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
 - **The landing lock's phase**: "gate" when taken, "land" once main is about to move (`lock-refresh --phase land`).
   `landingRestarts` (land phase, not stale, its process runs) is what the board watcher, the leaked-browser closer, faults-gone and
   the carry guards read, so a dead board is not left alone through an hour-long gate.
-- **land.ps1**: the rerun alone defaults to `node tools/test.mjs {file}`, after Stop-FolderProcesses. A lock lost during the gate
+- **land.ps1**: the rerun alone defaults to `node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}` (F68: through the queue, at below normal priority asked by name), after Stop-FolderProcesses. A lock lost during the gate
   stops the gate and refuses. The sweep of a cut landing's gate first ends what it left running there.
 - **tools/test.mjs**: the sweep names a folder only on a path boundary, never in a folder that is or holds a board's (boards.json;
   an unreadable list: no sweep), never its own powershell. A run the helper stopped at its cap is refused like a stall. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.
