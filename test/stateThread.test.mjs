@@ -12,7 +12,7 @@ import { Worker } from 'node:worker_threads'
 
 import { parseConfig } from '../src/config.mjs'
 import { buildState } from '../src/state.mjs'
-import { holdBuild, stateThread } from '../src/stateThread.mjs'
+import { holdBuild, MOST_FAILURES, stateThread } from '../src/stateThread.mjs'
 
 const NOW = Date.UTC(2026, 10, 25, 18, 50)
 const PROJECT = join(tmpdir(), 'garden')
@@ -107,15 +107,64 @@ test('the fallback: a thread that throws, ends, cannot send back or hangs is giv
   }
   for (const [kind, file] of Object.entries(cases)) {
     const failed = []
-    const builder = stateThread({ inLoop, file, failed: error => failed.push(error.message), limitMs: 1_000 })
+    let starts = 0
+    const builder = stateThread({ inLoop, file, failed: error => failed.push(error.message), limitMs: 1_000, start: url => { starts += 1; return new Worker(url) } })
     t.after(() => builder.close())
     const first = await builder.build({ a: 1 }, { b: 2 })
     assert.deepEqual(first, { built: 'in the loop', raw: { a: 1 }, options: { b: 2 } }, kind)
+    assert.equal(builder.lastWay(), 'loop', kind)
+    // A copy that cannot work is off for good at once; a thread that threw, ended or hung is tried anew, MOST_FAILURES times in all.
+    if (kind !== 'copy') {
+      assert.equal(builder.off(), null, kind)
+      for (let n = 2; n <= MOST_FAILURES; n += 1) assert.deepEqual(await builder.build({ a: n }, {}), { built: 'in the loop', raw: { a: n }, options: {} }, kind)
+      assert.equal(starts, MOST_FAILURES, kind)
+    }
     assert.notEqual(builder.off(), null, kind)
-    // Every build after it in the loop too, and it is said once.
-    assert.deepEqual(await builder.build({ a: 3 }, { b: 4 }), { built: 'in the loop', raw: { a: 3 }, options: { b: 4 } }, kind)
+    // Every build after it in the loop too, with no thread started, and the spell is said once.
+    const started = starts
+    assert.deepEqual(await builder.build({ a: 9 }, { b: 4 }), { built: 'in the loop', raw: { a: 9 }, options: { b: 4 } }, kind)
+    assert.equal(starts, started, kind)
     assert.equal(failed.length, 1, `${kind}: ${JSON.stringify(failed)}`)
   }
+})
+
+test('lens 1: a thread that ended once is replaced, the board builds in its thread again and says the spell is over', { timeout: 60_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'state-thread-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  // The first thread ends at its first build (as one out of memory would); the next ones build.
+  const flaky = await threadFile(dir, 'flaky.mjs', `import { parentPort, workerData } from 'node:worker_threads'
+parentPort.on('message', ({ id, raw }) => {
+  if (workerData.first) process.exit(1)
+  parentPort.postMessage({ id, state: { built: 'in the thread', raw } })
+})
+`)
+  const said = []
+  let starts = 0
+  const builder = stateThread({
+    inLoop: raw => ({ built: 'in the loop', raw }), file: flaky, failed: () => said.push('failed'), recovered: () => said.push('recovered'),
+    start: url => new Worker(url, { workerData: { first: (starts += 1) === 1 } }),
+  })
+  t.after(() => builder.close())
+  assert.deepEqual(await builder.build({ n: 1 }, {}), { built: 'in the loop', raw: { n: 1 } })
+  assert.deepEqual(await builder.build({ n: 2 }, {}), { built: 'in the thread', raw: { n: 2 } })
+  assert.deepEqual([builder.off(), builder.lastWay(), starts, said], [null, 'thread', 2, ['failed', 'recovered']])
+})
+
+test('lens 1: an answer that waits when the build\'s time runs out (a PC that woke) is taken, the thread kept', async t => {
+  const timers = []
+  const handlers = {}
+  const fake = { on: (name, fn) => { handlers[name] = fn }, postMessage: () => {}, unref: () => {}, removeAllListeners: () => {}, terminate: async () => {} }
+  const said = []
+  const builder = stateThread({
+    inLoop: () => ({ built: 'in the loop' }), start: () => fake, failed: () => said.push('failed'),
+    setTimer: fn => { timers.push(fn); return {} }, clearTimer: () => {}, soon: fn => { handlers.message({ id: 1, state: { built: 'in the thread' } }); fn() },
+  })
+  t.after(() => builder.close())
+  const built = builder.build({}, {})
+  // The time runs out; the thread's answer is read first.
+  timers[0]()
+  assert.deepEqual(await built, { built: 'in the thread' })
+  assert.deepEqual([builder.off(), said], [null, []])
 })
 
 test('a value the copy cannot take falls back to the loop for that build and the ones after it', async t => {

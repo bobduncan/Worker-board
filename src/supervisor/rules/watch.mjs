@@ -1336,7 +1336,7 @@ function causeWords(cause) {
   const verdict = !Number.isFinite(share) ? null : share >= 70 ? 'the board computed' : share <= 30 ? 'the board waited for the PC or the disk' : 'the board computed part of it'
   return `cause: ${cause.calls} slow call${cause.calls === 1 ? '' : 's'} since ${secondsOf(cause.from)}`
     + (cause.parts.length === 0 ? '' : ` waited in ${cause.parts.map(([part, pct]) => `${PART_WORDS[part] ?? part} ${pct}%`).join(', ')}`)
-    + (Number.isFinite(share) ? `; the board's own CPU was ${share}% of their time (${verdict})` : '')
+    + (Number.isFinite(share) ? `; the board's own CPU${cause.build === 'thread' ? ' (its build thread included)' : ''} was ${share}% of their time (${verdict})` : '')
     + (Number.isFinite(cause.loopMax) ? `; the loop held up to ${(cause.loopMax / 1000).toFixed(1)} s` : '')
     + (Number.isFinite(cause.cpuMax) ? `; the PC's CPU up to ${cause.cpuMax}%` : '')
     + (cause.pc !== null && cause.pc !== undefined && cause.pc.top.length > 0 ? `; busiest at ${secondsOf(cause.pc.at)}: ${cause.pc.top.map(one => `${one.name} ${one.cores} cores`).join(', ')}` : '')

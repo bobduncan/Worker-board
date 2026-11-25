@@ -53,7 +53,7 @@ test('board-slow cites the cause: a full PC and a busy board read apart, and the
   assert.equal(found.length, 1)
   const words = found[0].evidence.split('. ').find(part => part.startsWith('cause: '))
   assert.equal(words, `cause: 5 slow calls since ${clock(1795632601388)} waited in before the board took it ${cause.parts[0][1]}%, the hand-over's decide ${cause.parts[1][1]}%, the answer ${cause.parts[2][1]}%, the state it read ${cause.parts[3][1]}%`
-    + `; the board's own CPU was ${cause.boardShare}% of their time (the board computed part of it); the loop held up to 14.3 s; the PC's CPU up to 100%`
+    + `; the board's own CPU (its build thread included) was ${cause.boardShare}% of their time (the board computed part of it); the loop held up to 14.3 s; the PC's CPU up to 100%`
     + `; busiest at ${clock(1795632905000)}: msedge.exe 6.1 cores, node.exe 2.3 cores; the state is built in its thread`)
   // The same calls with the board idle beside them read as the PC's, and a board whose thread is off says so.
   const waited = { ...cause, boardShare: 12, build: 'loop' }

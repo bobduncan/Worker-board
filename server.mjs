@@ -2621,6 +2621,7 @@ async function main(args) {
       return buildState(raw, options)
     },
     failed: error => loops.failed('state-thread', error),
+    recovered: () => loops.succeeded('state-thread'),
   })
   // F42: an answer built before a PC sleep is read again (src/afterSleep.mjs).
   const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
@@ -2635,8 +2636,10 @@ async function main(args) {
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
     keep.pause = raw.work?.pause ?? null
     const project = raw.project ?? config.project
-    // B1535: the build, in its thread (the loop runs on), or in the loop once the thread is off; the job's words say which.
-    const state = await trackJob(builder.off() === null ? 'state build (thread)' : 'state build (loop)', async () => builder.build(raw, {
+    // B1535: the build, in its thread (the loop runs on), or in the loop when the thread failed; the job's words say where it was made
+    // (named again after the build, as a thread may fail during it).
+    const buildJob = stalls.begin('job', builder.off() === null ? 'state build (thread)' : 'state build (loop)')
+    const state = await (async () => builder.build(raw, {
       lines: readLines(raw),
       outbox: outboxNow(store.outbox(), clock(), keep),
       // P7 (the review): every word, also long ago, timed as outboxNow times them, for the one status per step (src/stepStatus.mjs),
@@ -2671,7 +2674,10 @@ async function main(args) {
       noWorkSeen,
       now: built(clock()),
       config: { ...config, project },
-    }))
+    }))().finally(() => {
+      buildJob.as(builder.lastWay() === 'loop' ? 'state build (loop)' : 'state build (thread)')
+      buildJob()
+    })
     planSeen = state.planSeen ?? {}
     noWorkSeen = state.noWorkSeen ?? null
     // Only the board that runs the loops writes; a copy beside it reads what that one kept.

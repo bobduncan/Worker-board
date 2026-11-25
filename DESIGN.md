@@ -8018,6 +8018,36 @@ slow calls, so the PC's threadpool is ruled out), each slow part with the step t
 - next or new waiting in `workCtx`'s fresh read after a write, 2 (11-24 22:41 a next of 13.2 s and its repeat; 11-25 00:15 a new of
   5.3 s), and one step of 5.3 s in the store's own action: in the rebuild bursts B1496 and B1501 shrink; read again after both.
 
+### The state is built in a thread of its own (B1535, X93, chat 1's way A, 2026-11-25)
+
+X93 came back at 19:47 after B1139 (fifth fix). A day of the trace (11-24 18:02 to 11-25 21:18, 3282 calls): 121 over 5 s, turn-ended
+74 of 495 and next 36 of 286; where they waited: decide 45%, before the board took them 18%, ctx 18%. In the slow calls the board's
+own CPU was as long as the call (median 0.99): the board computed, a full PC only stretched it; the live board used 57% of a core all
+day. A profile of a copy on the live data named the cause: `buildState` ran 1.5 to 2.6 s in ONE synchronous block on the loop at every
+rebuild (the page's poll every 5 s, every write's reset, every turn end's decide), which a PC at 80-100% stretched to the 14 s loop
+stalls of 19:50; besides, the app's 566 chat files (37 MB of JSON) were read and parsed three times per rebuild (0.45 s).
+
+- **The build runs in a worker thread** (src/stateThread.mjs, src/stateWorker.mjs): `readState` reads as before, then hands `raw` and
+  the options to the thread and awaits the state (structured clone both ways: about 90 ms of the loop for the copy out, against the
+  1.5-2.6 s it held). Every other call is answered meanwhile, from the kept state (`keptStateFor`); a read that needs a fresh state
+  (the decide, a dirty or unknown read) awaits the build without holding anyone. `cached` (folders.mjs) is unchanged: one read at a
+  time, a reset during a build drops its answer, `revalidate` as B1502 made it; the thread takes its builds in order too.
+- **The fallback**: a thread that cannot start, throws, ends, cannot send its state back or gives no build within 120 s is given up:
+  every build it held and every one after it is made in the loop as before, and the loops line says so once ("state-thread"). An
+  error of the build itself is the read's error, as it was. The stall log's job is "state build (thread)" or "state build (loop)".
+- **The chat files are kept by stamp** (src/appChats.mjs `chatFileOf`): a file is read and parsed again only when its time written or
+  size changed; sources.mjs hands the build `appChats` (parsed) in place of the texts, so 37 MB are neither parsed again nor copied.
+- **board-slow names the cause** (callTrace.mjs `slowCause`, watch.mjs `causeWords`): where the slow calls of its 10 minutes waited,
+  the board's own CPU over their time (near 100% the board computed; low, it waited for the PC or the disk), the loop's longest hold,
+  the PC's CPU, its busiest programs then (`pcTop`: two process listings 3 s apart on a slow call, at most every 2 minutes) and where
+  the state is built.
+- Pinned by `test/stateThread.test.mjs` (the same state as the loop's; the loop free while a build holds its thread 1.5 s, held by
+  the same build in the loop; the fallback for a thread that throws, ends, cannot copy or hangs, said once), `test/stateThreadBoard
+  .test.mjs` (the 19:50 and 19:55 cases through a copy of the board: while a build of 6 s runs, a note and a pause-state answer within
+  1 s, the turn end awaits its build, the trace shows the calls taken at once and the loop never held over 1 s),
+  `test/appChatsCache.test.mjs` and `test/boardSlowCause.test.mjs` (the live calls of 19:50 to 19:55). Left for later steps (chat 1):
+  fewer rebuilds, the decide without a whole rebuild (B1496), the O(n²) fix scans of a build.
+
 ## The boards survive a Claude app update (F10, 2026-11-14)
 
 The person, 2026-11-11 ("Yes, build it"): the Claude app updated itself at 22:42 (AppX Register, "TerminateApplications") and ended
