@@ -7935,11 +7935,19 @@ heard were awaited inside the answer. The person (2026-11-11): the held items on
   state when a write came since the last read (`dirty`: folders.mjs `cached` `readAt` -Infinity), while the frequent actions that read
   none of them answer from the kept state whatever was written (src/keptState.mjs `KEPT_SAFE_ACTIONS`: step, report, block, unblock,
   pull, health, asset, incident, incident-fix, save-log, whoami, list; a note unless it is of a goal; a turn-ended unless it carries a
-  For you block, whose items are filed as asks). Not take nor next (the verifier's finding): their answer carries the recap rows' words
+  For you block, whose items are filed as asks; pause-state while the store's pause is running or none, below). Not take nor next (the verifier's finding): their answer carries the recap rows' words
   of the step, which a verdict just written must reach. The decision is pure (`keptStateWhy`: kept, none, old, unknown, dirty) and
   tested on its own. Known and accepted: the lanes the main chat's resume list reads (pause-state) are chat facts, not store writes, so
   they may be up to 60 s old instead of 5 s; a write still queued ahead of the call in the store's own queue is not yet a reset (the
   old 5 s cache had the same gap).
+- **pause-state answers from the kept state while nothing is paused** (B1139, X93, chat 1's condition and core review, 2026-11-24):
+  the call trace showed pause-state, the mods' frequent running-state poll, waiting all its time (up to 8.7 s) in its context for a
+  rebuild after a write, though it reads the pause from the store itself and only the lanes from the state. `keptStateFor` now reads
+  `pause.json` first (server.mjs, the store's own file): while its state is `running`, or there is no file, the lanes drive nothing
+  pause-state answers, so it is kept-safe (keptState.mjs `readsStoreFacts`, its `pause` argument). While pausing or resuming the
+  resume list is built from the lanes, so it reads fresh after a write as before; a `pause.json` that is there but cannot be read now
+  (Windows holds it) counts as no running pause and reads fresh too (principle 3: know, don't guess). Live after the landing (11-25
+  00:15 to 00:22): 70 pause-state calls, the slowest 1.9 s, its context at most 0.3 s (before: 7 of 429 over 5 s).
 - **turn-ended keeps its decision in the answer** (chat 1's review of the design note, 2026-11-11): the Workers mod reads the
   answer's `handover` (register.tsx: `setOnSequence(parseHandover(ended) !== null)`; the turn's context for the clear), so the hand-over
   turn with its own rebuild stays inside the call (`decideFor`). Moving it waits for the mod's release.
@@ -7961,6 +7969,16 @@ heard were awaited inside the answer. The person (2026-11-11): the held items on
   days in data/work-calls.json; `today()` gives the figures and the Supervisor's health line says them in one line under "Limits and
   pause": "work calls today: 412 (median 0.3 s, slowest 1.8 s, 0 over 5 s)", odd (owner board-slow) once a call took over 5 s. Target
   (the person's): no work call over 5 s for a day of normal use, against today's stall log. The page shows nothing new (rule 16).
+- **One clock: a call is timed from the chat's send** (B1139, X93, 2026-11-24): the record and the health line used to start at the
+  handler's begin while the chat waits from its send, so the wait before the handler was never counted (11-23: the record's slowest
+  6.9 s, X93 19 s). `callFrom` (src/workCalls.mjs) gives the start: the send (hearing.mjs `sentAtOf`, the request id's time); not
+  before the board's own start (a call sent while the board was down counts from the start); the handler's begin when there is no id,
+  a send later than the begin, or an answer over `SEND_KEEP_MS` (10 min) after the send (a clock that cannot be right). A repeated
+  request id (the mod asks again when an answer is slow) is one call: its earlier note goes and the slower of the two stays, so the
+  call counts once, by the time its chat waited (`note`'s `request`). The rule board-slow keeps its 10 s limit and its test; the
+  person's target is unchanged and now measured as the chat feels it. Pinned by `test/workCalls.test.mjs` (a call sent 19 s before
+  its answer with a 2 s handler reads 19 s; a repeat counts once) and `test/fastAnswer.test.mjs` (the health line's figures from the
+  send).
 - Not in it: the wake paths, the outbox send path, the take path's rebuilds, the Workers mod, making the rebuild itself cheaper.
 - Pinned by `test/fastAnswer.test.mjs` (the server's shape: the kept state, the two guards, no rebuild in the answer, the pull after
   the answer, turn-ended unchanged, the queue; the figures through the state to the health line), `test/workCalls.test.mjs` (the
@@ -7983,6 +8001,19 @@ answer changes. `node tools/call-trace-read.mjs --minutes 30` prints the calls o
 they waited in all. Pinned by `test/callTrace.test.mjs` (the live case: a call sent 19 s before its answer with a 2 s handler
 reads 19 s; a repeated id counts once from its first send; the probes; the file; the route; the marks in order) and
 `test/boardSlowRead.test.mjs` (a copy of the board traces its late calls with every part).
+
+What the numbers say (11-24 19:02 to 11-25 00:22, 986 arrivals, 28 calls over 5 s from their send; the file-system probe 0 on the
+slow calls, so the PC's threadpool is ruled out), each slow part with the step that covers it:
+- turn-ended, 10: the hand-over decision's whole rebuild inside the answer (`decideFor`, 84% of its time). Answering at once with the
+  envelope at the next take was checked with chat 1 and is slower end to end (the mod waits 1.5 s, then its 5 s tick): B1496, a
+  decision without a whole rebuild.
+- pause-state, 7, all before B1139's landing (above: kept from the state while nothing is paused); none since.
+- A chat's first call after its clear, 7: the hand-over's /clear gives the chat a new session id, which the kept state does not
+  know, so `checkFresh` resets the state and waits for a whole rebuild, behind the one under way when there is one (two back to
+  back: 11-25 00:13 a next of 16 s, 11.2 s of it there). 12 of 24 first calls of a session waited 1.3 to 11.2 s in checkFresh; 0
+  of the other 962 calls waited over 1 s there: B1501.
+- next or new waiting in `workCtx`'s fresh read after a write, 2 (11-24 22:41 a next of 13.2 s and its repeat; 11-25 00:15 a new of
+  5.3 s), and one step of 5.3 s in the store's own action: in the rebuild bursts B1496 and B1501 shrink; read again after both.
 
 ## The boards survive a Claude app update (F10, 2026-11-14)
 
