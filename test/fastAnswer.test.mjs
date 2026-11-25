@@ -30,8 +30,9 @@ const bodyOf = head => {
 }
 
 test('workCtx answers from the kept state: no rebuild of its own, but for an unknown caller or a kept state gone old', () => {
-  const ctx = bodyOf('  const workCtx = async ({ kept = false, chat = null, action = null, of = null, forYou = false } = {}) => {')
-  assert.match(ctx, /const state = kept \? readState\.last\(\) \?\? await readState\(\) : await keptStateFor\(chat, action, of, forYou\)/)
+  // B1502: the state comes with why (kept, or why it was read anew), which the call's trace keeps as `stateWhy`.
+  const ctx = bodyOf('  const workCtx = async ({ kept = false, chat = null, action = null, of = null, forYou = false, trace = null } = {}) => {')
+  assert.match(ctx, /const found = kept \? \{ state: readState\.last\(\) \?\? await readState\(\), why: 'kept' \} : await keptStateFor\(chat, action, of, forYou\)\n\s+trace\?\.set\(\{ stateWhy: found\.why \}\)\n\s+const state = found\.state\n/)
   assert.doesNotMatch(ctx.replace(/await keptStateFor\(chat, action, of, forYou\)/, '').replace(/readState\.last\(\) \?\? await readState\(\)/, ''), /await readState\(\)/, 'no other rebuild inside the context')
   // The decision is src/keptState.mjs's (pure, tested below); the server hands it the kept state, the clock, the dirty flag and laneRole.
   const kept = bodyOf('  const keptStateFor = async (chat, action, of = null, forYou = false) => {')
@@ -39,9 +40,9 @@ test('workCtx answers from the kept state: no rebuild of its own, but for an unk
   // B1139: the store's pause for pause-state is read from pause.json at the call (fresh); one that cannot be read is no "running".
   // The whole guard: only a pause-state call reads it (every other action hands null), and the read's state goes to keptStateWhy.
   assert.match(kept, /const pause = action !== 'pause-state' \|\| workDir === null \? null\n\s+: await readFile\(join\(workDir, PAUSE_FILE\), 'utf8'\)\.then\(text => parsePause\(text\)\?\.state \?\? null, error => \(error\?\.code === 'ENOENT' \? null : 'unreadable'\)\)\n/)
-  assert.match(kept, /return why === 'kept' \? last : readState\(\)/)
+  assert.match(kept, /return \{ state: why === 'kept' \? last : await readState\(\), why \}/)
   // The work action gives the context the calling chat (a chat's call; the person's and the server's name none) and the action.
-  assert.match(server, /workCtx\(\{ kept: body\?\.action === 'health', chat: as === undefined && typeof body\?\.chat === 'string' \? body\.chat : null, action: body\?\.action \?\? null, of: typeof body\?\.of === 'string' \? body\.of : null, forYou: Array\.isArray\(body\?\.forYou\) && body\.forYou\.length > 0 \}\)/)
+  assert.match(server, /workCtx\(\{ kept: body\?\.action === 'health', chat: as === undefined && typeof body\?\.chat === 'string' \? body\.chat : null, action: body\?\.action \?\? null, of: typeof body\?\.of === 'string' \? body\.of : null, forYou: Array\.isArray\(body\?\.forYou\) && body\.forYou\.length > 0, trace \}\)/)
   // The kept state's four refusals and the one yes, each on its own.
   const last = { readAt: 1000 }
   const roleOf = (state, chat) => (chat === 'Worker 5' ? 'worker' : null)
