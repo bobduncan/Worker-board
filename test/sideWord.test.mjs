@@ -317,9 +317,10 @@ async function sideLook(store, state, now) {
  * same files; `after(store, now)` what else happens after the look (a hand's take). `{ seen: { 'HH:MM': { cards, due } }, outbox }`.
  * F63: `restartAt` may be a list; `every` the time between looks (`looks` each look's `{ at, cards, due }`); `sweep` the outbox sweep
  * runs before each look (as deliver.mjs at a refresh); `off: { from, to }` the PC sleeps then: no look, and the history's gap line
- * (`lines`) tells the state, as the board writes it at its wake.
+ * (`lines`) tells the state, as the board writes it at its wake. `before(store, now)` what happens before the look (a hand's claim,
+ * every ~20 s on a fresh state, may come before the look of the same minute).
  */
-async function minutes({ from, to, isFullAt, sendAt = null, restartAt = null, after = async () => {}, every = MIN, sweep = false, off = null }) {
+async function minutes({ from, to, isFullAt, sendAt = null, restartAt = null, after = async () => {}, before = async () => {}, every = MIN, sweep = false, off = null }) {
   const dir = await mkdtemp(join(tmpdir(), 'side-full-'))
   try {
     let store = await fileStore(dir, from)
@@ -329,6 +330,7 @@ async function minutes({ from, to, isFullAt, sendAt = null, restartAt = null, af
     for (let now = from; now <= to; now += every) {
       if (off !== null && now >= off.from && now < off.to) continue
       if (restarts.includes(now)) store = await fileStore(dir, now)
+      await before(store, now)
       const lines = off !== null && now >= off.to ? [{ at: off.from, gap: true }, { at: off.to, chat: 'Worker 2', state: 'idle', task: null }] : []
       if (sweep) await sweepOutbox({ dir: null, outbox: store, state: build({ now, week: isFullAt(now) ? 99 : 40, outbox: store.outbox().map(one => ({ ...one })), lines }), now, keep: KEEP })
       const state = build({ now, week: isFullAt(now) ? 99 : 40, outbox: store.outbox().map(one => ({ ...one })), lines })
@@ -503,7 +505,14 @@ test('F63: the stamps: fullAt the first look a limit is full, backAt the first l
   for (const other of [word({ state: 'taken', takenBy: 'Worker 2' }), word({ doubtAt: at(12, 19), backFrom: 'Worker 2' }), word({ state: 'delivered', deliveredAt: at(12, 19) }), word({ state: 'dropped', why: 'a limit is full' }), word({ state: 'failed', why: 'session not found', tries: 1 }), { ...word(), command: 'line' }]) {
     assert.equal(sideFullMarkOf({ word: other, isFull: true, now }), null, JSON.stringify([other.state, other.command, other.doubtAt]))
   }
-  assert.equal(sideFullMarkOf({ word: word({ doubtAt: at(12, 19), fullAt: at(12, 19) }), isFull: false, now }), null)
+  // Chat 1's review of 40da0260, 1: the return is stamped on every word a hand may still settle (taken, given back in doubt, read late),
+  // never on one that went, was closed or failed for good; fullAt stays only for a word still to go and not in doubt.
+  for (const open of [word({ state: 'taken', takenBy: 'Worker 2' }), word({ doubtAt: at(12, 19), backFrom: 'Worker 2' }), word({ state: 'expired' }), word({ state: 'failed', why: 'the app gave no answer', failedAt: at(12, 19), tries: 1 })]) {
+    assert.deepEqual(sideFullMarkOf({ word: { ...open, fullAt: at(12, 20) }, isFull: false, now: at(12, 28) }), { backAt: at(12, 28) }, JSON.stringify([open.state, open.doubtAt]))
+  }
+  for (const done of [word({ state: 'delivered', deliveredAt: at(12, 25) }), word({ state: 'dropped', why: 'a limit is full', closedAt: at(12, 25) }), word({ state: 'expired', closedAt: at(12, 25) }), word({ state: 'failed', why: 'session not found', tries: 1 })]) {
+    assert.equal(sideFullMarkOf({ word: { ...done, fullAt: at(12, 20) }, isFull: false, now: at(12, 28) }), null, JSON.stringify([done.state, done.why]))
+  }
   // The window counts from the return; while a later spell holds it (its fullAt newer), from the word's own time.
   assert.equal(windowFrom(word()), at(12, 19))
   assert.equal(windowFrom(full), at(12, 19))
@@ -626,4 +635,69 @@ test('F63: a PC sleep of 30 min, 3 min into the word\'s window: at the wake neit
   // The state reads the off gap from the history: 3 min of running time at the wake.
   const woke = build({ now: at(12, 52), outbox: [word()], lines: [{ at: off.from, gap: true }, { at: off.to, chat: 'Worker 2', state: 'idle', task: null }] })
   assert.deepEqual([woke.sideWordsClose, lateCards(woke)], [[], []])
+})
+
+// Chat 1's review of 40da0260. 1: a hand's claim (every ~20 s, on a fresh state) may take the word once the limit is back before the look
+// (every 60 s) stamps the return, and give it back in doubt: the return must be stamped on it all the same. 2: no hand takes a word the
+// state closes (its window over), in the time until the look closes it.
+
+/** A hand's claim as the server's hands route makes it: on a fresh state, the side words `isHandWord` gives it (server.mjs `isHand`). */
+async function handClaims(store, now, isFull = false) {
+  const state = build({ now, week: isFull ? 99 : 40, outbox: store.outbox().map(one => ({ ...one })) })
+  return store.takeHands('Worker 2', now, KEEP, one => isHandWord(one, { canSend: true, isFull: state.limitFull === true, sideCloses: state.sideWordsClose }))
+}
+
+test('F63, chat 1\'s review 1: a hand takes the word when the limit is back, before the look stamps it, and gives it back in doubt: no close before 10 min from the return, its late answer counts, the card right at every look', async () => {
+  const isFullAt = now => now >= at(12, 20) && now < at(12, 28)
+  // At 12:28, before the look: the hand's claim takes the word; it holds it over two looks and gives it back in doubt at 12:30.
+  const hand = lateAnswerAt => async (store, now) => {
+    if (now === at(12, 28)) assert.deepEqual((await handClaims(store, now)).map(one => one.id), ['w1'])
+    if (now === at(12, 30)) assert.equal(await store.back(['w1'], 'Worker 2', now, ['w1']), 1)
+    if (now === lateAnswerAt) assert.equal(await store.deliveredLate(['w1'], 'Worker 2', now), 1)
+  }
+  // Its late answer at 12:31: the word went; the card says so; no second word.
+  const answered = await minutes({ from: at(12, 19), to: at(12, 40), isFullAt, sweep: true, before: hand(at(12, 31)) })
+  assert.deepEqual(answered.seen['12:19'], { cards: [], due: 1 })
+  for (let minute = 20; minute <= 27; minute += 1) assert.deepEqual(answered.seen[`12:${minute}`], { cards: [NOT_ASKED], due: 0 }, `12:${minute}`)
+  for (const minute of ['12:28', '12:29', '12:30']) assert.deepEqual(answered.seen[minute], { cards: [ASKING], due: 0 }, minute)
+  for (let minute = 31; minute <= 40; minute += 1) assert.deepEqual(answered.seen[`12:${minute}`], { cards: [ASKED_AT('12:31')], due: 0 }, `12:${minute}`)
+  assert.deepEqual(said(answered.outbox).map(one => [one.id, one.state, one.deliveredAt, one.fullAt, one.backAt, one.backFrom]), [['w1', 'delivered', at(12, 31), at(12, 20), at(12, 28), 'Worker 2']])
+  // No late answer: the word in doubt waits its whole window from the return (12:38), stays the word, and no second word goes.
+  const silent = await minutes({ from: at(12, 19), to: at(12, 39), isFullAt, sweep: true, before: hand(null) })
+  for (let minute = 28; minute <= 37; minute += 1) assert.deepEqual(silent.seen[`12:${minute}`], { cards: [ASKING], due: 0 }, `12:${minute}`)
+  assert.deepEqual(silent.seen['12:38'], { cards: [NO_HAND], due: 0 })
+  assert.deepEqual(silent.seen['12:39'], { cards: [GAVE_UP], due: 0 })
+  const words = silent.outbox.filter(one => one.command === SIDE_WORD)
+  assert.deepEqual(words.map(one => [one.id, one.state, one.why, one.closedAt, one.backAt, Number.isFinite(one.doubtAt)]), [['w1', 'dropped', STALE_SIDE_WHY, at(12, 38), at(12, 28), true]])
+})
+
+test('F63, chat 1\'s review 2: no hand takes a side word whose window is over, before the look closes it; one inside its window, or just back, it takes; the server passes the closes', async () => {
+  const closes = [{ id: 'w1', why: STALE_SIDE_WHY }]
+  assert.equal(isHandWord(word(), { canSend: true }), true)
+  assert.equal(isHandWord(word(), { canSend: true, sideCloses: closes }), false)
+  assert.equal(isHandWord(word({ id: 'w2' }), { canSend: true, sideCloses: closes }), true, 'another word\'s close')
+  assert.equal(isHandWord({ id: 'w1', command: 'wake', about: 'Worker 1' }, { canSend: true, sideCloses: closes }), true, 'only a side word')
+  const claimOn = async (words, now, isFull = false) => {
+    const dir = await mkdtemp(join(tmpdir(), 'side-take-'))
+    try {
+      const store = await fileStore(dir, at(12, 19))
+      for (const one of words) await store.say({ ...one })
+      return (await handClaims(store, now, isFull)).map(one => one.id)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+  // Made at 12:19, no limit full: inside its window at 12:28:59, over at 12:29 (the card says "no hand sent it"; the look closes it next).
+  assert.deepEqual(await claimOn([word()], at(12, 28, 59)), ['w1'])
+  assert.deepEqual(build({ now: at(12, 29), outbox: [word()] }).sideWordsClose, closes)
+  assert.deepEqual(await claimOn([word()], at(12, 29)), [])
+  // Its wait ended (renewed): not taken either.
+  assert.deepEqual(await claimOn([word({ key: sideKeyOf('B1300', { at: '2026-11-21 10:00' }) })], at(12, 20)), [])
+  // Full 12:20-12:28, back at 12:29 before any look stamped it: the hand's fresh state reads it back, so it takes it.
+  assert.deepEqual(await claimOn([word({ fullAt: at(12, 20), keepCard: true })], at(12, 29)), ['w1'])
+  // The server's hands route passes the state's closes to isHandWord.
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  const isHand = server.split('\n').find(line => line.includes('const isHand = message =>'))
+  assert.match(isHand ?? '', /isHandWord\(message, \{[^}]*sideCloses: state\.sideWordsClose[^}]*\}\)/)
 })

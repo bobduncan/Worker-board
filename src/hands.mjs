@@ -205,13 +205,15 @@ export function workerNames(state) {
  * A word of the outbox that is a hand's to send: a start or a wake, (T14) for a chat that `canSend` (`maySend`; true
  * unless told); (B755) for a chat that `canSet`, a set word code may set (`setOf`); (B766) for one that `canRestart`, a
  * restart for a new mod of one of the `workers`; for one that `canSpawn`, a word for a new worker. B1394: `isFull` (a limit is
- * full): a side word stays where it is, as it would start a model turn past the person's stop line.
+ * full): a side word stays where it is, as it would start a model turn past the person's stop line. F63 (chat 1's review of
+ * 40da0260, 2): `sideCloses` (the state's `sideWordsClose`, `[{ id, why }]`): a side word the state closes (its hand window over, or its
+ * wait ended) is no hand's either, so none goes after its card said "no hand sent it" in the time until the look closes it.
  */
-export function isHandWord(message, { canSend = true, canSet = false, canRestart = false, canSpawn = false, workers = null, isFull = false } = {}) {
+export function isHandWord(message, { canSend = true, canSet = false, canRestart = false, canSpawn = false, workers = null, isFull = false, sideCloses = [] } = {}) {
   // B1160 part 2 (chat 1's decision 4): a set word meant for Main's model (the app refuses a plugin's own set call) is never a hand's.
   if (message?.forModel === true) return false
   // B1307 (F40): the board's one word to a side chat about a late wait on it, by its app id.
-  if (message?.command === SIDE_WORD) return canSend && !isFull && isSideJob(message)
+  if (message?.command === SIDE_WORD) return canSend && !isFull && isSideJob(message) && !(Array.isArray(sideCloses) && sideCloses.some(one => one?.id === message.id))
   if (canSpawn && message?.command === 'spawn') return true
   if (typeof message?.about !== 'string') return false
   if (canSend && HAND_COMMANDS.includes(message.command)) return true

@@ -4077,7 +4077,8 @@ async function main(args) {
       // B1271 (chat 1's review, minor): a start or wake word a carry word carries is never a hand's too (the carry may switch on and off).
       const carried = new Set(store.outbox().filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state) && typeof one.of === 'string').map(one => one.of))
       // B1307 (chat 1's review 1): a side word starts a model turn, so none goes while a limit is full.
-      const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers, isFull: state.limitFull === true })
+      // F63 (chat 1's review of 40da0260, 2): nor one this state closes (its window over, or its wait ended), before the look closes it.
+      const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers, isFull: state.limitFull === true, sideCloses: state.sideWordsClose })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
@@ -4688,8 +4689,9 @@ async function main(args) {
         if (!isHolding(state.pause)) {
           let sides = 0
           for (const { id, why } of state.sideWordsClose ?? []) if (await store.close(id, 'dropped', why, now)) sides += 1
-          // F63: a side word still to go is stamped once when this look sees a limit full (`fullAt`) and once when it sees it back
-          // (`backAt`: its hand window restarts then), each checked against the outbox right before the write.
+          // F63: a side word is stamped once when this look sees a limit full (`fullAt`, a word still to go) and once when it sees it
+          // back (`backAt`, also a word a hand took or gave back in doubt: its hand window restarts then), each checked against the
+          // outbox right before the write (`sideFullMarkOf`).
           for (const { id, mark } of state.sideFullMarks ?? []) {
             const fresh = sideFullMarkOf({ word: store.outbox().find(one => one.id === id), isFull: Number.isFinite(mark?.fullAt), now })
             if (fresh === null) continue

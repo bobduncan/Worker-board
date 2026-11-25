@@ -2605,9 +2605,10 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const sideRunningMs = from => { const since = afterPause(pauseRecord, from); return now - since - offMsOf(gaps, now)(since) }
   // Chat 1's review: no word while a limit is full; `sideWordsClose` the words still to go whose wait ended or whose time for a hand is over.
   const limitFull = isLimitFull(limits)
-  // F63: `sideFullMarks` the stamps the delivering board's look writes on the side words still to go (`fullAt` a limit is full, `backAt`
-  // it is back: their hand window restarts then), once each (server.mjs); none while the person pauses (as `sideWordsClose`). The words
-  // below are read as this look leaves them, so the look that sees the limit back never closes a word on its old window.
+  // F63: `sideFullMarks` the stamps the delivering board's look writes on the side words (`fullAt` a limit is full, on one still to go;
+  // `backAt` it is back, also on one a hand took meanwhile or gave back in doubt: their hand window restarts then; `sideFullMarkOf`),
+  // once each (server.mjs); none while the person pauses (as `sideWordsClose`). The words below are read as this look leaves them, so
+  // the look that sees the limit back never closes a word on its old window, and a hand's claim never refuses a word just back.
   const sideFullMarks = !workOk || isHolding(pauseRecord) ? [] : stepWords
     .map(word => ({ id: word?.id, mark: sideFullMarkOf({ word, isFull: limitFull, now }) }))
     .filter(one => one.mark !== null && typeof one.id === 'string')

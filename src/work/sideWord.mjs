@@ -30,6 +30,9 @@
 // (`sideFullMarkOf`, written once each, in the outbox so a restart keeps them), and the window counts from `backAt` (`windowFrom`).
 // F53's close while full stays as it was. The outbox keeps a side word as long as an answer (store.mjs `keepMs`), so only
 // `sideClosesOf` closes it, by running time: the outbox sweep's wall clock (10 min, past a PC sleep too) no longer cuts it short.
+// Chat 1's review of 40da0260: the return is stamped also on a word a hand took meanwhile or gave back in doubt; and no hand takes a
+// word the state closes (its window over, or its wait ended: hands.mjs `isHandWord`, `sideCloses`), so none goes after its card said
+// "no hand sent it" in the time until the look closes it.
 
 import { plainWhy } from '../wakeCarry.mjs'
 import { TRIES, passesBySelf } from './passing.mjs'
@@ -74,6 +77,13 @@ const mayHaveLanded = word => Number.isFinite(word?.doubtAt)
 /** A side word still to go: waiting, or failed and due for a retry (a hand may still send it). */
 const isStillToGo = word => word?.state === 'waiting' || isRetryDue(word)
 
+/**
+ * F63 (chat 1's review of 40da0260, 1): a side word a hand may still settle: still to go, taken by a hand, or given back in doubt (its
+ * late answer, store.mjs `deliveredLate`, still counts); `expired` with no close yet is the store's waiting word read late. Not one that
+ * went, was closed, or failed for good.
+ */
+const isOpen = word => isStillToGo(word) || word?.state === 'taken' || (word?.state === 'expired' && !Number.isFinite(word.closedAt))
+
 /** F63: whether a side word's last stamp says the limit is back (`backAt` no older than `fullAt`). */
 const isBackStamped = word => Number.isFinite(word?.backAt) && Number.isFinite(word.fullAt) && word.backAt >= word.fullAt
 
@@ -82,15 +92,17 @@ export const windowFrom = word => (isBackStamped(word) ? word.backAt : word?.at)
 
 /**
  * F63: what the delivering board's look stamps on a side word now, so its hand window restarts once a limit is back: `{ fullAt: now }`
- * the first look a limit is full while it is still to go (and again on a new spell: the last stamp says back), `{ backAt: now }` the first
- * look no limit is full after a `fullAt`; null for nothing to stamp. Only a word still to go (waiting, or failed and due for a retry),
- * never one a hand has (`taken`) or one given back in doubt (it may have landed: it is never sent again, so its window is moot).
+ * the first look a limit is full while it is still to go and not in doubt (and again on a new spell: the last stamp says back);
+ * `{ backAt: now }` the first look no limit is full after a `fullAt`; null for nothing to stamp. Chat 1's review of 40da0260, 1: the
+ * return is stamped on every word a hand may still settle (`isOpen`): a hand's claim (every ~20 s, on a fresh state) may take the word
+ * once the limit is back before the look (every 60 s) stamps it, and give it back in doubt; without its `backAt` the window would count
+ * from `at` again and close it at once, wrongly, before its doubt and its late answer had their time.
  */
 export function sideFullMarkOf({ word, isFull, now }) {
-  if (word?.command !== SIDE_WORD || !isStillToGo(word) || mayHaveLanded(word)) return null
+  if (word?.command !== SIDE_WORD) return null
   const isFullStamped = Number.isFinite(word.fullAt) && !isBackStamped(word)
-  if (isFull === true) return isFullStamped ? null : { fullAt: now }
-  return isFullStamped ? { backAt: now } : null
+  if (isFull === true) return !isFullStamped && isStillToGo(word) && !mayHaveLanded(word) ? { fullAt: now } : null
+  return isFullStamped && isOpen(word) ? { backAt: now } : null
 }
 
 /** F53 (a): a record closed because a limit was full (a word given up then, or the mark of a card shown then): no word of its wait. */
