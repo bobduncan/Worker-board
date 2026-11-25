@@ -37,6 +37,7 @@ import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, acceptStandOf, acceptChoiceOf,
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
+import { reportNoteLine } from './reportNote.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
 import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, oneRead, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
@@ -3025,7 +3026,8 @@ async function report(body, w) {
   if (!done.ok) return done
   const resumed = isAgain ? [] : await resumeParked(item, w)
   // Focus 4, the review: the board's own note of a report (Via: report) wakes nobody: the worker tells the main chat.
-  await makeNote(w, 'main', [`${id} reported ${isAgain ? 'again ' : ''}by ${w.who}: ${line(result, 200)}`], id, 'report')
+  // F65: whole sentences of the result, never a word cut in half, and the step that holds the whole report (reportNote.mjs).
+  await makeNote(w, 'main', [reportNoteLine({ id, who: w.who, result, again: isAgain })], id, 'report')
   // B301: the chat's next step, when the store holds one for it (queued or taken): the Workers mod keeps the chat's
   // context for it instead of compacting it after this report.
   const more = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && valueOf(one, 'Id') !== id && isOwner(one, w.who, w.prefix) && ['queued', 'taken'].includes(stateOf(one)))

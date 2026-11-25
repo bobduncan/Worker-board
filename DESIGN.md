@@ -2387,6 +2387,7 @@ Spec 2026-10-18, sections 2 and 4; plan Task 7; picture `art-inbox/focus-mockups
   this (`notesFrom`). The same notes still unread 30 minutes after their line arrived (`NOTE_AGAIN_MS`) go once more,
   "work: notes N62, N65 for you, unread 41 min; run work next" (key `... again`). Its `work next` shows them first and writes `Main read`, which withdraws a line still waiting; the
   person's Read under Information is the State, apart. A board that only shows marks nothing.
+  F65: the board's note of a report carries whole sentences of the result, up to 500 characters (`reportNote.mjs`; in practice its "Context:" and "Change:"), a first longer sentence cut at a word's end with "…", and "(whole report on B<n>)" when anything was left out; never a word cut in half (N2414 ended "finds Codex in th").
 - **Waiting for the main chat** (`focusState`): a part whose steps are made but none is queued or under way (new or
   refined) is `handout` with `waitsSince`; the page says "Waiting for the main chat to hand it out", and after the grace
   time `handoutNeeds` puts a hint under Needs your attention with the way to Talk to Main. The review: a step queued before its

@@ -513,3 +513,17 @@ test('B305: a worker that still holds a step takes its next queued one; an older
     }
   }
 })
+
+test('F65: a long result reaches the main chat as whole sentences with the step that holds it, never cut mid-word', async () => {
+  const { dir, board } = await fresh()
+  try {
+    await board({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-strip' })
+    const result = `Context: the strip was missing from the step window. Change: the strip shows in every step window now. Details: ${'a long word list '.repeat(40)}end.`
+    assert.equal((await board({ action: 'report', id: 'B1', result, merged: 'abc1234' })).ok, true)
+    const note = await item(dir, 'N1')
+    const said = 'B1 reported by Board: Context: the strip was missing from the step window. Change: the strip shows in every step window now. (whole report on B1)'
+    assert.deepEqual([valueOf(note, 'Via'), valueOf(note, 'Text'), note.sections.get('Text')], ['report', said, [said]])
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
