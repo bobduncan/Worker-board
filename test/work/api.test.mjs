@@ -513,3 +513,33 @@ test('B305: a worker that still holds a step takes its next queued one; an older
     }
   }
 })
+
+test('F65: a long result reaches the main chat as whole sentences with the step that holds it, never cut mid-word', async () => {
+  const { dir, board } = await fresh()
+  try {
+    await board({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-strip' })
+    const result = `Context: the strip was missing from the step window. Change: the strip shows in every step window now. Details: ${'a long word list '.repeat(40)}end.`
+    assert.equal((await board({ action: 'report', id: 'B1', result, merged: 'abc1234' })).ok, true)
+    const note = await item(dir, 'N1')
+    const said = 'B1 reported by Board: Context: the strip was missing from the step window. Change: the strip shows in every step window now. (whole report on B1)'
+    assert.deepEqual([valueOf(note, 'Via'), valueOf(note, 'Text'), note.sections.get('Text')], ['report', said, [said]])
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('F65 (chat 1\'s review): every note\'s one-line Text, the board page\'s, is cut at a word\'s end with "…"; its Text section keeps all', async () => {
+  const { dir, board } = await fresh()
+  try {
+    // A chat's note to the person, 7-letter words: the 300th character falls inside a word.
+    const text = 'Codexes '.repeat(50).trim()
+    assert.equal((await board({ action: 'note', to: 'you', text })).ok, true)
+    const note = await item(dir, 'N1')
+    assert.deepEqual([valueOf(note, 'Kind'), valueOf(note, 'Via'), valueOf(note, 'Text'), note.sections.get('Text')], ['note', null, `${'Codexes '.repeat(37).trim()}…`, [text]])
+    // A short note as before.
+    assert.equal((await board({ action: 'note', to: 'you', text: 'The strip is merged.' })).ok, true)
+    assert.equal(valueOf(await item(dir, 'N2'), 'Text'), 'The strip is merged.')
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
