@@ -109,6 +109,7 @@ import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
 import { recapRoundDue } from './src/recapCard.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
+import { holdBuild, stateThread } from './src/stateThread.mjs'
 import { minuteKeeper, stabilityKeeper } from './src/stability.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
@@ -2609,6 +2610,15 @@ async function main(args) {
   // P7, the review: the none-ready episode (state.mjs `noWorkSeen`), in memory as planSeen: a restart starts it from the
   // longest-free worker's since again.
   let noWorkSeen = null
+  // B1535 (X93, chat 1's way A): the state is built in a thread of its own, so the loop answers every other call meanwhile; when
+  // the thread fails it builds in the loop as before, and the loops line says so once ("state-thread").
+  const builder = stateThread({
+    inLoop: (raw, options) => {
+      holdBuild()
+      return buildState(raw, options)
+    },
+    failed: error => loops.failed('state-thread', error),
+  })
   // F42: an answer built before a PC sleep is read again (src/afterSleep.mjs).
   const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
     rebuilds += 1
@@ -2622,7 +2632,8 @@ async function main(args) {
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
     keep.pause = raw.work?.pause ?? null
     const project = raw.project ?? config.project
-    const state = buildState(raw, {
+    // B1535: the build, in its thread (the loop runs on), or in the loop once the thread is off; the job's words say which.
+    const state = await trackJob(builder.off() === null ? 'state build (thread)' : 'state build (loop)', async () => builder.build(raw, {
       lines: readLines(raw),
       outbox: outboxNow(store.outbox(), clock(), keep),
       // P7 (the review): every word, also long ago, timed as outboxNow times them, for the one status per step (src/stepStatus.mjs),
@@ -2657,7 +2668,7 @@ async function main(args) {
       noWorkSeen,
       now: built(clock()),
       config: { ...config, project },
-    })
+    }))
     planSeen = state.planSeen ?? {}
     noWorkSeen = state.noWorkSeen ?? null
     // Only the board that runs the loops writes; a copy beside it reads what that one kept.
