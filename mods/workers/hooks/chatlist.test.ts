@@ -3273,7 +3273,7 @@ describe('clear after each step', () => {
     const ended = sent(w).find(one => one.action === 'turn-ended')
     expect(ended?.forYouText).toBeUndefined()
     // A worker's answer of the same words hands its tail over (B417: the board reads the block).
-    expect(forYouTail(answer)).toBe(answer)
+    expect(forYouTail(answer)).toBe(answer.slice(answer.indexOf('> **For you**')))
   })
 
   test('the review: the list naming the main chat its supervisor never has the main chat cleared', async ($, on) => {

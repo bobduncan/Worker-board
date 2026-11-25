@@ -6,8 +6,9 @@
 
 import { valueOf } from './item.mjs'
 
-/** B417: the advice a chat adds after its question ("I advise yes, ..."): not part of what it asks, so `sameAsk` need not allow for it. */
-const ADVICE_TAIL = /(?<=\S)\s+(?:I(?:\s+would|'d)?\s+(?:advise|recommend)|my advice(?:\s+is)?)(?![\w]).*$/i
+/** B417: the advice a chat adds after its question ("I advise yes, ..."): not part of what it asks, so `sameAsk` need not allow for it. Cut only where the advice starts its own
+ * clause (after a full stop, "?", "!", ";" or a dash): "..., and I advise against box hedges?" is part of the question. */
+const ADVICE_TAIL = /(?<=[.?!;—–-])\s+(?:I(?:\s+would|'d)?\s+(?:advise|recommend)|my advice(?:\s+is)?)(?![\w]).*$/i
 
 /** B317: an ask's words for comparing: no links, marks of markdown, the work tool's "(Q4, decide, ...)", the advice after the question (B417), case or end marks. */
 export const askKey = value => String(value ?? '').replace(/\[([^\]\n]*)\]\([^)\s]*\)/g, '$1').replace(/\((Q\d+),[^)]*\)\s*$/, '').replace(/[*_`~]/g, '')

@@ -2914,7 +2914,7 @@ ask`; the board then showed only the warning "<chat> wrote questions in its chat
   the call; the items past those count as unfiled.
 - **The mod only sends the tail** (`hooks/foryou.ts`, `forYouTail`, Workers mod 0.37.0): at `turn.complete` of the chat's
   own turn (reason answer, never a subagent's), when the answer names a "For you" block at all (a loose word test), the
-  mod sends the answer's last 7,000 characters as `forYouText` with `turn-ended`, so the turn's end stays one call held
+  mod sends the answer from its last title on (at most 7,000 characters; a longer block is never cleared, `isForYouCut`) as `forYouText` with `turn-ended`, so the turn's end stays one call held
   1.5 s at most, the free worker's pull included. The board's answer says how many questions it read (`asks`) and could
   not file (`unfiled`); the mod's decision to clear a worker goes by those (`unfiledAsk`), never by a reading of its own
   (`asksPerson` is only the careful test for a board that did not answer). A mod from before sends the items it read

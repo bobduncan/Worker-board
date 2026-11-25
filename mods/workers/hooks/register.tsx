@@ -16,7 +16,7 @@ import {
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
 import { clearRun } from './clearrun'
-import { blockAsksLine, forYouTail, leftOutLine } from './foryou'
+import { blockAsksLine, forYouTail, isForYouCut, leftOutLine } from './foryou'
 import { STUCK_SHOWN_MS, isShownForTime, popupText } from './popup'
 import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_SESSION_MS, NO_SESSION_WHY, NOT_TRIED_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
 import type { HandJob, HandResult, HandSet } from './hands'
@@ -1863,7 +1863,7 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
   }
   // B417: the board read the block itself and says how many questions it read and could not file (a block with more,
   // past nine or too long for the call, leaves some unfiled).
-  const isUnfiled = unfiledAsk(c.answer, c.ended)
+  const isUnfiled = unfiledAsk(c.answer, c.ended) || isForYouCut(c.answer)
   // A message to another chat in this turn (a question to the main chat): its answer would come into a cleared conversation.
   const running = isInTurn || c.asked ? null : await busyWhy($)
   const busy = isInTurn ? 'a turn is running' : c.asked ? 'it sent another chat a message in this turn and waits for its answer' : running

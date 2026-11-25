@@ -159,3 +159,13 @@ test('what the window shows: options with their words, the links under an item, 
   assert.equal(shown.note, 'I advise B.')
   assert.deepEqual(shown.links, [{ kind: 'picture', label: 'See the picture: both', path: 'art-inbox/c/both.png' }])
 })
+
+test('B417 (chat 1\'s review): an indented sub-list under an item stays with it and is no item of its own, for every reader', () => {
+  const text = answer('> **For you**', '> 1. **Answer:** Which of these should I do first?', '>    1. the strip', '>    2. the shop', '> 2. **Do:** Restart the app.')
+  const read = forYouAsks(text)
+  assert.deepEqual(read.items.map(one => [one.n, one.kind]), [[1, 'decide'], [2, 'do']])
+  assert.deepEqual(read.items[0].text, ['Which of these should I do first?', '1. the strip', '2. the shop'])
+  assert.equal(read.total, 2)
+  assert.deepEqual(parseHandover(text).items.map(one => one.n), [1, 2])
+  assert.equal(itemHead('   1. the strip'), null)
+})

@@ -71,8 +71,10 @@ export function blockOf(text) {
 /** Whether an answer ends by asking the person something: its last block is followed by nothing but a rule and the closing block. */
 export const asksAtEnd = text => blockOf(text)?.atEnd === true
 
-/** The head of an item line: `{ n, word: 'answer' | 'do' | null, words }`, or null for a line that starts no item. */
+/** The head of an item line: `{ n, word: 'answer' | 'do' | null, words }`, or null for a line that starts no item (or is indented under one). */
 export function itemHead(line) {
+  // An indented line is the item's own (a sub-list under it), never an item of the block.
+  if (/^\s{2,}/.test(String(line))) return null
   const head = String(line).trim().match(ITEM)
   return head === null ? null : { n: Number(head[1]), word: head[2]?.toLowerCase() ?? null, words: head[3] }
 }
@@ -156,7 +158,7 @@ export function itemsOf(inner) {
   const items = []
   for (const raw of inner) {
     const line = raw.trim()
-    const head = itemHead(line)
+    const head = itemHead(raw)
     if (head !== null) {
       items.push({ n: head.n, word: head.word, head: head.words, lines: [] })
       continue

@@ -6,13 +6,32 @@
 /** What of an answer's end goes with the turn's end, in characters: the block stands at its end, and the board's call takes 16 KB (JSON escapes double some characters). */
 export const TAIL_CHARS = 7000
 
+/** The start of the last line that looks like a block's title (a loose test, not a reading of the block), or -1. */
+function lastTitleAt(answer: string): number {
+  let at = -1
+  for (const found of answer.matchAll(/^[ 	]*>[ 	]*\*{0,2}[ 	]*(?:for you|needs your attention)/gim)) at = found.index ?? at
+  return at
+}
+
 /**
- * The answer's last `TAIL_CHARS` characters when it names a "For you" block at all (a loose word test, not a reading
- * of the block: the board decides what it is); '' otherwise, so an answer without one sends nothing.
+ * What goes with the turn's end for the board to read the block in: the answer from its last "For you" title on (so the
+ * title is never cut off), at most `TAIL_CHARS`; '' when the answer names no such title, so an answer without one sends
+ * nothing. The board decides what it is.
  */
 export function forYouTail(answer: unknown): string {
-  if (typeof answer !== 'string' || !/for you|needs your attention/i.test(answer)) return ''
-  return answer.length > TAIL_CHARS ? answer.slice(-TAIL_CHARS) : answer
+  if (typeof answer !== 'string') return ''
+  const at = lastTitleAt(answer)
+  return at < 0 ? '' : answer.slice(at, at + TAIL_CHARS)
+}
+
+/**
+ * True when the block, from its title to the answer's end, is longer than what `forYouTail` sends: the board cannot see
+ * its end, so it files nothing; the chat asked all the same, so it is never cleared (the board's `asks` cannot say).
+ */
+export function isForYouCut(answer: unknown): boolean {
+  if (typeof answer !== 'string') return false
+  const at = lastTitleAt(answer)
+  return at >= 0 && answer.length - at > TAIL_CHARS
 }
 
 /**

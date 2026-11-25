@@ -13,8 +13,16 @@ test('askKey: no links, marks of markdown, the work tool\'s note, case or end ma
   assert.equal(askKey(null), '')
   // The advice after the question is not part of it; advice with no question before it is kept.
   assert.equal(askKey('Is the strip readable now? I advise yes, it reads well.'), 'is the strip readable now')
-  assert.equal(askKey('Keep it as it is, my advice is to wait'), 'keep it as it is')
+  assert.equal(askKey('Keep it as it is; my advice is to wait'), 'keep it as it is')
+  assert.equal(askKey('Keep it as it is — I would recommend waiting'), 'keep it as it is —')
   assert.equal(askKey('I advise yes'), 'i advise yes')
+  // Advice words in the middle of a question's own clause are part of the question: two questions that differ only after
+  // them stay two (chat 1's review: both were cut to the same short key and the second was dropped as the same ask).
+  const one = askKey('Should the hedge be yew, and I advise against box hedges near the path?')
+  const two = askKey('Should the hedge be yew, and I advise against stone walls near the path?')
+  assert.notEqual(one, two)
+  assert.equal(sameAsk(one, two), false)
+  assert.equal(askKey('Do you want me to recommend a colour or I advise nothing at all?').includes('advise'), true)
 })
 
 test('sameAsk: equal keys are the same, whatever their length', () => {
