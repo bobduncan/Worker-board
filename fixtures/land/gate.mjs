@@ -8,8 +8,12 @@
 import { spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 
-const [mode, from, to] = process.argv.slice(2)
+// F68: `--priority=<word>` (anywhere) makes it write tools/test.mjs's first line, "test run: priority <word>" (- as a space).
+const words = process.argv.slice(2)
+const asked = words.find(word => word.startsWith('--priority='))
+const [mode, from, to] = words.filter(word => !word.startsWith('--priority='))
 console.log(`gate cwd: ${process.cwd()}`)
+if (asked !== undefined) console.log(`test run: priority ${asked.slice('--priority='.length).replace(/-/g, ' ')}`)
 console.log(`node_modules marker: ${existsSync('node_modules/marker.txt') ? 'present' : 'missing'}`)
 const board = fails => {
   console.log('✔ a made-up test (0.1ms)')
