@@ -72,7 +72,9 @@ const isPlain = message => (message.command ?? null) === null || message.command
 export const keepMs = (message, keep) => (isAnswer(message) || isLimitStopWord(message.command) ? Infinity
   : isTaskStopWord(message) ? STOP_HANDS_MS + keep.messageMs
   // F17 check 2: a wake's carry word waits for the scheduled courier's next run (25 min and more, F59 review 6); src/wakeCarry.mjs `carryCloses` closes it.
-  : isPlain(message) || ['step', 'refined', 'work', 'incident', 'handover', 'wake-carry'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
+  // F63: a side word to a side chat (work/sideWord.mjs `SIDE_WORD`) too: its hand window is running time, restarted when a limit comes
+  // back, and `sideClosesOf` alone closes it. The string, not the constant: sideWord.mjs imports wakeCarry.mjs, which imports this file.
+  : isPlain(message) || ['step', 'refined', 'work', 'incident', 'handover', 'wake-carry', 'side-word'].includes(message.command) || waitsLong(message.command) ? keep.answerMs : keep.messageMs)
 /**
  * B891 (the result check of B880: a word went twice): a hand's call that gave no answer in time may still have acted (the
  * real case's ran the Product owner's routine and never answered). A word given back after such a call is in doubt from its

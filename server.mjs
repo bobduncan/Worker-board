@@ -129,7 +129,7 @@ import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { readTestQueue } from './src/testQueue.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { listedWhere, parseList, readAccountFolders } from './src/appChats.mjs'
-import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideKeepOf, sideKeptFor, sideKeptOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
+import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideFullMarkOf, sideKeepOf, sideKeptFor, sideKeptOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
 import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
@@ -4688,6 +4688,14 @@ async function main(args) {
         if (!isHolding(state.pause)) {
           let sides = 0
           for (const { id, why } of state.sideWordsClose ?? []) if (await store.close(id, 'dropped', why, now)) sides += 1
+          // F63: a side word still to go is stamped once when this look sees a limit full (`fullAt`) and once when it sees it back
+          // (`backAt`: its hand window restarts then), each checked against the outbox right before the write.
+          for (const { id, mark } of state.sideFullMarks ?? []) {
+            const fresh = sideFullMarkOf({ word: store.outbox().find(one => one.id === id), isFull: Number.isFinite(mark?.fullAt), now })
+            if (fresh === null) continue
+            await store.update(id, fresh)
+            sides += 1
+          }
           // F53 (b): a card shown because a limit is full is written down once per wait, checked against the outbox: keepCard on the
           // word still to go, or a record of its own, so the card stays until the one word went (a restart too).
           for (const one of state.sideCardsKept ?? []) {

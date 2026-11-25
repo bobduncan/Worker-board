@@ -22,6 +22,14 @@
 // it (`sideKeepOf`: `keepCard` on the word still to go, or a record of its own with no word yet, `sideKeptFor`), and the next word of
 // that wait keeps the card (`sideKeptOf`, overdue). Chat 1's review of F53: a word a hand gave back in doubt may have landed, so it is
 // never closed as "a limit is full" (it stays the word of its wait, never sent twice); a retry chain counts as one word.
+//
+// F63 (chat 1 and the person, 2026-11-25): a word that waited through a full limit gets its whole hand window once the limit is back.
+// The live hole: a word at 12:19, a limit full 12:20-12:28, at 12:29 its window (still from 12:19) was over: closed "no hand sent it
+// within 10 min" one minute after the limit came back, no hand had a chance, and the card named the wrong cause. Now the delivering
+// board's look stamps a word still to go `fullAt` when it sees a limit full (again on a new spell) and `backAt` when it sees it back
+// (`sideFullMarkOf`, written once each, in the outbox so a restart keeps them), and the window counts from `backAt` (`windowFrom`).
+// F53's close while full stays as it was. The outbox keeps a side word as long as an answer (store.mjs `keepMs`), so only
+// `sideClosesOf` closes it, by running time: the outbox sweep's wall clock (10 min, past a PC sleep too) no longer cuts it short.
 
 import { plainWhy } from '../wakeCarry.mjs'
 import { TRIES, passesBySelf } from './passing.mjs'
@@ -62,6 +70,28 @@ const isRetryDue = word => word?.state === 'failed' && word.final !== true && wo
  * tried, a process with no session, a back before any job): it never landed, so it may be closed so and its wait gets its word.
  */
 const mayHaveLanded = word => Number.isFinite(word?.doubtAt)
+
+/** A side word still to go: waiting, or failed and due for a retry (a hand may still send it). */
+const isStillToGo = word => word?.state === 'waiting' || isRetryDue(word)
+
+/** F63: whether a side word's last stamp says the limit is back (`backAt` no older than `fullAt`). */
+const isBackStamped = word => Number.isFinite(word?.backAt) && Number.isFinite(word.fullAt) && word.backAt >= word.fullAt
+
+/** F63: when a side word's hand window counts from: `backAt` when the limit came back after it waited through a full one, else its `at`. */
+export const windowFrom = word => (isBackStamped(word) ? word.backAt : word?.at)
+
+/**
+ * F63: what the delivering board's look stamps on a side word now, so its hand window restarts once a limit is back: `{ fullAt: now }`
+ * the first look a limit is full while it is still to go (and again on a new spell: the last stamp says back), `{ backAt: now }` the first
+ * look no limit is full after a `fullAt`; null for nothing to stamp. Only a word still to go (waiting, or failed and due for a retry),
+ * never one a hand has (`taken`) or one given back in doubt (it may have landed: it is never sent again, so its window is moot).
+ */
+export function sideFullMarkOf({ word, isFull, now }) {
+  if (word?.command !== SIDE_WORD || !isStillToGo(word) || mayHaveLanded(word)) return null
+  const isFullStamped = Number.isFinite(word.fullAt) && !isBackStamped(word)
+  if (isFull === true) return isFullStamped ? null : { fullAt: now }
+  return isFullStamped ? { backAt: now } : null
+}
 
 /** F53 (a): a record closed because a limit was full (a word given up then, or the mark of a card shown then): no word of its wait. */
 const isFullMark = word => word?.state === 'dropped' && word.why === FULL_WHY && !mayHaveLanded(word)
@@ -183,7 +213,8 @@ export function sideStateOf({ late, word, runningMs, isFull = false, kept = fals
   if (word.state === 'expired' && !Number.isFinite(word.closedAt)) return isFull ? notAsked : { ...plain, note: `no hand sent the board's word to ${who} within ${SIDE_HAND_MS / 60_000} min` }
   if (['waiting', 'taken'].includes(word.state) || isRetryDue(word)) {
     if (isFull && word.state !== 'taken') return notAsked
-    if (!(runningMs(word.at) < SIDE_HAND_MS)) return { ...plain, note: `no hand sent the board's word to ${who} within ${SIDE_HAND_MS / 60_000} min` }
+    // F63: the hand window counts from the limit's return when the word waited through a full one (`windowFrom`).
+    if (!(runningMs(windowFrom(word)) < SIDE_HAND_MS)) return { ...plain, note: `no hand sent the board's word to ${who} within ${SIDE_HAND_MS / 60_000} min` }
     return word.keepCard === true ? { ...plain, note: `the board is asking ${who}` } : { ...plain, hold: true }
   }
   // B1394 (principle 16): the person's card names no file; the outbox record keeps the whole why.
@@ -192,17 +223,18 @@ export function sideStateOf({ late, word, runningMs, isFull = false, kept = fals
 
 /**
  * The side words the board closes now, `[{ id, why }]`: one still to go (waiting, or failed and due for a retry) whose wait ended
- * (`liveKeys`, the keys of the waits that stand), or that had SIDE_HAND_MS of running time.
+ * (`liveKeys`, the keys of the waits that stand), or that had SIDE_HAND_MS of running time (F63: from the limit's return when it
+ * waited through a full one, `windowFrom`).
  */
 export function sideClosesOf({ words, liveKeys, runningMs, isFull = false }) {
   const closes = []
   for (const word of Array.isArray(words) ? words : []) {
-    // `expired` with no close yet: the store still holds it waiting (store.mjs `outboxKnown` only reads it so).
+    // `expired` with no close yet: the store still holds it waiting (store.mjs `outboxKnown` only reads it so; F63: past answerMs only).
     const isLateWord = word?.state === 'expired' && !Number.isFinite(word.closedAt)
     if (word?.command !== SIDE_WORD || !(word.state === 'waiting' || isLateWord || isRetryDue(word))) continue
     if (!liveKeys.has(word.key)) closes.push({ id: word.id, why: 'its wait ended' })
     // Chat 1's review of F53, 1: "a limit is full" only for a word that cannot have landed (else it would be due again and go twice).
-    else if (isLateWord || runningMs(word.at) >= SIDE_HAND_MS) closes.push({ id: word.id, why: isFull && !mayHaveLanded(word) ? FULL_WHY : word.state === 'failed' ? String(plainWhy(word.why) ?? STALE_SIDE_WHY) : STALE_SIDE_WHY })
+    else if (isLateWord || runningMs(windowFrom(word)) >= SIDE_HAND_MS) closes.push({ id: word.id, why: isFull && !mayHaveLanded(word) ? FULL_WHY : word.state === 'failed' ? String(plainWhy(word.why) ?? STALE_SIDE_WHY) : STALE_SIDE_WHY })
   }
   return closes
 }
