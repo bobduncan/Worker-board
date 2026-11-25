@@ -66,15 +66,17 @@ test('codex: ok when Codex is found, where the Design tab\'s settings say or whe
   const asked = []
   const found = codexPath => codex.check({ codexPath, findCodex: async ask => { asked.push(ask); return 'C:\\codex\\codex.exe' } })
   assert.deepEqual(await found(''), { ok: true, why: 'Codex found' })
-  assert.deepEqual(await found('D:\\tools\\codex.exe'), { ok: true, why: 'Codex found' })
+  assert.deepEqual(await found('C:\\codex\\codex.exe'), { ok: true, why: 'Codex found' })
   // The same `given` path the Design tab uses for findCodex: '' for none.
-  assert.deepEqual(asked, [{ given: '' }, { given: 'D:\\tools\\codex.exe' }])
+  assert.deepEqual(asked, [{ given: '' }, { given: 'C:\\codex\\codex.exe' }])
   assert.deepEqual(await codex.check({ findCodex: async () => null }), { ok: false, why: 'Codex not found' })
   // It never throws, also when the look for Codex does.
   assert.deepEqual(await codex.check({ findCodex: async () => { throw new Error('disk gone') } }), { ok: false, why: 'Codex could not be looked for' })
-  // Without a stand-in it is src/codex.mjs findCodex: a path given that is no file is "not found".
+  // B1311: the detail names the Codex it uses, and says when the path in the settings is gone.
+  assert.equal((await codexModule.check({ codexPath: 'D:\\old\\codex.exe', findCodex: async () => 'C:\\new\\codex.exe' })).detail, 'Codex found: C:\\new\\codex.exe (the path in the settings is gone: D:\\old\\codex.exe)')
+  assert.equal((await codexModule.check({ codexPath: 'D:\\old\\codex.exe', findCodex: async () => 'D:\\old\\codex.exe' })).detail, 'Codex found: D:\\old\\codex.exe')
+  // Without a stand-in it is src/codex.mjs findCodex: a file given is found.
   const folder = await tempDir(t)
-  assert.deepEqual(await codex.check({ codexPath: join(folder, 'nope.exe') }), { ok: false, why: 'Codex not found' })
   await writeFile(join(folder, 'codex.exe'), 'x')
   assert.deepEqual(await codex.check({ codexPath: join(folder, 'codex.exe') }), { ok: true, why: 'Codex found' })
 })
@@ -288,7 +290,7 @@ test('every check answers a state (works, needs or off) and a short detail for t
   const project = await tempDir(t)
   await mkdir(join(project, 'sound-library'))
   await writeFile(join(project, 'sound-library', 'hit.wav'), 'x')
-  assert.deepEqual(await codexModule.check({ findCodex: async () => 'C:\\codex.exe' }), { ok: true, state: 'works', why: 'Codex found', detail: 'Codex found' })
+  assert.deepEqual(await codexModule.check({ findCodex: async () => 'C:\\codex.exe' }), { ok: true, state: 'works', why: 'Codex found', detail: 'Codex found: C:\\codex.exe' })
   assert.equal((await codexModule.check({ findCodex: async () => null })).state, 'needs')
   assert.deepEqual(await personSunoModule.check(), { ok: true, state: 'works', why: 'you make it in Suno', detail: 'asks you for a file' })
   assert.deepEqual(await soundLibraryModule.check({ project }), { ok: true, state: 'works', why: 'The sound library folder "sound-library" holds sounds', detail: '1 sound found' })

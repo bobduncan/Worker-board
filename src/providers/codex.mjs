@@ -29,9 +29,12 @@ export const codex = {
    */
   async check({ findCodex: find = findCodex, codexPath = '' } = {}) {
     try {
-      return (await find({ given: codexPath })) === null
-        ? { ok: false, state: 'needs', why: 'Codex not found', detail: 'Codex not found' }
-        : { ok: true, state: 'works', why: 'Codex found', detail: 'Codex found' }
+      const path = await find({ given: codexPath })
+      if (path === null) return { ok: false, state: 'needs', why: 'Codex not found', detail: 'Codex not found' }
+      // B1311: say which Codex it uses, and when the path the settings give is gone and another one stands in.
+      const gone = codexPath !== '' && path !== codexPath
+      const detail = gone ? `Codex found: ${path} (the path in the settings is gone: ${codexPath})` : `Codex found: ${path}`
+      return { ok: true, state: 'works', why: 'Codex found', detail }
     } catch {
       return { ok: false, state: 'needs', why: 'Codex could not be looked for', detail: 'Codex not found' }
     }
