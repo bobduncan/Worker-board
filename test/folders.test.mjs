@@ -145,3 +145,37 @@ test('cached shares one read between callers that ask at the same moment', async
   const read = cached(async () => { count += 1; return count }, 60_000, () => 0)
   assert.deepEqual(await Promise.all([read(), read()]), [1, 1])
 })
+
+test('B1502: revalidate reads in the background and keeps serving the kept answer, clean, until its read lands; one at a time', async () => {
+  let now = 1000
+  let count = 0
+  const gates = []
+  const read = cached(() => new Promise(resolve => { count += 1; const mine = count; gates.push(() => resolve(mine)) }), 60_000, () => now)
+  const first = read()
+  gates.shift()()
+  assert.equal(await first, 1)
+  now += 500
+  const landing = read.revalidate()
+  assert.ok(landing instanceof Promise)
+  // Under way: its readAt stands (nothing reads as written since), the kept answer serves at once, and no second read starts.
+  assert.equal(read.readAt(), 1000)
+  assert.equal(read.revalidate(), null)
+  assert.equal(await read(), 1)
+  assert.equal(count, 2)
+  gates.shift()()
+  assert.equal(await landing, 2)
+  // Landed: its answer is the kept one, read when it landed.
+  assert.equal(await read(), 2)
+  assert.equal(read.last(), 2)
+  assert.equal(read.readAt(), 1500)
+  assert.equal(count, 2)
+  // A reset while a revalidate is under way: its answer is not kept, the next read waits for a read of its own.
+  const again = read.revalidate()
+  read.reset()
+  const after = read()
+  gates.shift()()
+  assert.equal(await again, 3)
+  await new Promise(done => setImmediate(done))
+  gates.shift()()
+  assert.equal(await after, 4)
+})

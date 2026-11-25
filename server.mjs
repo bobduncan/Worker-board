@@ -2247,8 +2247,9 @@ async function main(args) {
       return await answer(body, ...more)
     } finally {
       callsNow -= 1
-      // B1502 (chat 1's review): a call taken by its card chain was answered from the kept state; now the next reader builds it fresh.
-      if (body !== null && typeof body === 'object' && movedBodies.delete(body)) readState.reset()
+      // B1502 (chat 1's reviews): a call taken by its card chain was answered from the kept state; now the state is read again in the
+      // background (stale while revalidate), never reset: a reset would make the chat's next `work next` wait for a whole read.
+      if (body !== null && typeof body === 'object' && movedBodies.delete(body)) readState.revalidate()?.catch(error => loops.failed('state-revalidate', error))
     }
   }
   // B319: the Workers mod this folder carries against the one the PC runs (one per PC, for every project's board).
@@ -3165,8 +3166,9 @@ async function main(args) {
   /**
    * B1502: the calls taken by their card chain (`movedCall`), by their body. Such a call is answered from the kept state, which
    * still shows the chat's old session (and a build under way may have begun before the card moved): once its answer is made,
-   * `counted` resets the state, so the next reader builds it fresh, the new session shows and the old one is refused again.
-   * Not before the answer: a reset would make the call's own context (workCtx) wait for that whole read after all.
+   * `counted` starts a read in the background (`revalidate`) whose answer replaces the kept state when it lands: the new session
+   * shows and the old one is refused again. Never a reset (chat 1's second review): every call of the new session (its report,
+   * its take ping, the typed clear stage) is a moved one, and a reset would make its next `work next` wait for a whole read.
    */
   const movedBodies = new WeakSet()
   const movedCall = async (body, state) => {

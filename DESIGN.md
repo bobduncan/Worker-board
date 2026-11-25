@@ -5058,8 +5058,10 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   name, asking under a name it shows, is that chat after its clear when the chat's card chain, followed from the session
   the board shows it under, ends at the asking session (`bridge.mjs` `movedHere`, at most `MOVE_HOPS` moves; the mod
   moves the card 0.2 to 1.6 s before the first call, 23 of 23 in the trace of 2026-11-24/25): the call is checked against
-  the kept state with no read anew, and its trace line says `moved`; once its answer is made, the kept state is reset, so
-  the next reader builds it fresh (the new session shows, the old one is refused again). The mod's typed post (its
+  the kept state with no read anew, and its trace line says `moved`; once its answer is made, the state is read again in
+  the background (`folders.mjs` `cached` `revalidate`, one at a time), whose answer replaces the kept one when it lands
+  (the new session shows, the old one is refused again). Never a reset: the new session's report, take ping and typed
+  clear stage are moved calls too, and a reset would make its next `work next` wait for a whole read after all. The mod's typed post (its
   hand-over outcome, the clear's stages) from the new session is taken the same way, so it is never refused while the
   state still shows the old session. A card read in the chain is strict (`sources.mjs` `readMove`): no card or no move ends
   the chain, a card it cannot read (held, torn, empty) makes the call read anew. Anything else (a chain that ends at another session,

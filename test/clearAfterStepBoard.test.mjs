@@ -123,13 +123,9 @@ test('save-log through the bridge keeps a worker\'s conversation, the chat goes 
   const next = await work({ action: 'next', chat: 'Units', session: 'units-new' })
   assert.equal(next.status, 200, JSON.stringify(next.body))
   assert.match(next.body.text, /B13/)
-  // B1502: that first call was answered from the kept state (its card chain) and reset it after its answer: the board's next read
-  // (here the main chat's typed post, which reads the state) shows the new session, and the session the clear left is refused.
-  const typedAs = body => fetch(`http://127.0.0.1:${port}/api/bridge/typed`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key }, body: JSON.stringify(body),
-  }).then(reply => reply.status)
-  assert.equal(await typedAs({ chat: 'Main', session: 'main-id', typed: [] }), 200)
-  assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-old' })).status, 409)
+  // B1502: that first call was answered from the kept state (its card chain) and read the state again in the background after its
+  // answer: once that read lands, the new session shows and the session the clear left is refused.
+  await until(async () => (await work({ action: 'next', chat: 'Units', session: 'units-old' })).status === 409, 'the session the clear left refused once the read landed')
 
   // The board stops before a log is written; its next start finishes it.
   await stop(started.pop())
@@ -232,21 +228,55 @@ test('B1502: a worker\'s first call after its clear is answered from the kept st
   await put(join(chats, 'units-new.json'), JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW, cleared: { at: NOW, step: 'B12', log: 'x.txt' } }))
   await put(join(chats, 'units-old.json'), JSON.stringify({ movedTo: 'units-new', at: NOW }))
   before = await settle()
+  // The trace line of the chat's first answered call of `action` that arrived from `since` on.
+  const traceOf = async (action, since) => until(async () => (await readFile(join(board, 'data', 'call-trace.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean)
+    .map(line => JSON.parse(line)).find(one => one.chat === 'Units' && one.action === action && one.status === 200 && one.arrived >= since), `the trace line of the ${action}`)
+  const firstAt = Date.now()
   const next = await work({ action: 'next', chat: 'Units', session: 'units-new' })
   assert.equal(next.status, 200, JSON.stringify(next.body))
   assert.match(next.body.text, /B13/)
-  const traced = await until(async () => (await readFile(join(board, 'data', 'call-trace.jsonl'), 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line))
-    .find(one => one.chat === 'Units' && one.action === 'next' && one.moved === true), 'the trace marks the moved call')
-  assert.deepEqual([traced.status, traced.rebuilds], [200, 0], 'the first call after the clear read the board anew')
-  // Its answer reset the kept state: the board's next read shows the new session, and the session the clear left is refused at once.
-  assert.equal(await typedAs({ chat: 'Main', session: 'main-id', typed: [] }), 200)
-  assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-old' })).status, 409)
+  const traced = await traceOf('next', firstAt)
+  assert.deepEqual([traced.status, traced.moved, traced.rebuilds], [200, true, 0], 'the first call after the clear read the board anew')
+  // Its answer read the state again in the background: once that read lands the session the clear left is refused.
+  await until(async () => (await work({ action: 'next', chat: 'Units', session: 'units-old' })).status === 409, 'the session the clear left refused once the read landed')
+
+  // Chat 1's second review: the real order after a clear. The new session's mod reports it works, pings its take and posts the
+  // clear's stage before its next: every one a moved call. None of them may leave the state to be read anew by the next.
+  await put(join(chats, 'units-new2.json'), JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW }))
+  await put(join(chats, 'units-new.json'), JSON.stringify({ movedTo: 'units-new2', at: NOW }))
+  before = await settle()
+  const as = (path, body) => fetch(`http://127.0.0.1:${port}/api/bridge/${path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key }, body: JSON.stringify({ chat: 'Units', session: 'units-new2', ...body }),
+  }).then(reply => reply.status)
+  assert.equal(await as('report', { report: { state: 'busy', since: Date.now(), background: false, seq: 1, run: 2 } }), 200)
+  assert.equal(await as('take', {}), 200)
+  assert.equal(await as('typed', { typed: [], handover: 'h-1', stages: [{ stage: 'cleared', at: Date.now(), ticket: 'clear-2-1' }] }), 200)
+  const secondAt = Date.now()
+  const second = await work({ action: 'next', chat: 'Units', session: 'units-new2' })
+  assert.equal(second.status, 200, JSON.stringify(second.body))
+  const secondTrace = await traceOf('next', secondAt)
+  assert.deepEqual([secondTrace.status, secondTrace.rebuilds], [200, 0], 'the next after the report, take ping and typed stage read the board anew')
+  // The same calls in another order (the typed stage first, the take ping last before the next): a moved call right before the
+  // next. With a reset after a moved call (chat 1's second review) this next waits for a whole read; with the read in the
+  // background it does not.
+  await put(join(chats, 'units-new3.json'), JSON.stringify({ name: 'Units', role: 'worker', state: 'waiting', task: null, at: NOW }))
+  await put(join(chats, 'units-new2.json'), JSON.stringify({ movedTo: 'units-new3', at: NOW }))
+  before = await settle()
+  const as3 = (path, body) => as(path, { session: 'units-new3', ...body })
+  assert.equal(await as3('typed', { typed: [], handover: 'h-2', stages: [{ stage: 'cleared', at: Date.now(), ticket: 'clear-3-1' }] }), 200)
+  assert.equal(await as3('report', { report: { state: 'busy', since: Date.now(), background: false, seq: 1, run: 3 } }), 200)
+  assert.equal(await as3('take', {}), 200)
+  const thirdAt = Date.now()
+  const third = await work({ action: 'next', chat: 'Units', session: 'units-new3' })
+  assert.equal(third.status, 200, JSON.stringify(third.body))
+  const thirdTrace = await traceOf('next', thirdAt)
+  assert.deepEqual([thirdTrace.status, thirdTrace.rebuilds], [200, 0], 'the next right after a moved take ping read the board anew')
   // A stranger is still refused after the move: the chain ends at the chat's new session, not at the stranger's.
   assert.equal((await work({ action: 'next', chat: 'Units', session: 'units-stranger-2' })).status, 409)
   // End to end under the chat's name: the take and a checkpoint are the chat's (the store's owner and state), not refused.
-  const take = await work({ action: 'take', chat: 'Units', session: 'units-new', id: 'B13', branch: 'b13', minutes: 30 })
+  const take = await work({ action: 'take', chat: 'Units', session: 'units-new3', id: 'B13', branch: 'b13', minutes: 30 })
   assert.equal(take.status, 200, JSON.stringify(take.body))
-  const step = await work({ action: 'step', chat: 'Units', session: 'units-new', id: 'B13', step: 1, steps: 2, minutes: 30 })
+  const step = await work({ action: 'step', chat: 'Units', session: 'units-new3', id: 'B13', step: 1, steps: 2, minutes: 30 })
   assert.equal(step.status, 200, JSON.stringify(step.body))
   const stored = await readFile(join(project, '.claude', 'work', 'B13.md'), 'utf8')
   assert.match(stored, /^State: in progress$/m)
