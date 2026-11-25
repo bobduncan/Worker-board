@@ -9197,6 +9197,21 @@ named them. Page code only; the store is unchanged:
   view by goal, the focus goal's own left out), redrawKeys (the view's field). Pictures: .claude/plans/f61-before-*.jpg and f61-after-*.jpg
   (a board copy on a made-up project).
 
+## T5.2 A6b: the chat home's rules files (2026-11-23, chat 4)
+
+Only with `data` set; with it unset there are no home files and nothing is read, written or shown (src/homeFiles.mjs).
+
+- **Pointers.** The chats keep running in the chat home, so the files they read there point at the copies with the data, in
+  `<data>/home`: CLAUDE.md is one @import line, the main and worker briefings one line each. The Workers mod names the briefings
+  by their old place, so they stay there and the mod does not change.
+- **One-way copy.** AGENTS.md is the template's text as it is. The chat list and start.json are not watched: the board and Main
+  change them all the time, so they are copied only at the move (Round B).
+- **The amber line.** A file that differs from what it should be gets one line on top with two buttons: "Write again" (what it
+  should be, into the chat home) and "Copy this PC's into the template" (the chat home's text into `<data>/home`; a pointer file
+  then gets its pointer back). Only on the person's click; the board never writes either way by itself.
+- **Setup** writes a pointer only when `data` is set, its template is there and the chat home has no such file. It never
+  overwrites and never makes config.json.
+
 ## F56: a worker that waits for its own landing gate is no stale checkpoint (2026-11-24, chat 3, chat 1's finding)
 
 The stale-checkpoint rule reads the PC's test queue (B1302) and excuses a step whose own folder waits or runs there, by the folder's

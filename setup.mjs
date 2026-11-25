@@ -19,6 +19,7 @@ import { loadConfig, workFolder } from './src/config.mjs'
 import { courierLines } from './src/courierSetup.mjs'
 import { chatHomeOf } from './src/projectPaths.mjs'
 import { describeFlow, setupFlow } from './src/flowSetup.mjs'
+import { homeFilesPart } from './src/homeFiles.mjs'
 import { picturesPart } from './src/picturesPart.mjs'
 import { findClaude, runSetup } from './src/setup.mjs'
 import { setupWatcher } from './src/watcherSetup.mjs'
@@ -75,6 +76,12 @@ if (file !== null) {
     } else if (done.backup === null) console.log('Nothing changed.')
     else console.log(`Added ${done.added.length} move${done.added.length === 1 ? '' : 's'}${done.states.length === 0 ? '' : ` and ${done.states.length} state${done.states.length === 1 ? '' : 's'}`} to ${done.file}; the old file is kept as ${done.backup}`)
   }
+}
+// T5.2 A6b: the home files part (src/homeFiles.mjs): with `data` set, the chat home's missing pointers; never one that is there.
+{
+  const home = await homeFilesPart({ boardDir: here, isCheck })
+  for (const line of home.lines) console.log(line)
+  if (!home.ok) good = false
 }
 // T5.2 P4: the pictures part (src/picturesPart.mjs): where the project's pictures live; it never makes config.json.
 {
