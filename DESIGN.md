@@ -3319,7 +3319,29 @@ the screen to show the steps associated to the selected goal and to show the 'mi
    the dash, nothing the backlog's line reads as more; its activity the one most of the goal's steps are in), links it
    into the goal's Steps line and takes the line out, found by its words; a line the store refuses is named and Add all
    goes on. Dismiss (`missing-dismiss`, `removeGoalMissing`) takes the line out, undoable as any change of the map.
-4. Not in it: the left and middle of the page (a step of its own afterwards, as the person said).
+4. Not in it: the left and middle of the page (done afterwards in B384, below).
+
+## The Goals page: roadmap, calmer head, ticks, chats (B384)
+
+The second half of the person's Design-tab idea of 2026-10-19 ("I do like the left side of the screen, but lets focus on the
+right side first ... create another backlog item for the left afterwards"). Six named changes, no more; the picture is
+`art-inbox/goals-b384/before-after.png`, the built page `art-inbox/B384/`.
+
+1. **Roadmap** (`nav#goals-roadmap`, `goalRoadmap`, `drawGoalRoadmap`): every top goal and the milestones (M1, M2 ...) inside
+   it, each with a ring (steps done of steps; a done goal is full) and "N of M complete" (a goal with milestones counts them);
+   a click zooms to it; the row that holds the shown goal is lit. A third grid column on 1180 px and more.
+2. **Calmer head**: the title with one state badge and one progress bar (steps complete, goals inside, missing) instead of the
+   count line. Three buttons stay (Ask the Advisor, Brainstorm this, + Sub-goal); every other tool is behind a "..." menu
+   (`goalsUi.headMenu`; a choice closes it, "Click again to delete" keeps it open).
+3. **Done when as ticks** (`goalDoneParts`, `goalIsTicked`): split at ";", one part a line with a box; all ticked when the goal is
+   done or its last re-check passed, never part by part (ticking after the re-check is not this page's).
+4. **Diagram** unchanged but for its boxes: a status badge (`goalBadgeOf`: Complete, In progress, Plan incomplete, Open) and a
+   dashed outline for a goal with no Done when yet.
+5. **Chats on this goal** (`section#goals-chats`, `goalChatsView`): the chats working on the open steps of the shown goal, each
+   with its status and Open chat (the app link) or Open window.
+6. **Details**: Why, Note, Enables and the lines fold behind one "Details: ..." line; the Done when is not said twice.
+
+Colour: in progress is blue, never amber (amber is attention); "Plan incomplete" is amber because it asks for a Done when.
 
 ## Partner answers: detail questions go to the partner first (2026-10-19)
 
@@ -8215,7 +8237,11 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   in the gate worktree, setting `gateFile`), its output appended to the log under `===== rerun alone: <file> =====`; the first that
   fails again refuses ("rerun alone: <file> failed again (<why>)"); all passing counts as passed, with the log line "N test
   file(s) failed under load, all passed alone". Never a second full run, and no rerun for a run that names no files (no summary,
-  a crash). Cleaned up always: the junction first
+  a crash). F68 (chat 1, 2026-11-25): the rerun alone goes through the queue first-class, so it never runs beside another heavy run
+  (`node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal <file>`), and a refusal names each run's
+  priority from the run's first line `test run: priority <word>` ("the gate failed on <head> (full run at below normal priority):
+  ...; rerun alone at below normal priority: <file> failed again"). The rerun asks below normal by name for now (the PC plan of
+  2026-11-25: no lag in Full unless gaming); the core fence (S5) may raise it to `--priority=normal`. Cleaned up always: the junction first
   with `cmd /c rmdir` (never a recursive delete through it), then two checks BEFORE `git worktree remove` (without force, then
   prune): the junction is gone, and the main checkout's `node_modules` still holds `happy-dom`. Either failing stops the
   landing (2026-11-07 10:04: `node_modules` was emptied at the end of a landing and nothing said so): the worktree is left
@@ -9207,7 +9233,7 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
 - **The landing lock's phase**: "gate" when taken, "land" once main is about to move (`lock-refresh --phase land`).
   `landingRestarts` (land phase, not stale, its process runs) is what the board watcher, the leaked-browser closer, faults-gone and
   the carry guards read, so a dead board is not left alone through an hour-long gate.
-- **land.ps1**: the rerun alone defaults to `node tools/test.mjs {file}`, after Stop-FolderProcesses. A lock lost during the gate
+- **land.ps1**: the rerun alone defaults to `node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}` (F68: through the queue, at below normal priority asked by name), after Stop-FolderProcesses. A lock lost during the gate
   stops the gate and refuses. The sweep of a cut landing's gate first ends what it left running there.
 - **tools/test.mjs**: the sweep names a folder only on a path boundary, never in a folder that is or holds a board's (boards.json;
   an unreadable list: no sweep), never its own powershell. A run the helper stopped at its cap is refused like a stall. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.

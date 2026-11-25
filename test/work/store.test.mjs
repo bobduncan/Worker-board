@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
@@ -9,7 +9,7 @@ import { backlogText, storeProblems } from '../../src/work/adapter.mjs'
 
 import { parseItem, valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
-import { appendHistory, nextId, readDelivered, readStore, writeItem, writeStore } from '../../src/work/store.mjs'
+import { appendHistory, nextId, readDelivered, readPauseFile, readStore, writeItem, writeStore } from '../../src/work/store.mjs'
 
 const NOW = new Date(2026, 9, 17, 11, 5).getTime()
 const LATER = new Date(2026, 9, 17, 12, 30).getTime()
@@ -157,4 +157,46 @@ test('B467: a store file Windows holds is tried again, and one that stays held f
   await assert.rejects(readDelivered(dir, holding('delivered.json', 99)), /EBUSY/)
   // A file that is not there is still "none".
   assert.equal((await readStore(dir)).items.has('B99'), false)
+})
+
+test('B419: flow.json, pause.json and activities.json held or unreadable fail the read: never the default flow, "not paused" or no activities', async t => {
+  const dir = await folder()
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  await writeStore(dir, migrateBacklog(BACKLOG, { now: NOW }), undefined, { now: NOW })
+  await writeFile(join(dir, 'flow.json'), '{}')
+  await writeFile(join(dir, 'pause.json'), JSON.stringify({ state: 'pausing', since: NOW, by: 'the person' }))
+  const real = await import('node:fs/promises')
+  const holding = (name, code, times) => {
+    let left = times
+    return {
+      ...real,
+      readFile: async (file, ...rest) => {
+        if (String(file).endsWith(name) && left > 0) {
+          left -= 1
+          throw Object.assign(new Error(`${code}: cannot read '${name}'`), { code })
+        }
+        return real.readFile(file, ...rest)
+      },
+    }
+  }
+  for (const name of ['flow.json', 'pause.json', 'activities.json']) {
+    // Held for a moment: read as it is.
+    assert.ok((await readStore(dir, holding(name, 'EBUSY', 2))).exists, `${name} held twice`)
+    // Held for good (EBUSY, EPERM, EACCES) or refused (any other code): the read fails.
+    for (const code of ['EBUSY', 'EPERM', 'EACCES']) await assert.rejects(readStore(dir, holding(name, code, 99)), new RegExp(code), `${name} ${code}`)
+    await assert.rejects(readStore(dir, holding(name, 'EIO', 99)), /EIO/, `${name} EIO`)
+  }
+  // The pause that is held is no "not paused".
+  await assert.rejects(readPauseFile(dir, holding('pause.json', 'EBUSY', 99)), /EBUSY/)
+  assert.equal((await readPauseFile(dir, holding('pause.json', 'EBUSY', 2))).record?.state, 'pausing')
+  // The real thing: a path that is no readable file (a folder in its place) fails too; a file that is not there is still none.
+  await rm(join(dir, 'flow.json'))
+  await mkdir(join(dir, 'flow.json'))
+  await assert.rejects(readStore(dir), /EISDIR/)
+  await rm(join(dir, 'flow.json'), { recursive: true })
+  await rm(join(dir, 'pause.json'))
+  assert.equal((await readStore(dir)).pause, null)
+  // An item file that cannot be read fails the read, the other items are not shown as the whole store.
+  await mkdir(join(dir, 'B77.md'))
+  await assert.rejects(readStore(dir, { ...real }), /EISDIR/)
 })
