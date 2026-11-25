@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Video probe</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #ccc; font: 14px system-ui, sans-serif; }
+  video { width: 100%; height: calc(100% - 28px); display: block; background: #000; }
+  p { margin: 4px 8px; }
+</style>
+</head>
+<body>
+<video id="clip" src="clip.mp4" muted loop autoplay playsinline></video>
+<p id="state">The video probe measures for the board (S0). It closes by itself.</p>
+<script>
+// S0 of the PC plan: how smoothly a 1080p60 clip plays while heavy runs go. It counts the frames the browser dropped
+// (getVideoPlaybackQuality) and the gaps between frames shown (requestVideoFrameCallback), then posts them to the probe's
+// server, which closes this window.
+const seconds = Number(new URLSearchParams(location.search).get('seconds') || 60)
+const video = document.getElementById('clip')
+const state = document.getElementById('state')
+const gaps = []
+let last = null
+let counting = false
+function frame(now, meta) {
+  if (counting && last !== null) gaps.push(now - last)
+  last = now
+  video.requestVideoFrameCallback(frame)
+}
+async function run() {
+  try { await video.play() } catch (error) { state.textContent = `It could not play: ${error.message}` }
+  video.requestVideoFrameCallback(frame)
+  // A second to settle, then the counting starts from the browser's own counters as they stand.
+  await new Promise(r => setTimeout(r, 1000))
+  const before = video.getVideoPlaybackQuality()
+  counting = true
+  await new Promise(r => setTimeout(r, seconds * 1000))
+  counting = false
+  const after = video.getVideoPlaybackQuality()
+  const result = {
+    seconds,
+    dropped: after.droppedVideoFrames - before.droppedVideoFrames,
+    total: after.totalVideoFrames - before.totalVideoFrames,
+    gaps,
+    playing: !video.paused,
+  }
+  state.textContent = `Done: ${result.dropped} of ${result.total} frames dropped.`
+  await fetch('result', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(result) })
+}
+run()
+</script>
+</body>
+</html>
