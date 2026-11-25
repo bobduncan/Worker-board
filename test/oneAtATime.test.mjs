@@ -498,8 +498,8 @@ test('F39, the re-check: a waiter whose queue folder is removed makes it again a
 // S3 (chat 1, 2026-11-25, the PC plan's queue hygiene): work on no step's critical path waits for an idle PC, and the hold cap holds
 // across a PC sleep.
 test('S3: the runs that wait for an idle PC: the slow tier, a step\'s measure, draw and trial jobs, perf- and idle: runs, or HEAVY_RUN_IDLE=1; a builder\'s proof is no such run', () => {
-  for (const label of ['slow-tier', 'idle:big-suite', 'perf-gate', 'b1517-measure2', 'B12-draw', 'b3-trial-run']) assert.equal(isIdleRun(label, {}), true, label)
-  for (const label of ['test', 'check', 'check:quick', 'test:screens', 'rerun', 'f68-mutants', 'b1297-mut', 'f68-carryGit-normal', 'b1517-test', 'slow-tier-x', 'my-idle:x', 'b-measure']) assert.equal(isIdleRun(label, {}), false, label)
+  for (const label of ['slow-tier', 'idle:big-suite', 'perf-gate', 'b1517-measure2', 'B12-draw', 'b3-trial']) assert.equal(isIdleRun(label, {}), true, label)
+  for (const label of ['test', 'check', 'check:quick', 'test:screens', 'rerun', 'f68-mutants', 'b1297-mut', 'f68-carryGit-normal', 'b1517-test', 'slow-tier-x', 'my-idle:x', 'b-measure', 'b1544-drawbridge', 'b1600-draw-order', 'b12-trials']) assert.equal(isIdleRun(label, {}), false, label)
   assert.equal(isIdleRun('check', { HEAVY_RUN_IDLE: '1' }), true)
   assert.equal(isIdleRun('check', { HEAVY_RUN_IDLE: '0' }), false)
   assert.equal(idleRoomOf('C:/t/one-heavy-run.lock'), 'C:/t/one-heavy-run.lock.idle')
@@ -510,8 +510,10 @@ test('S3: an idle run that came first waits in the idle room while a check waits
   writeFileSync(lock, lockText())
   const idle = start(lock, 'slow-tier', node('console.log(Date.now())'))
   await until(() => /waiting for an idle PC \(someone in C:\/elsewhere/.test(idle.err), 'the idle run waiting')
-  assert.equal(readdirSync(idleRoomOf(lock)).length, 1, 'its ticket in the room')
-  assert.equal(readdirSync(`${lock}.queue`).length, 0, 'none in the queue')
+  // Tickets only: a beat's file beside one comes and goes.
+  const tickets = (folder) => readdirSync(folder).filter((name) => name.endsWith('.json')).length
+  assert.equal(tickets(idleRoomOf(lock)), 1, 'its ticket in the room')
+  assert.equal(tickets(`${lock}.queue`), 0, 'none in the queue')
   const check = start(lock, 'check', node('setTimeout(() => console.log(Date.now()), 300)'))
   await until(() => /waiting for someone/.test(check.err), 'the check waiting')
   rmSync(lock)
@@ -519,7 +521,7 @@ test('S3: an idle run that came first waits in the idle room while a check waits
   assert.deepEqual([one.code, two.code], [0, 0])
   assert.ok(Number(one.out) >= Number(two.out), 'the idle run went only after the check that came later had run')
   assert.match(one.err, /one-at-a-time: slow-tier runs now \(waited \d+ s\)/)
-  assert.equal(readdirSync(idleRoomOf(lock)).length, 0, 'the room is empty after')
+  assert.equal(tickets(idleRoomOf(lock)), 0, 'the room is empty after')
   const logged = readFileSync(`${lock}.runs.jsonl`, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
   assert.deepEqual(logged.map((line) => [line.label, line.idle === true]), [['check', false], ['slow-tier', true]])
 })
@@ -568,7 +570,8 @@ test('S3: a gate that comes right after an idle run took the slot waits for that
   const waited = Number(two.out) - came
   t.diagnostic(`the idle run had ${left} ms left when the gate came; the gate's command began after ${waited} ms`)
   assert.ok(waited >= left, 'the gate never runs beside the idle run')
-  assert.ok(waited - left < 3000, `the gate waited ${waited - left} ms beyond the idle run's time left (a poll and a node start)`)
+  // A poll, a shell and a node start, under whatever load the PC has: the bound is wide, the diagnostic says the real number.
+  assert.ok(waited - left < 10000, `the gate waited ${waited - left} ms beyond the idle run's time left (a poll and a node start)`)
 })
 
 test('S3: the hold cap holds across a PC sleep: a wall clock past the cap stops the run at its next beat with code 124 and frees the slot', async () => {
@@ -587,4 +590,62 @@ test('S3: the hold cap holds across a PC sleep: a wall clock past the cap stops 
   assert.ok(Date.now() - began < 20000, 'stopped at a beat, not when the command ended')
   assert.ok(said.some((line) => /sleeper ran longer than 60 minutes and was stopped/.test(line)), said.join('\n'))
   assert.equal(existsSync(lock), false)
+})
+
+// S3, core review (2026-11-25): after a PC sleep an idle run still counts a live ticket whose beat is only old, and a waiter gives a
+// holder past the cap by the wall clock two beats to stop itself; a first-class run is never idle.
+test('S3 review: after a sleep an idle run still counts a live gate ticket whose beat is old, until it stayed the same for two of its beats', async () => {
+  const lock = newLock()
+  mkdirSync(`${lock}.queue`)
+  const gate = join(`${lock}.queue`, ticketName(Date.now() - 20 * 60000))
+  const slept = () => lockText({ first: true, order: ORDER_MARK, beat: new Date(Date.now() - 6 * 60000).toISOString() })
+  writeFileSync(gate, slept())
+  const idle = start(lock, 'slow-tier', quick, { HEAVY_RUN_BEAT_MS: '600' })
+  await until(() => /waiting for an idle PC \(no run, 1 in the queue\)/.test(idle.err), 'the idle run waiting behind the gate')
+  // The gate wakes and beats again (its text changes) within the idle run's two beats: still counted.
+  await new Promise((done) => setTimeout(done, 700))
+  assert.equal(existsSync(gate), true, 'the sleeping gate\'s ticket is not removed at once')
+  writeFileSync(gate, slept())
+  const changed = Date.now()
+  await new Promise((done) => setTimeout(done, 700))
+  assert.equal(idle.child.exitCode, null, 'the idle run still waits')
+  // It stays the same from now on (its owner never woke): removed after two beats, and the idle run goes.
+  const result = await idle.done
+  assert.equal(result.code, 0)
+  assert.ok(Date.now() - changed >= 1200, `went only after the gate's ticket stayed the same for two beats (${Date.now() - changed} ms)`)
+  assert.equal(existsSync(gate), false)
+})
+
+test('S3 review: a live holder past the cap by the wall clock (the PC slept) gets two beats of the waiter\'s clock to stop itself before its slot is freed', async () => {
+  const lock = newLock()
+  const since = new Date(Date.now() - 131 * 60000).toISOString()
+  writeFileSync(lock, lockText({ since, beat: new Date().toISOString(), order: ORDER_MARK }))
+  const began = Date.now()
+  const waiter = start(lock, 'after the sleep', quick, { HEAVY_RUN_BEAT_MS: '400' })
+  await new Promise((done) => setTimeout(done, 500))
+  assert.equal(existsSync(lock), true, 'not freed at the first look')
+  const result = await waiter.done
+  assert.equal(result.code, 0)
+  assert.ok(Date.now() - began >= 800, `freed only after two beats (${Date.now() - began} ms)`)
+})
+
+test('S3 review: the command of an idle run does not see HEAVY_RUN_IDLE, so the runs it starts in turn are ordinary ones', async () => {
+  const result = await start(newLock(), 'some job', node('console.log(String(process.env.HEAVY_RUN_IDLE))'), { HEAVY_RUN_IDLE: '1' }).done
+  assert.equal(result.code, 0)
+  assert.equal(result.out.trim(), 'undefined')
+  assert.match(result.err, /one-at-a-time: some job runs now/)
+})
+
+test('S3 review: a first-class run with an idle label waits in the queue as first-class, never in the idle room', async () => {
+  const lock = newLock()
+  writeFileSync(lock, lockText())
+  const check = start(lock, 'check', node('console.log(Date.now())'))
+  await until(() => /waiting for someone/.test(check.err), 'the check waiting')
+  const gate = start(lock, 'slow-tier', node('console.log(Date.now())'), { HEAVY_RUN_FIRST: '1' })
+  await until(() => /waiting for someone/.test(gate.err), 'the first-class run waiting in the queue')
+  assert.equal(existsSync(idleRoomOf(lock)), false, 'no idle room was made')
+  rmSync(lock)
+  const [one, two] = await Promise.all([check.done, gate.done])
+  assert.deepEqual([one.code, two.code], [0, 0])
+  assert.ok(Number(two.out) <= Number(one.out), 'the first-class run went before the check that came earlier')
 })

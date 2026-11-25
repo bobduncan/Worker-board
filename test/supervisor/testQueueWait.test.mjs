@@ -56,6 +56,9 @@ test('S3: a run of the step that waits for an idle PC is no case either, and the
   assert.deepEqual(check(board), [])
   const line = healthSummary(board, at(12, 25)).split('\n').find(one => /B1297 in progress/.test(one)) ?? ''
   assert.match(line, /waits for an idle PC since 11:02/)
+  // the step's own check that waits its turn is named before an older idle job of the same folder
+  const both = view(at(12, 25), { queue: [ticket(FOLDER, at(11, 2), { idle: true, ahead: 3 }), ticket(FOLDER, at(12, 10), { ahead: 1 })] })
+  assert.match(healthSummary(both, at(12, 25)), /waits in the test queue since 12:10, 1 ahead/)
 })
 
 test('a run of the step that goes now (it holds the slot) is no case either', () => {

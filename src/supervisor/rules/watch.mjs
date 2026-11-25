@@ -1079,7 +1079,9 @@ export function testQueueOf(item, view) {
   const ids = [idOf(item), valueOf(item, 'Checks')]
   const queue = view.testQueue
   if (queue === undefined || queue === null) return { run: null, seenAt: null }
-  const run = (queue.runs ?? []).filter(one => isFolderOf(one.cwd, ids)).sort((a, b) => a.since - b.since)[0] ?? null
+  // S3, review: a run that goes, then one that waits its turn, before one that waits for an idle PC; the oldest of each.
+  const rank = one => (one.state === 'running' ? 0 : one.idle === true ? 2 : 1)
+  const run = (queue.runs ?? []).filter(one => isFolderOf(one.cwd, ids)).sort((a, b) => rank(a) - rank(b) || a.since - b.since)[0] ?? null
   const seen = [...(queue.seen ?? new Map())].filter(([key, at]) => Number.isFinite(at) && isFolderOf(key, ids)).map(([, at]) => at)
   return { run, seenAt: seen.length === 0 ? null : Math.max(...seen) }
 }

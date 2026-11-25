@@ -124,10 +124,10 @@ export function slotsOf(env = process.env) {
 
 /**
  * S3 (chat 1, 2026-11-25): the labels of work on no step's critical path, which waits for an idle PC: the slow tier, a step's
- * measure, draw and trial jobs (`b1517-measure2`), `perf-` runs and any label with the `idle:` prefix. A builder's own proof
+ * measure, draw and trial jobs (`b1517-measure2`: at most a number after the word), `perf-` runs and any label with the `idle:` prefix. A builder's own proof
  * (related tests, mutants, carry runs) is no such work.
  */
-export const IDLE_LABEL = /^(?:slow-tier$|idle:|perf-|b\d+-(?:measure|draw|trial))/i
+export const IDLE_LABEL = /^(?:slow-tier$|idle:|perf-|b\d+-(?:measure|draw|trial)\d*$)/i
 /** S3: whether a run waits for an idle PC: HEAVY_RUN_IDLE=1, or a label of IDLE_LABEL. */
 export function isIdleRun(label, env = process.env) {
   return env.HEAVY_RUN_IDLE === '1' || IDLE_LABEL.test(String(label ?? ''))
@@ -265,7 +265,21 @@ async function holderOf(file, nap, watched = new Map(), beatMs = BEAT_MS, holdMa
     }
     if (performance.now() - first.at < 2 * beatMs) return seen
   }
+  // S3, review: a live holder past the hold cap by the wall clock (the PC slept past it) stops itself at its first beat after the
+  // wake (runOneAtATime's watch); two beats of this waiter's own clock let it give the slot back first, so two runs never overlap.
+  // Keyed on its process and `since`, as its beats rewrite the rest.
+  if (why?.startsWith('it has held the slot for over')) {
+    const key = `${file}#since`
+    const mark = `${seen.info.pid} ${seen.info.since ?? seen.info.startedAt}`
+    const first = watched.get(key)
+    if (first === undefined || first.mark !== mark) {
+      watched.set(key, { mark, at: performance.now() })
+      return seen
+    }
+    if (performance.now() - first.at < 2 * beatMs) return seen
+  }
   watched.delete(file)
+  watched.delete(`${file}#since`)
   if (why) {
     // Take it away only if it is still the lock we judged: another run may have taken it over a moment ago.
     if (readLock(file)?.raw === seen.raw) removeFile(file)
@@ -312,6 +326,46 @@ function queueOf(folder, now = Date.now()) {
     else if (ticket) removeFile(path.join(folder, name))
   }
   return live
+}
+
+/**
+ * S3, review: the tickets of a folder as an idle run reads them, oldest first (`{ name, pid }` each). Unlike queueOf, a ticket whose
+ * process runs but whose beat is old (the PC slept: its owner beats again within a look of the wake), or that cannot be read yet,
+ * still counts until it has stayed the same for two beats of this run's own clock (`watched`); only then is it removed, as queueOf
+ * would. A ticket whose process is gone is removed at once. So after a sleep no idle run takes the slot before a gate or check that
+ * waited, nor before an older idle run.
+ */
+function ticketsSeen(folder, watched, beatMs, now = Date.now()) {
+  let names = []
+  try {
+    names = readdirSync(folder).filter((name) => name.endsWith('.json')).sort()
+  } catch {
+    return []
+  }
+  const seen = []
+  for (const name of names) {
+    const file = path.join(folder, name)
+    const ticket = readLock(file)
+    if (!ticket) continue
+    const info = ticket.info
+    if (info && !pidRuns(info.pid)) {
+      removeFile(file)
+      continue
+    }
+    const beat = Date.parse(info?.beat)
+    const fresh = info && (Number.isFinite(beat) ? now - beat <= BEAT_STALE_MS : now - Date.parse(info.startedAt) <= TICKET_MAX_AGE_MS)
+    if (!fresh) {
+      const first = watched.get(file)
+      if (first === undefined || first.raw !== ticket.raw) watched.set(file, { raw: ticket.raw, at: performance.now() })
+      else if (performance.now() - first.at >= 2 * beatMs) {
+        watched.delete(file)
+        if (readLock(file)?.raw === ticket.raw) removeFile(file)
+        continue
+      }
+    } else watched.delete(file)
+    seen.push({ name, pid: info?.pid ?? null })
+  }
+  return seen
 }
 
 /** When a ticket came, from its name (`<ms, 15 digits>-<pid>.json`). */
@@ -364,7 +418,15 @@ function ticketIn(folder, at, { label, cwd, first = false, idle = false }) {
         if (createLock(file, next)) text = next
       }
     },
-    leave: () => giveBack(file, text),
+    // True when the ticket is gone (or no longer ours); false when Windows would not remove it yet (S3, review).
+    leave() {
+      try {
+        if (readFileSync(file, 'utf8') === text) unlinkSync(file)
+        return true
+      } catch (error) {
+        return error?.code === 'ENOENT'
+      }
+    },
   }
 }
 
@@ -382,6 +444,7 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
   const ticket = ticketIn(idle ? idleRoomOf(file) : queue, came, { label, cwd, first, idle })
   let placed = null
   const watched = new Map()
+  const watchedTickets = new Map()
   const leave = () => {
     ticket.leave()
     placed?.leave()
@@ -435,16 +498,32 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
       const room = Math.min(free.length, slots - holders.length)
       const running = () => holders.map((one) => `${one.label} in ${one.cwd} (since ${clock(one.since ?? one.startedAt)})`).join('; ')
       if (idle) {
-        // S3: only when no ticket waits in the queue (a gate, a check, an old copy's run) and this run is the oldest in the room.
-        const others = queueOf(queue)
-        const oldest = queueOf(idleRoomOf(file))[0]
-        if (room > 0 && others.length === 0 && (oldest === undefined || oldest.name === ticket.name)) {
+        // S3, review: a ticket of ours that could not be removed after a look (Windows holds a file just made) goes at the next one.
+        if (placed !== null && placed.leave()) placed = null
+        // S3: only when no ticket waits in the queue (a gate, a check, an old copy's run) and this run is the oldest in the room; read
+        // with the grace of ticketsSeen, so a ticket that only slept still counts. Our own leftover in the queue does not.
+        const others = ticketsSeen(queue, watchedTickets, timing.beat).filter((one) => one.pid !== process.pid)
+        const oldest = ticketsSeen(idleRoomOf(file), watchedTickets, timing.beat)[0]
+        if (placed === null && room > 0 && others.length === 0 && (oldest === undefined || oldest.name === ticket.name)) {
           placed = ticketIn(queue, Date.now(), { label, cwd })
           // One look in the queue's own order: a run that came a moment before goes first, and this one goes back to the room.
           const giveBackSlot = aheadOf(queueOf(queue), placed.name, false) < room ? takeFree(free) : null
-          placed.leave()
-          placed = null
-          if (giveBackSlot) return giveBackSlot
+          if (placed.leave()) placed = null
+          if (giveBackSlot && placed === null) return giveBackSlot
+          if (giveBackSlot) {
+            // Our ticket would not go yet: tried again every second while we run, so it holds up nobody after us.
+            const leftover = placed
+            placed = null
+            const retry = setInterval(() => {
+              if (leftover.leave()) clearInterval(retry)
+            }, 1000)
+            retry.unref()
+            return () => {
+              clearInterval(retry)
+              leftover.leave()
+              giveBackSlot()
+            }
+          }
         }
         if (Date.now() - saidAt >= timing.say) {
           const queued = others.length > 0 ? `, ${others.length} in the queue` : ''
@@ -515,13 +594,16 @@ export async function runOneAtATime({
   // S3: the wall clock the hold cap is checked against at every beat (the tests' seam for a PC sleep).
   now = Date.now,
 }) {
-  const idle = isIdleRun(label, env)
+  // S3, review: a first-class run (a landing's gate) never waits for an idle PC, whatever its label.
+  const idle = env.HEAVY_RUN_FIRST !== '1' && isIdleRun(label, env)
   const stop = new AbortController()
   let child = null
   let signalled = null
   let forceExit = () => {}
   let giveLockBack = null
   let capped = false
+  // S3, review: the cap's timer and watch, stopped on every way out (a run ended by a signal whose command never exited too).
+  let quiet = () => {}
   const came = Date.now()
   let began = null
   let code = null
@@ -580,7 +662,7 @@ export async function runOneAtATime({
           if (now() - beganAt > maxMs) stopAtCap()
         }, positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS))
         watch.unref()
-        const quiet = () => {
+        quiet = () => {
           clearTimeout(cap)
           clearInterval(watch)
         }
@@ -600,6 +682,7 @@ export async function runOneAtATime({
         exit: code, stopped: began === null ? `before its turn${signalled ? ` (${signalled})` : ''}` : signalled,
       })
     }
+    quiet()
     giveLockBack?.()
     process.off('exit', onExit)
     for (const [name, listener] of listeners) signals.off(name, listener)

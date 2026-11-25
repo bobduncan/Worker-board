@@ -9170,25 +9170,36 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
 
 ## S3: background runs wait for an idle PC, and the hold cap survives a sleep (2026-11-25, chat 2, the PC plan's queue hygiene)
 
-What happened on 2026-11-25. B1517's measure jobs held the slot for 87 minutes and the slow tier for 20 while gates and checks
-waited behind them. Two holds of 462 and 535 minutes went past the 120-minute cap: the cap was a timer, and a timer's clock stands
-still while the PC sleeps. Together that cost about 590 slot minutes. Plan: .claude/plans/pc-lag-test-speed-plan.md, S3.
+What happened on 2026-11-25. The slow tier and B1517's measure and draw jobs took the slot in plain first-come order while gates
+and checks waited behind them. Two holds of 462 and 535 minutes went far past the 120-minute cap: the cap was a timer, and a timer's
+clock stands still while the PC sleeps (both ended with 124, late). Plan: .claude/plans/pc-lag-test-speed-plan.md, S3.
 
 - **Idle-only runs** (tools/one-at-a-time.mjs `isIdleRun`). These are runs of work on no step's critical path: the slow tier, a
-  step's measure, draw and trial jobs (`b1517-measure2`), `perf-` runs, any label with the `idle:` prefix (S9's big suite will
-  use it), and any run with HEAVY_RUN_IDLE=1. A builder's own proof stays an ordinary run: its related tests, mutants and carry
-  runs, because a step waits on them (chat 1, 2026-11-25).
+  step's measure, draw and trial jobs (`b1517-measure2`: at most a number after the word, so `b1544-drawbridge` is no such job),
+  `perf-` runs, any label with the `idle:` prefix (S9's big suite will use it), and any run with HEAVY_RUN_IDLE=1, which its
+  command does not inherit. A builder's own proof stays an ordinary run: its related tests, mutants and carry runs, because a step
+  waits on them (chat 1, 2026-11-25). A first-class run (a landing's gate) is never idle, whatever its label.
 - **The idle room** (`<lock>.idle`). An idle run waits there with a beating ticket, so a dead waiter drops out, as it does in the
   queue. It goes only when all three hold: no ticket waits in the queue (a gate, a check, an old copy's run), a slot is free, and
   it is the oldest in the room. It then puts a ticket in the queue for one look in the queue's own order. It either takes the slot
-  there, or goes back to the room when a run came a moment before.
+  there, or goes back to the room when a run came a moment before (a race of milliseconds no test stages). "A slot is free" means
+  "the PC is idle" only with one slot (HEAVY_RUN_SLOTS=1); S11's lanes must look at this again.
+  - After a sleep (core review): the idle run reads the queue and the room with the holder's grace (`ticketsSeen`). A ticket whose
+    process runs but whose beat is old, or that cannot be read yet, still counts until it has stayed the same for two beats of the
+    idle run's own clock. So at wake an idle run never removes a sleeping gate's ticket and takes the slot before it.
+  - A ticket of its own that Windows would not remove yet (a file just made) is tried again at every look, and every second while
+    it runs; the idle run does not count it as a waiter.
   - Why a room and not a rank in `queueOrder`: an old copy would still see an earlier idle ticket as ahead of it, and an old run
     waiting for the idle run while the idle run waits for the old one never ends. With the room, the queue's order, FIRST_LEAD_MS
     and the old-copy rules are unchanged.
-  - There is no cap on an idle run's wait. A measure job may wait for hours on a busy day.
+  - There is no cap on an idle run's wait (chat 1). A measure job may wait for hours on a busy day. S9's big suite, due at least
+    every 4 hours, needs its own fallback (an overdue run goes as an ordinary one). The game's slow-tier runner counts as alive past
+    its 3-hour rule while its run waits in the room or holds a slot (lava-tactics tools/slow-tier-lib.mjs `slowTierQueued`), so a
+    second runner never starts and removes the first one's folder; S9's board slow tier must keep that.
   - readTestQueue (src/testQueue.mjs) lists the room's runs after every ticket, marked `idle`, with `since` set to when they came.
-    The stale-checkpoint rule keeps excusing a worker whose run waits there, and its health line says "waits for an idle PC since
-    14:02".
+    The stale-checkpoint rule excuses a worker whose run waits there as it does for a ticket (up to its usual cap of counted time),
+    and its health line says "waits for an idle PC since 14:02". A folder's running run, then a run waiting its turn, is named
+    before an older idle job of the same folder.
   - The run log marks idle runs (`idle: true`).
 - **An idle run that took the slot keeps it.** A gate that comes right after it waits until it ends, for up to the idle run's
   whole time and never past the cap. S9's big suite holds about 25 minutes. Measured in test/oneAtATime.test.mjs: a gate that came
@@ -9196,6 +9207,8 @@ still while the PC sleeps. Together that cost about 590 slot minutes. Plan: .cla
 - **The cap holds across a sleep.** The holder also reads the wall clock (`Date.now()`) at every beat (HEAVY_RUN_BEAT_MS, 60 s)
   against when it took the slot. Past HEAVY_RUN_MAX_MS (120 minutes), it stops its tree and the run ends with code 124. The timer
   stays as well. So a run that slept past the cap is stopped at its first beat after the PC wakes, even when it was not hung.
+  Both are stopped on every way out of the run. A waiter that finds a live holder past the cap by the wall clock gives it two
+  beats of its own clock to stop itself before it frees the slot (core review: before, the two ran side by side for up to a beat).
 - The game's copy (lava-tactics/tools/one-at-a-time.mjs) has the same change and lands right after this one.
 
 ## F46: a build of the state walks the store once (2026-11-23, chat 4)
