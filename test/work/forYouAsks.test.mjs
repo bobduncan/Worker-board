@@ -220,3 +220,35 @@ test('B417: an open "Look at the menu" is not the new, longer item that starts t
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+// B417, chat 1's question: a Workers mod 0.36 sends the items it read (`forYou`), 0.37 the tail (`forYouText`); the board takes both.
+test('B417: an old mod\'s items (forYou) are filed in full as before, with the board\'s extra answer fields; a 0.37 tail files the same asks', async () => {
+  const old = await fresh()
+  const next = await fresh()
+  try {
+    await old.board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
+    await next.board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
+    const fromItems = await old.board({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [LOOK, DECIDE] })
+    const tail = TEXT('> **For you**', `> 1. **Answer:** ${LOOK.text[0]}`, `>    [See the picture: strip](http://127.0.0.1:4310/#picture=${LOOK.pictures[0]})`, `>    [Play it: shop](http://127.0.0.1:4310/#play=${LOOK.play})`, `> 2. **Answer:** ${DECIDE.text[0]}`)
+    const fromTail = await next.board({ action: 'turn-ended', since: NOW + 2 * MIN, forYouText: tail })
+    assert.deepEqual([fromItems.result.asked, fromTail.result.asked], [['Q1', 'Q2'], ['Q1', 'Q2']])
+    for (const id of ['Q1', 'Q2']) {
+      const [a, b] = [await item(old.dir, id), await item(next.dir, id)]
+      assert.deepEqual(head(a, ['Asks', 'Options', 'Advice', 'Pictures']), head(b, ['Asks', 'Options', 'Advice', 'Pictures']))
+    }
+    assert.equal(fromItems.result.unfiled, undefined)
+  } finally {
+    for (const one of [old, next]) await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('B417: both fields in one call (never sent so, but safe): the tail wins, nothing is filed twice', async () => {
+  const { dir, board } = await fresh()
+  try {
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
+    const ended = await board({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [LOOK, DECIDE], forYouText: TEXT('> **For you**', `> 1. **Answer:** ${DECIDE.text[0]}`) })
+    assert.deepEqual(ended.result.asked, ['Q1'])
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
