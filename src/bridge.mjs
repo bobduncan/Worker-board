@@ -273,12 +273,49 @@ function notShown(state, session) {
 
 /**
  * Clear after each step: true for a session the board shows under no name (a chat the Workers mod just cleared goes
- * on under a new session id, which the board's state learns at its next reading). The board then reads anew once.
+ * on under a new session id, which the board's state learns at its next reading). The board then reads anew once, unless the
+ * chat's card chain ends at that session (B1502, `movedHere`).
  */
 export function isUnknownSession(body, state) {
   const session = typeof body?.session === 'string' ? body.session.trim() : ''
   const shown = shownChats(state)
   return session !== '' && !shown.some(one => (one.session ?? null) === session)
+}
+
+/** B1502: the most moves `movedHere` follows from a chat's shown session (a chain longer than this is read anew, never taken). */
+export const MOVE_HOPS = 32
+
+/**
+ * B1502 (X93: 12 of 24 first calls after a clear waited 1.3 to 11.2 s for a whole read of the board): whether a session the
+ * board shows under no name is the chat it names, gone on under a new session after its clear. True only when the chat's
+ * card chain, followed from the session the board shows that chat under (`readMove(id)`: the session that card says it
+ * moved to, or null), ends at the asking session within `max` moves. A chain that ends elsewhere, a missing or unreadable
+ * card, a loop or a chain longer than `max` is false: the caller reads the board anew as before. The mod moves the card
+ * before the new conversation's first call (DESIGN.md, "The same chat after it"); a stranger cannot reach the end of
+ * another chat's chain.
+ */
+export async function movedHere(body, state, readMove, max = MOVE_HOPS) {
+  const chat = typeof body?.chat === 'string' ? body.chat.trim() : ''
+  const session = typeof body?.session === 'string' ? body.session.trim() : ''
+  if (chat === '' || chat.length > 80 || session === '' || session.length > 120 || !isUnknownSession(body, state)) return false
+  const from = shownChats(state).find(one => one.name === chat)?.session
+  if (typeof from !== 'string' || from === '') return false
+  // The END of the chain counts: a session the chat passed through and left again (cleared twice) is not the chat now.
+  const seen = new Set([from])
+  let current = from
+  // The one cap: `max` moves, then the chain counts as too long (a loop ends earlier, at a session seen before).
+  for (let hop = 0; ; hop += 1) {
+    let next
+    try {
+      next = await readMove(current)
+    } catch {
+      return false
+    }
+    if (next === null || next === undefined) return current === session && current !== from
+    if (typeof next !== 'string' || next === '' || seen.has(next) || hop >= max) return false
+    seen.add(next)
+    current = next
+  }
 }
 
 /**
@@ -336,8 +373,9 @@ const reasons = (value, of) => Object.fromEntries(of.filter(id => typeof value?.
  * What the mod reports after a take: the messages it typed into its chat, and the ones it could not type. B532: `why`
  * says why per id, `refused` names the ones it refused for good (too long, no text), which are not tried again.
  */
-export function checkTyped(body, state) {
-  const checked = checkTake(body, state)
+export function checkTyped(body, state, moved = false) {
+  // B1502: `moved`, the caller found the chat's card chain ends at this session (`movedHere`): the chat after its clear.
+  const checked = moved === true && typeof body?.chat === 'string' && typeof body.session === 'string' ? { ok: true, chat: body.chat.trim() } : checkTake(body, state)
   if (!checked.ok) return checked
   const failed = ids(body.failed)
   const refused = ids(body.refused)

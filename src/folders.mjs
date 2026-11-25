@@ -126,6 +126,13 @@ export function cached(read, ttlMs, now = Date.now) {
     round += 1
     readAt = -Infinity
   }
+  /**
+   * B1502 (chat 1's review): a read in the background whose answer replaces the kept one when it lands (stale while revalidate).
+   * Unlike `reset`, it leaves the kept answer and its `readAt` as they are, so every caller meanwhile is served the kept answer and
+   * nothing reads as written since (`readAt` stays finite). At most one read at a time: none starts while one is under way. The
+   * read's promise (its failure is the caller's to record), or null when none started.
+   */
+  fresh.revalidate = () => (running === null ? start() : null)
   /** B736: the newest answer any read gave, however old, or undefined before the first: for what must not wait for a read. */
   fresh.last = () => latest
   /** F42: when that newest answer came (-Infinity before the first); unlike `readAt`, a reset does not forget it. */

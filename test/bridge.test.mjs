@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
-import { answerReport, bridgeNote, checkTake, checkTyped, messageText, noteReport } from '../src/bridge.mjs'
+import { answerReport, bridgeNote, checkTake, checkTyped, messageText, MOVE_HOPS, movedHere, noteReport } from '../src/bridge.mjs'
+import { readMove } from '../src/sources.mjs'
 import { foldOutbox, memoryStore, outboxNow } from '../src/store.mjs'
 
 const MIN = 60_000
@@ -235,4 +239,68 @@ test('the review of chat-reports, 5b: the board keeps when it heard the chat\'s 
   assert.equal(note('busy', 300), 200)
   assert.equal(note('idle', 400), 200)
   assert.equal(note('busy', 500), 500)
+})
+
+// B1502 (X93): a worker's first call after its clear comes from a session the kept state shows under no name. The chat's card
+// chain, followed from the session the board shows it under, decides; chat 1's review (2026-11-25) pinned each case below.
+test('B1502: a chat cleared into a new session is the same chat when its card chain ends at the asking session; nothing else is', async () => {
+  const state = { chats: [{ name: 'Units', session: 's-old' }, { name: 'Main', session: 's-main', isMain: true }, { name: 'Gone', session: 's-gone', isLeftover: true }], advisor: { name: 'Advisor', session: null } }
+  const cards = moves => async id => (id in moves ? moves[id] : null)
+  const asks = session => ({ chat: 'Units', session })
+  // The live case (00:13:19, Worker 1's next 16 s): one clear, the old card names the new session.
+  assert.equal(await movedHere(asks('s-new'), state, cards({ 's-old': 's-new' })), true)
+  // Cleared twice before the board read: the END of the chain counts, not the first move, and not a session the chat left again.
+  assert.equal(await movedHere(asks('s-2'), state, cards({ 's-old': 's-1', 's-1': 's-2' })), true)
+  assert.equal(await movedHere(asks('s-1'), state, cards({ 's-old': 's-1', 's-1': 's-2' })), false)
+  // The card not moved yet (the call before the mod wrote movedTo), a missing or unreadable card: read anew, never a guess.
+  assert.equal(await movedHere(asks('s-new'), state, cards({})), false)
+  assert.equal(await movedHere(asks('s-new'), state, async () => { throw new Error('EBUSY') }), false)
+  // A chain that ends at another session: a stranger under a shown name reaches nothing.
+  assert.equal(await movedHere(asks('s-stranger'), state, cards({ 's-old': 's-new' })), false)
+  // Chat 1's review, point 2: an unreadable card in the MIDDLE of the chain is no end of it (the end's own missing card is normal).
+  const torn = moves => async id => { if (id === 's-1') throw new Error('EBUSY'); return id in moves ? moves[id] : null }
+  assert.equal(await movedHere(asks('s-1'), state, torn({ 's-old': 's-1' })), false)
+  assert.equal(await movedHere(asks('s-2'), state, torn({ 's-old': 's-1', 's-1': 's-2' })), false)
+  // A loop ends at a session seen before, long before the cap (point 4: the seen set, not the cap, ends it), and reads anew.
+  let reads = 0
+  const counting = moves => async id => { reads += 1; return id in moves ? moves[id] : null }
+  assert.equal(await movedHere(asks('s-b'), state, counting({ 's-old': 's-a', 's-a': 's-b', 's-b': 's-a' }), 1_000), false)
+  assert.equal(reads, 3, 'the loop s-a > s-b > s-a ended at its first repeat')
+  reads = 0
+  assert.equal(await movedHere(asks('s-a'), state, counting({ 's-old': 's-a', 's-a': 's-old' }), 1_000), false)
+  assert.equal(reads, 2, 'the loop back to the shown session ended at once')
+  const chain = n => Object.fromEntries(Array.from({ length: n }, (_, i) => [i === 0 ? 's-old' : `s-${i}`, `s-${i + 1}`]))
+  assert.equal(await movedHere(asks(`s-${MOVE_HOPS}`), state, cards(chain(MOVE_HOPS))), true)
+  assert.equal(await movedHere(asks(`s-${MOVE_HOPS + 1}`), state, cards(chain(MOVE_HOPS + 1))), false)
+  // Only a session the board shows under no name, asking under a name it shows (not a leftover, and with a session).
+  assert.equal(await movedHere({ chat: 'Units', session: 's-main' }, state, cards({ 's-old': 's-main' })), false)
+  assert.equal(await movedHere({ chat: 'Nobody', session: 's-new' }, state, cards({ 's-old': 's-new' })), false)
+  assert.equal(await movedHere({ chat: 'Gone', session: 's-new' }, state, cards({ 's-gone': 's-new' })), false)
+  assert.equal(await movedHere({ chat: 'Advisor', session: 's-new' }, state, cards({ null: 's-new' })), false)
+  assert.equal(await movedHere({ chat: '', session: 's-new' }, state, cards({ 's-old': 's-new' })), false)
+  assert.equal(await movedHere({ chat: 'Units' }, state, cards({ 's-old': 's-new' })), false)
+  assert.equal(await movedHere(null, state, cards({ 's-old': 's-new' })), false)
+})
+
+// B1502, chat 1's review point 2: the card reader tells "no card" and "no move" (null) from a card it cannot read (it throws).
+test('B1502: readMove names the move, null for no card or no move, and throws for a card it cannot read', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'board-move-'))
+  try {
+    await mkdir(join(dir, 'chats'))
+    const put = (id, text) => writeFile(join(dir, 'chats', `${id}.json`), text)
+    await put('moved', JSON.stringify({ movedTo: 'new-1', at: 1 }))
+    await put('card', JSON.stringify({ name: 'Units', role: 'worker' }))
+    await put('nul', `${JSON.stringify({ movedTo: 'new-2' })}\u0000\u0000`)
+    await put('torn', '{"movedTo": "new-')
+    await put('empty', '')
+    await put('list', '[]')
+    await put('bad', JSON.stringify({ movedTo: '../x' }))
+    assert.equal(await readMove(dir, 'moved'), 'new-1')
+    assert.equal(await readMove(dir, 'nul'), 'new-2')
+    assert.equal(await readMove(dir, 'card'), null)
+    assert.equal(await readMove(dir, 'missing'), null)
+    for (const id of ['torn', 'empty', 'list', 'bad', '../chats/moved']) await assert.rejects(readMove(dir, id), undefined, id)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
