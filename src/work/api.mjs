@@ -37,7 +37,7 @@ import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, acceptStandOf, acceptChoiceOf,
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
-import { reportNoteLine } from './reportNote.mjs'
+import { reportNoteLine, wordCut } from './reportNote.mjs'
 import { kindsNamed, noneForLook, parseStandard, standardNoneRefused, standardOf, standardWanted } from './standard.mjs'
 import { EFFORTS, effortOf, modelOf, parseEffort, parseModel, withEffort, withModel } from './effort.mjs'
 import { appendHistory, nextId, oneRead, putBack, readActivitiesText, readItemFile, readStore, removeItem, writeActivities, writeItem } from './store.mjs'
@@ -2640,6 +2640,7 @@ async function partnerSetting(body, w) {
   return { ok: true, result: { text: words, partnerAnswers: record, changed: true } }
 }
 
+// F65 (chat 1's review): the one-line `Text` the board page shows is cut at a word's end with "…" (`wordCut`); the Text section keeps all.
 async function makeNote(w, to, text, of, via = null, from = w.who) {
   const id = await nextId(w.dir, 'N', w.fs)
   // P5: the Supervisor's note about an incident names it (`Incidents`), so the board can take it down once it is fixed or gone (src/stillTrue.mjs).
@@ -2647,7 +2648,7 @@ async function makeNote(w, to, text, of, via = null, from = w.who) {
   // stand when X12 is dropped.
   const incidents = via === 'supervisor' && typeof of === 'string' && /^X\d+$/.test(of) ? [of] : []
   const item = said({
-    head: new Map([['Id', id], ['Kind', 'note'], ['From', from], ['To', to], ...(via === null ? [] : [['Via', via]]), ...(incidents.length === 0 ? [] : [['Incidents', incidents.join(', ')]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', line(text.join(' '), LINE_CHARS)]]),
+    head: new Map([['Id', id], ['Kind', 'note'], ['From', from], ['To', to], ...(via === null ? [] : [['Via', via]]), ...(incidents.length === 0 ? [] : [['Incidents', incidents.join(', ')]]), ['State', 'unread'], ['Since', stamp(w.now)], ['Text', wordCut(text.join(' '), LINE_CHARS)]]),
     sections: new Map([['Text', text], ...(of === null ? [] : [['About', [of]]])]),
     problem: null,
   }, w, 'noted')
