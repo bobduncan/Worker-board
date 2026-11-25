@@ -42,7 +42,7 @@ test('workCtx answers from the kept state: no rebuild of its own, but for an unk
   assert.match(kept, /const pause = action !== 'pause-state' \|\| workDir === null \? null\n\s+: await readFile\(join\(workDir, PAUSE_FILE\), 'utf8'\)\.then\(text => parsePause\(text\)\?\.state \?\? null, error => \(error\?\.code === 'ENOENT' \? null : 'unreadable'\)\)\n/)
   assert.match(kept, /return \{ state: why === 'kept' \? last : await readState\(\), why \}/)
   // The work action gives the context the calling chat (a chat's call; the person's and the server's name none) and the action.
-  assert.match(server, /workCtx\(\{ kept: body\?\.action === 'health', chat: as === undefined && typeof body\?\.chat === 'string' \? body\.chat : null, action: body\?\.action \?\? null, of: typeof body\?\.of === 'string' \? body\.of : null, forYou: Array\.isArray\(body\?\.forYou\) && body\.forYou\.length > 0, trace \}\)/)
+  assert.match(server, /workCtx\(\{ kept: body\?\.action === 'health', chat: as === undefined && typeof body\?\.chat === 'string' \? body\.chat : null, action: body\?\.action \?\? null, of: typeof body\?\.of === 'string' \? body\.of : null, forYou: \(Array\.isArray\(body\?\.forYou\) && body\.forYou\.length > 0\) \|\| \(typeof body\?\.forYouText === 'string' && body\.forYouText !== ''\), trace \}\)/)
   // The kept state's four refusals and the one yes, each on its own.
   const last = { readAt: 1000 }
   const roleOf = (state, chat) => (chat === 'Worker 5' ? 'worker' : null)

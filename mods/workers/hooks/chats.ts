@@ -633,12 +633,13 @@ export function roleFrom(answer: unknown): BoardRole | null {
 /**
  * Clear after each step: true when a chat's last answer asks the person something the board did not file as an ask: a
  * question ("Answer:" in a quote block) when the board took no turn's end, when no "For you" block at its end holds it
- * (`items`, the block's questions as the mod read them), or when the board says it could not file some (`unfiled`).
+ * (the board's `asks`, the questions it read), or when the board says it could not file some (`unfiled`). B417: the mod reads
+ * nothing of the block itself; `asksPerson` is only the cheap test for a board that did not answer.
  */
-export function unfiledAsk(answer: string, ended: Record<string, unknown> | null, items: number): boolean {
+export function unfiledAsk(answer: string, ended: Record<string, unknown> | null): boolean {
+  if (ended !== null && typeof ended.unfiled === 'number' && ended.unfiled > 0) return true
   if (!asksPerson(answer)) return false
-  if (ended === null || items === 0) return true
-  return typeof ended.unfiled === 'number' && ended.unfiled > 0
+  return ended === null || typeof ended.asks !== 'number' || ended.asks === 0
 }
 
 /** Clear after each step: the facts that decide whether a worker is cleared after the turn in which it reported. */
@@ -664,7 +665,7 @@ export function clearWhy(f: ClearFacts): string | null {
  * person's projects give what is theirs. The work it is about is then not finished, whatever was reported.
  */
 export function asksPerson(answer: string): boolean {
-  return /^\s*>.*\bAnswer:/im.test(answer)
+  return /^\s*>.*\bAnswer\b\*{0,2}\s*:/im.test(answer)
 }
 
 /**

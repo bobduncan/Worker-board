@@ -4,7 +4,7 @@ import type { FsEntry, On } from 'claude-code'
 
 import type { ChatFile, ChatTask } from '../types'
 import { LEFT_TEXT, chatText, parseChat } from './chats'
-import { forYouItems } from './foryou'
+import { forYouTail } from './foryou'
 import { MOD_VERSION, WORK_ACTIONS } from './board'
 
 const TOOL = 'mcp__workers__chat'
@@ -2025,9 +2025,9 @@ describe('B300: a free worker pulls its next step at the end of its turn', () =>
     // A subagent's answer with such a block is not the chat's.
     await $.turn.complete({ ...ENDED, answer: words, turnId: 's1', agentId: 'a1' })
     await $.turn.complete({ ...ENDED, turnId: 't2' })
-    expect(sent(w).filter(one => one.action === 'turn-ended').map(one => [one.action, one.forYou ?? null])).toEqual([
-      ['turn-ended', [{ n: 1, kind: 'decide', text: ['Keep the golem as it is? I advise yes.'], options: [], advice: 'yes', pictures: [], play: '', ref: null }]],
-      ['turn-ended', null],
+    expect(sent(w).filter(one => one.action === 'turn-ended').map(one => [one.action, typeof one.forYouText === 'string' && one.forYouText.includes('> 1. **Answer:** Keep the golem as it is? I advise yes.')])).toEqual([
+      ['turn-ended', true],
+      ['turn-ended', false],
     ])
   })
 
@@ -3054,11 +3054,11 @@ describe('clear after each step', () => {
     expect(w.compactions.length).toBe(1)
   })
 
-  test('review 8: a "For you" block of more items than the board is handed keeps the worker from being cleared', async ($, on) => {
+  test('review 8, B417: a "For you" block of more items than the board files (it says so: unfiled) keeps the worker from being cleared', async ($, on) => {
     mock.clock(on)
     const w = await worker($, on, null)
     const items = Array.from({ length: 10 }, (_one, i) => `> ${i + 1}. **Do:** look at sheet ${i + 1}.`).join('\n')
-    w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker', pause: RUNNING, asked: [] })
+    w.byAction['turn-ended'] = ok({ missed: [], open: [], role: 'worker', pause: RUNNING, asked: [], asks: 0, unfiled: 1 })
     await $.turn.complete({ ...ENDED, answer: `In.\n\n> **For you**\n${items}`, turnId: 't1' })
     await wait(50)
     expect(w.commanded).toEqual([])
@@ -3271,9 +3271,9 @@ describe('clear after each step', () => {
     await $.turn.complete({ ...ENDED, answer, turnId: 't1' })
     await wait(50)
     const ended = sent(w).find(one => one.action === 'turn-ended')
-    expect(ended?.forYou).toBeUndefined()
-    // A worker's answer of the same words hands one item over (the block is one the mod reads).
-    expect(forYouItems(answer).length).toBe(1)
+    expect(ended?.forYouText).toBeUndefined()
+    // A worker's answer of the same words hands its tail over (B417: the board reads the block).
+    expect(forYouTail(answer)).toBe(answer)
   })
 
   test('the review: the list naming the main chat its supervisor never has the main chat cleared', async ($, on) => {
@@ -5208,8 +5208,8 @@ describe('0.31.1 (F4): no hook of the mod outlives the engine\'s budget', () => 
     // Two turn-ended calls, each with its own since and its own For you item (the mutant: one call, the second turn's asks never filed).
     const ended = w.worked.map(body => JSON.parse(body) as Record<string, unknown>).filter(one => one.action === 'turn-ended')
     expect(ended.map(one => one.since)).toEqual([firstStart, secondStart])
-    expect(ended.map(one => JSON.stringify(one.forYou ?? null).includes('golem 1'))).toEqual([true, false])
-    expect(ended.map(one => JSON.stringify(one.forYou ?? null).includes('golem 2'))).toEqual([false, true])
+    expect(ended.map(one => JSON.stringify(one.forYouText ?? null).includes('golem 1'))).toEqual([true, false])
+    expect(ended.map(one => JSON.stringify(one.forYouText ?? null).includes('golem 2'))).toEqual([false, true])
   })
 
   test('chat 1\'s review (9 and 10): a cut work call\'s background repeat runs the call\'s follow-up (a report marks the card), and the same call again meanwhile reuses the request id', async ($, on) => {

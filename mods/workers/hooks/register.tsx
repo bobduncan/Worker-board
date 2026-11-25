@@ -16,7 +16,7 @@ import {
 } from './chats'
 import type { OpenInstruction, TaskChange } from './chats'
 import { clearRun } from './clearrun'
-import { blockAsksLine, forYouCount, forYouItems, leftOutLine } from './foryou'
+import { blockAsksLine, forYouTail, leftOutLine } from './foryou'
 import { STUCK_SHOWN_MS, isShownForTime, popupText } from './popup'
 import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_SESSION_MS, NO_SESSION_WHY, NOT_TRIED_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
 import type { HandJob, HandResult, HandSet } from './hands'
@@ -1861,9 +1861,9 @@ async function clearAfter($: EngineInterface, c: { list: ChatList; chat: ChatFil
     if (c.handover !== undefined) return clearRefused($, c.handover.envelope, c.handover.outcome, why, { isBackground, isPaused: isPausing })
     await compactAfter($, { moreFollows: c.moreFollows }, 'worker')
   }
-  // The items the board was handed; a block with more (past nine, or too long for the call) leaves some unfiled.
-  const handed = forYouItems(c.answer)
-  const isUnfiled = unfiledAsk(c.answer, c.ended, handed.filter(item => item.kind !== 'do').length) || forYouCount(c.answer) > handed.length
+  // B417: the board read the block itself and says how many questions it read and could not file (a block with more,
+  // past nine or too long for the call, leaves some unfiled).
+  const isUnfiled = unfiledAsk(c.answer, c.ended)
   // A message to another chat in this turn (a question to the main chat): its answer would come into a cleared conversation.
   const running = isInTurn || c.asked ? null : await busyWhy($)
   const busy = isInTurn ? 'a turn is running' : c.asked ? 'it sent another chat a message in this turn and waits for its answer' : running
@@ -3603,21 +3603,21 @@ async function afterOwnTurn($: EngineInterface, e: TurnEndEvent): Promise<void> 
       // Clear after each step: a clear on its way is no turn, nor is the start after it.
       if (e.reason === 'answer' && !wasTold && since !== null) {
         // The review: the supervisor's chat asks the person nothing: no "For you" block of its goes to the board.
-        const forYou = await isSupervisorNow($) ? [] : forYouItems(e.answer)
+        const forYou = await isSupervisorNow($) ? '' : forYouTail(e.answer)
         // B300: a worker that holds nothing pulls with the same call, once per turn: when a step queued for it may be
         // taken now, the board puts its line ("work: B286 is yours; run work next") into the outbox once, and it is
         // typed here at once. All of it holds the turn's end 1.5 s at most; a board without a work store refuses, and
         // nothing changes for the chat (the board says so on its page). B317: an answer that ends with a "For you" block
-        // hands its items over in the same call; the board files those the chat filed no ask for (Via: chat).
+        // hands its tail over in the same call (B417: the board reads the block); the board files the items the chat filed no ask for (Via: chat).
         // The review of Pause 2: while the person pauses (until running) a free worker takes nothing new.
         // B763: read through pauseNow: the turn's last batch may be long past.
         // T8.5 (the spec's mod change 5): a worker on the sequence tells every answered turn's end, also while it holds a
         // step, and pulls nothing: the board decides what it gets (its answer's `handover`).
         const pulls = !isOnSequence && await withinTime($, holdsNothing($)) === true && !isPaused(await pauseNow($))
         // 0.32.0, point 5: the word this turn ran on (8c), so the board ends THAT judge word, not the newest in flight.
-        const fields = { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou.length > 0 ? { forYou } : {}), ...(word !== null ? { word } : {}) }
-        const call = await workLate($, fields, forYou.length > 0 ? ASKED_WAIT_MS : BOARD_WAIT_MS)
-        if (call.read === null && call.late !== null && forYou.length > 0) void takeLateEnded($, call.late, await $.session.id())
+        const fields = { action: 'turn-ended', since, ...(pulls ? { pull: true } : {}), ...(forYou !== '' ? { forYouText: forYou } : {}), ...(word !== null ? { word } : {}) }
+        const call = await workLate($, fields, forYou !== '' ? ASKED_WAIT_MS : BOARD_WAIT_MS)
+        if (call.read === null && call.late !== null && forYou !== '') void takeLateEnded($, call.late, await $.session.id())
         told.ended = call.read
         if (call.read !== null) {
           told.pulled = await tookEnded($, call.read)

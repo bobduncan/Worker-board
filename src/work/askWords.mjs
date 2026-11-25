@@ -6,12 +6,25 @@
 
 import { valueOf } from './item.mjs'
 
-/** B317: an ask's words for comparing: no links, marks of markdown, the work tool's "(Q4, decide, ...)", case or end marks. */
-export const askKey = value => String(value ?? '').replace(/\[([^\]\n]*)\]\([^)\s]*\)/g, '$1').replace(/\((Q\d+),[^)]*\)\s*$/, '').replace(/[*_`~]/g, '')
-  .replace(/\s+/g, ' ').trim().slice(0, 200).toLowerCase().replace(/[\s.?!:;,]+$/, '')
+/** B417: the advice a chat adds after its question ("I advise yes, ..."): not part of what it asks, so `sameAsk` need not allow for it. */
+const ADVICE_TAIL = /(?<=\S)\s+(?:I(?:\s+would|'d)?\s+(?:advise|recommend)|my advice(?:\s+is)?)(?![\w]).*$/i
 
-/** B317: two asks' words are the same question: equal, or one the start of the other (a title is cut, advice added). */
-export const sameAsk = (a, b) => a === b || (a.length >= 12 && b.startsWith(a)) || (b.length >= 12 && a.startsWith(b))
+/** B317: an ask's words for comparing: no links, marks of markdown, the work tool's "(Q4, decide, ...)", the advice after the question (B417), case or end marks. */
+export const askKey = value => String(value ?? '').replace(/\[([^\]\n]*)\]\([^)\s]*\)/g, '$1').replace(/\((Q\d+),[^)]*\)\s*$/, '').replace(/[*_`~]/g, '')
+  .replace(/\s+/g, ' ').trim().replace(ADVICE_TAIL, '').slice(0, 200).toLowerCase().replace(/[\s.?!:;,]+$/, '')
+
+/**
+ * B317: two asks' words are the same question: equal, or one the start of the other (a title is cut, advice added).
+ * B417: a start counts only when the lengths are close (the shorter at least 80% of the longer): an open "Look at the
+ * menu" is not the new, longer "Look at the menu on a phone and check its spacing?". Longer differences are for
+ * `forYouRepeat`, which compares the words.
+ */
+export const SAME_LENGTH = 0.8
+export const sameAsk = (a, b) => {
+  if (a === b) return true
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a]
+  return short.length >= 12 && short.length >= long.length * SAME_LENGTH && long.startsWith(short)
+}
 
 /** B362: the ask ids (`Q12`) that words name anywhere, each as a word of its own. */
 export const askIdsIn = words => [...String(words ?? '').matchAll(/(?<![\w-])(Q\d{1,6})(?![\w-])/g)].map(([, id]) => id)
