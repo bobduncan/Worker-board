@@ -1188,7 +1188,8 @@ or supervisor); `card` the session the chat's card is filed under when that is a
 `.claude/chats/<session>.json` of that name which is no left file, no `movedTo` stub and no other shown chat's), null when
 the asking session has a file of its own (`src/chatCards.mjs`; the case it is for: a worker cleared in a new process, whose
 card stayed under the old session). A session the board shows under no name is read anew once per 30 s before it is
-answered "no chat" (a chat the app just made or moved). The route only reads (guard `free`), and counts as a call of the
+answered "no chat" (a chat the app just made or moved). (B1502 takes a work call of a chat after its clear from its card
+chain without a read anew, "The same chat after it"; whoami keeps its own read anew.) The route only reads (guard `free`), and counts as a call of the
 mod (`seen`, so `bridge.isMissing` is false; the version in `modOf`); a session of no chat counts in `seen.other` under
 `session <id>`, a key no lane reads. In the mod (`joinBySession`): at the session's start, at every tick while the chat is unnamed and before a prompt's
 context, at most once a minute per process, the chat joins under the name by the same code as a title does
@@ -5052,9 +5053,15 @@ runs /clear (`$.command.run({ command: 'clear' })`, queued for when the chat is 
   (a mod that lost its word of the clear in a reload finds the card by its mark, from the board's whoami). Since 0.25.1
   no classic start hook is behind it. The board follows `movedTo` (in
   `sources.mjs` and the state), so the lane, its card, its transcript, its steps, asks and open instructions (kept under
-  the chat's name) stay the one chat's, whether or not the app's file names the new session yet; a session the board
-  shows under no name is read anew once (at most every 30 s) before the bridge refuses it, so the first work call of
-  the new conversation is not "not the chat the board shows". The fresh conversation is told as its start's context
+  the chat's name) stay the one chat's, whether or not the app's file names the new session yet. B1502 (X93: 12 of 24
+  first calls after a clear waited 1.3 to 11.2 s for a whole read, one 16 s in all): a session the board shows under no
+  name, asking under a name it shows, is that chat after its clear when the chat's card chain, followed from the session
+  the board shows it under, ends at the asking session (`bridge.mjs` `movedHere`, at most `MOVE_HOPS` moves; the mod
+  moves the card 0.2 to 1.6 s before the first call, 23 of 23 in the trace of 2026-11-24/25): the call is checked against
+  the kept state with no read anew, and its trace line says `moved`. Anything else (a chain that ends at another session,
+  no card or an unreadable one, a loop, a chain too long, a name the board does not show) is read anew once (at most every
+  30 s) before the bridge refuses it, as before, so the first work call of the new conversation is not "not the chat the
+  board shows", and a stranger under a shown name gets nothing new. The fresh conversation is told as its start's context
   who it is, that its rules are in `CLAUDE.md` and `.claude/worker-briefing.md`, that its earlier conversation was
   cleared and where the log is, the person's instructions still open (as `work next` lists them; the mod asks `next`
   as a chat started anew does, B298), and to run `work next`; after the mod's own clear, or a /clear the person ran of

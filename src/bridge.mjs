@@ -273,7 +273,8 @@ function notShown(state, session) {
 
 /**
  * Clear after each step: true for a session the board shows under no name (a chat the Workers mod just cleared goes
- * on under a new session id, which the board's state learns at its next reading). The board then reads anew once.
+ * on under a new session id, which the board's state learns at its next reading). The board then reads anew once, unless the
+ * chat's card chain ends at that session (B1502, `movedHere`).
  */
 export function isUnknownSession(body, state) {
   const session = typeof body?.session === 'string' ? body.session.trim() : ''
@@ -302,7 +303,8 @@ export async function movedHere(body, state, readMove, max = MOVE_HOPS) {
   // The END of the chain counts: a session the chat passed through and left again (cleared twice) is not the chat now.
   const seen = new Set([from])
   let current = from
-  for (let hop = 0; hop <= max; hop += 1) {
+  // The one cap: `max` moves, then the chain counts as too long (a loop ends earlier, at a session seen before).
+  for (let hop = 0; ; hop += 1) {
     let next
     try {
       next = await readMove(current)
@@ -310,11 +312,10 @@ export async function movedHere(body, state, readMove, max = MOVE_HOPS) {
       return false
     }
     if (next === null || next === undefined) return current === session && current !== from
-    if (typeof next !== 'string' || next === '' || seen.has(next) || hop === max) return false
+    if (typeof next !== 'string' || next === '' || seen.has(next) || hop >= max) return false
     seen.add(next)
     current = next
   }
-  return false
 }
 
 /**

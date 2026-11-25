@@ -183,7 +183,10 @@ const STATE_MS = Number(process.env.WORKER_BOARD_STATE_MS) > 0 ? Number(process.
 const READ_LOG = process.env.WORKER_BOARD_READ_LOG ?? ''
 /** Light state: what `GET /api/step?id=` takes, a step's key: its id (B12), or "<activity>:<place>" for an old line without one. */
 const STEP_KEY = /^(?:[A-Za-z][A-Za-z0-9-]{0,40}|\d{1,4}:\d{1,5})$/
-/** Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). */
+/**
+ * Clear after each step: a session the board shows under no name is read anew at most this often (src/bridge.mjs). B1502: not
+ * one whose chat's card chain ends at it (`movedHere`): that is the chat after its clear, checked against the kept state.
+ */
 const FRESH_MS = 30_000
 /** 2026-10-28: how soon a whoami of a session the board shows under no name reads the state anew. */
 const WHO_FRESH_MS = 1_000
