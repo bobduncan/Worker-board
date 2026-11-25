@@ -8032,12 +8032,21 @@ stalls of 19:50; besides, the app's 566 chat files (37 MB of JSON) were read and
   1.5-2.6 s it held). Every other call is answered meanwhile, from the kept state (`keptStateFor`); a read that needs a fresh state
   (the decide, a dirty or unknown read) awaits the build without holding anyone. `cached` (folders.mjs) is unchanged: one read at a
   time, a reset during a build drops its answer, `revalidate` as B1502 made it; the thread takes its builds in order too.
-- **The fallback**: a thread that throws, ends or gives no build within 120 s is ended and the builds it held are made in the loop as
-  before; the next build starts a new thread. Three failures in a row, a thread that cannot start or a state that cannot be copied
-  turn the thread off: every build in the loop until the board starts anew. A spell of failures is said once in the loops line
-  ("state-thread"), and cleared once a new thread builds (review lens 1). A timer that fires far past its time slept with the PC: it is
-  set once more, and an answer that waits at the wake is taken first. An error of the build itself is the read's error, as it was.
-  The stall log's job is "state build (thread)" or "state build (loop)", named after the build.
+- **The fallback**: a thread that throws or ends is ended and the builds it held are made in the loop as before; the next build starts
+  a new thread. Three failures in a row, a thread that cannot start or a state that cannot be copied turn the thread off: every build
+  in the loop until the board starts anew ("state-thread-off" in the loops line). A spell of failures is said once ("state-thread"),
+  and cleared once a new thread builds (review lens 1).
+- **A stuck build** (chat 1's core review): the thread's limit is 30 s, well under the kept state's 60 s, so no call waits on a stuck
+  build for long. A build over it is never made from its old raw (old `now`, options that moved on): the read fails with LATE,
+  `readOrKept` answers whoever waited from the kept state (not kept as fresh: a reset during the read) and starts a read anew at once,
+  built in the loop. A timer that fires far past its time slept with the PC: it is set again, at every sleep, and an answer that waits
+  at the wake is taken first.
+- **No new thread from newer code**: a new thread loads src/ from the folder; while the folder holds a newer server than the running
+  one (a landing or a self-update before its restart, `versionNow`), the builds are made in the loop; a thread that runs builds on.
+- **revalidate after a running read** (folders.mjs, chat 1's core review): with a read under way most of the time, a revalidate asked
+  while an older read runs starts its read once that one lands (one, however often asked); B1502's own cases are unchanged.
+- An error of the build itself is the read's error, as it was. The stall log's job is "state build (thread)" or "state build (loop)",
+  named after the build.
 - **The chat files are kept by stamp** (src/appChats.mjs `chatFileOf`): a file is read and parsed again only when its time written or
   size changed, or when it was read within 2 s of its time written (git's racy rule: the app may write it again in the same tick at
   the same size); only the parse is kept, not the 37 MB of text. sources.mjs hands the build `appChats` (parsed) in place of the

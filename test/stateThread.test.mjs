@@ -12,7 +12,8 @@ import { Worker } from 'node:worker_threads'
 
 import { parseConfig } from '../src/config.mjs'
 import { buildState } from '../src/state.mjs'
-import { holdBuild, MOST_FAILURES, stateThread } from '../src/stateThread.mjs'
+import { holdBuild, LATE, MOST_FAILURES, stateThread } from '../src/stateThread.mjs'
+import { answer } from '../src/stateWorker.mjs'
 
 const NOW = Date.UTC(2026, 10, 25, 18, 50)
 const PROJECT = join(tmpdir(), 'garden')
@@ -91,7 +92,7 @@ parentPort.on('message', ({ id }) => {
   assert.ok(looped.most >= 1400, `the loop was held only ${looped.most} ms by a build in it`)
 })
 
-test('the fallback: a thread that throws, ends, cannot send back or hangs is given up once, and every build is made in the loop', { timeout: 60_000 }, async t => {
+test('the fallback: a thread that throws, ends or cannot send back is given up once, and every build is made in the loop', { timeout: 60_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'state-thread-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const inLoop = (raw, options) => ({ built: 'in the loop', raw, options })
@@ -102,18 +103,17 @@ test('the fallback: a thread that throws, ends, cannot send back or hangs is giv
     ends: await threadFile(dir, 'ends.mjs', 'import { parentPort } from \'node:worker_threads\'\nparentPort.on(\'message\', () => process.exit(3))\n'),
     // The thread's build cannot be sent back (stateWorker.mjs's own answer then).
     copy: await threadFile(dir, 'copy.mjs', 'import { parentPort } from \'node:worker_threads\'\nparentPort.on(\'message\', ({ id }) => parentPort.postMessage({ id, error: { message: \'could not be cloned\' }, copyFailed: true }))\n'),
-    // The thread never answers.
-    hangs: await threadFile(dir, 'hangs.mjs', 'import { parentPort } from \'node:worker_threads\'\nparentPort.on(\'message\', () => {})\n'),
   }
   for (const [kind, file] of Object.entries(cases)) {
     const failed = []
+    const offs = []
     let starts = 0
-    const builder = stateThread({ inLoop, file, failed: error => failed.push(error.message), limitMs: 1_000, start: url => { starts += 1; return new Worker(url) } })
+    const builder = stateThread({ inLoop, file, failed: error => failed.push(error.message), offForGood: error => offs.push(error.message), limitMs: 1_000, start: url => { starts += 1; return new Worker(url) } })
     t.after(() => builder.close())
     const first = await builder.build({ a: 1 }, { b: 2 })
     assert.deepEqual(first, { built: 'in the loop', raw: { a: 1 }, options: { b: 2 } }, kind)
     assert.equal(builder.lastWay(), 'loop', kind)
-    // A copy that cannot work is off for good at once; a thread that threw, ended or hung is tried anew, MOST_FAILURES times in all.
+    // A copy that cannot work is off for good at once; a thread that threw or ended is tried anew, MOST_FAILURES times in all.
     if (kind !== 'copy') {
       assert.equal(builder.off(), null, kind)
       for (let n = 2; n <= MOST_FAILURES; n += 1) assert.deepEqual(await builder.build({ a: n }, {}), { built: 'in the loop', raw: { a: n }, options: {} }, kind)
@@ -125,7 +125,59 @@ test('the fallback: a thread that throws, ends, cannot send back or hangs is giv
     assert.deepEqual(await builder.build({ a: 9 }, { b: 4 }), { built: 'in the loop', raw: { a: 9 }, options: { b: 4 } }, kind)
     assert.equal(starts, started, kind)
     assert.equal(failed.length, 1, `${kind}: ${JSON.stringify(failed)}`)
+    // Chat 1's core review: off for good is said once, on its own line.
+    assert.equal(offs.length, 1, `${kind}: ${JSON.stringify(offs)}`)
   }
+})
+
+test('chat 1\'s core review: a thread that gives no build in time is ended, its old raw never built; the read anew is built in the loop', { timeout: 60_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'state-thread-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const hangs = await threadFile(dir, 'hangs.mjs', 'import { parentPort } from \'node:worker_threads\'\nparentPort.on(\'message\', () => {})\n')
+  const looped = []
+  const said = []
+  let starts = 0
+  const builder = stateThread({
+    inLoop: raw => { looped.push(raw); return { built: 'in the loop', raw } }, file: hangs, limitMs: 500, failed: () => said.push('failed'),
+    start: url => { starts += 1; return new Worker(url) },
+  })
+  t.after(() => builder.close())
+  await assert.rejects(builder.build({ old: true }, {}), error => error.code === LATE)
+  // The old raw was never built; the read anew is made in the loop, the thread not off.
+  assert.deepEqual([looped, builder.off(), said], [[], null, ['failed']])
+  assert.deepEqual(await builder.build({ fresh: true }, {}), { built: 'in the loop', raw: { fresh: true } })
+  assert.equal(starts, 1)
+  // The build after it tries a new thread.
+  await assert.rejects(builder.build({ again: true }, {}), error => error.code === LATE)
+  assert.equal(starts, 2)
+})
+
+test('chat 1\'s core review: while the folder holds a newer server, no new thread starts; one that runs builds on', { timeout: 60_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'state-thread-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const echo = await threadFile(dir, 'echo.mjs', 'import { parentPort } from \'node:worker_threads\'\nparentPort.on(\'message\', ({ id, raw }) => parentPort.postMessage({ id, state: raw }))\n')
+  let newer = true
+  let starts = 0
+  const builder = stateThread({ inLoop: () => ({ built: 'in the loop' }), file: echo, mayStart: () => !newer, start: url => { starts += 1; return new Worker(url) } })
+  t.after(() => builder.close())
+  assert.deepEqual([await builder.build({ n: 1 }, {}), starts], [{ built: 'in the loop' }, 0])
+  newer = false
+  assert.deepEqual([await builder.build({ n: 2 }, {}), starts], [{ n: 2 }, 1])
+  // A newer server lands while the thread runs: the thread that runs builds on (its code is the running server's).
+  newer = true
+  assert.deepEqual([await builder.build({ n: 3 }, {}), starts], [{ n: 3 }, 1])
+})
+
+test('chat 1\'s core review: the thread\'s own answer: a state it cannot send back is said as a copy failure, a build error as the read\'s', () => {
+  const sent = []
+  const cannot = Object.assign(new Error('() => 1 could not be cloned.'), { name: 'DataCloneError' })
+  answer({ id: 7, raw: {}, options: {} }, { build: () => ({ fn: () => 1 }), hold: () => {}, post: one => { if (one.state !== undefined) throw cannot; sent.push(one) } })
+  assert.deepEqual(sent.map(one => [one.id, one.copyFailed === true, one.error.message]), [[7, true, '() => 1 could not be cloned.']])
+  sent.length = 0
+  answer({ id: 8, raw: {}, options: {} }, { build: () => { throw new Error('no config') }, hold: () => {}, post: one => sent.push(one) })
+  assert.deepEqual(sent.map(one => [one.id, one.copyFailed === true, one.error.message]), [[8, false, 'no config']])
+  answer({ id: 9, raw: { a: 1 }, options: {} }, { build: raw => raw, hold: () => {}, post: one => sent.push(one) })
+  assert.deepEqual(sent.at(-1), { id: 9, state: { a: 1 } })
 })
 
 test('lens 1: a thread that ended once is replaced, the board builds in its thread again and says the spell is over', { timeout: 60_000 }, async t => {
@@ -167,7 +219,7 @@ test('lens 1: an answer that waits when the build\'s time runs out (a PC that wo
   assert.deepEqual([builder.off(), said], [null, []])
 })
 
-test('the verifier: a build whose timer fires far past its time (the PC slept) is waited for once more, not given up', async t => {
+test('the verifier and chat 1: a build whose timer fires far past its time (the PC slept) is waited for again, at every sleep', async t => {
   const timers = []
   const handlers = {}
   const fake = { on: (name, fn) => { handlers[name] = fn }, postMessage: () => {}, unref: () => {}, removeAllListeners: () => {}, terminate: async () => {} }
@@ -179,18 +231,20 @@ test('the verifier: a build whose timer fires far past its time (the PC slept) i
   })
   t.after(() => builder.close())
   const built = builder.build({}, {})
-  // An hour's sleep: the timer fires at the wake, long past its time; it is set once more and the thread's answer comes.
+  // An hour's sleep: the timer fires at the wake, long past its time; it is set again. A second sleep in the same build: again.
   wall = 3_600_000
   timers[0]()
-  assert.equal(timers.length, 2)
+  wall = 7_200_000
+  timers[1]()
+  assert.equal(timers.length, 3)
   handlers.message({ id: 1, state: { built: 'in the thread' } })
   assert.deepEqual(await built, { built: 'in the thread' })
   assert.deepEqual([builder.off(), said], [null, []])
-  // A build that hangs after the wake too is given up at its second time.
+  // A build that hangs with the PC awake is ended at its time: it fails LATE (its old raw is never built), and is said.
   const hung = builder.build({}, {})
   wall += 120_000
-  timers[2]()
-  assert.deepEqual(await hung, { built: 'in the loop' })
+  timers[3]()
+  await assert.rejects(hung, error => error.code === LATE)
   assert.deepEqual(said, ['failed'])
 })
 

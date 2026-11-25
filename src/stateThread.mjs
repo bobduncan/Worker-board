@@ -5,28 +5,40 @@
 // 19:50. Here the build runs in a worker thread (src/stateWorker.mjs): the loop pays only the copies of what goes in and out,
 // and answers every other call meanwhile (from the kept state, folders.mjs `cached`); a read that needs a fresh state awaits the
 // build without holding anyone. One build at a time is `cached`'s rule, unchanged; the thread also takes its builds in order.
-// The fallback: when the thread throws, ends or gives no build within BUILD_LIMIT_MS, the builds it held are made in the loop as
-// before and the next build starts a new thread; after MOST_FAILURES in a row, or at once when no thread can start or a state cannot
-// be copied, every build is made in the loop. A spell of failures is said once (`failed`), its end once (`recovered`: a new thread
-// built). An error of the build itself (buildState threw) is the read's error, as it was in the loop.
+// The fallback: when the thread throws or ends, the builds it held are made in the loop as before and the next build starts a new
+// thread; after MOST_FAILURES in a row, or at once when no thread can start or a state cannot be copied, every build is made in the
+// loop. A thread that gives no build within BUILD_LIMIT_MS is ended too, but its build is NOT made from the old raw (chat 1's core
+// review): the read fails with LATE, the server answers from the kept state and reads anew, that build in the loop. A spell of
+// failures is said once (`failed`), its end once (`recovered`: a new thread built), the thread off for good once (`offForGood`). An
+// error of the build itself (buildState threw) is the read's error, as it was in the loop. While the board's folder holds a newer
+// server than the one running (`mayStart` false: a landing or self-update before its restart), no new thread starts: it would load
+// the newer code; the builds are made in the loop until the restart.
 
 import { Worker } from 'node:worker_threads'
 
-/** How long a build may take in the thread before the board gives the thread up (a build took 14 s on a full PC). */
-export const BUILD_LIMIT_MS = 120_000
+/**
+ * How long a build may take in the thread before the board ends it (a build took 2.6 s on a quiet PC, 14 s on a full one). Chat 1's
+ * core review: well under the kept state's age limit (keptState.mjs KEPT_STATE_MS, 60 s), so a stuck build never has every call wait on it.
+ */
+export const BUILD_LIMIT_MS = Number(process.env.WORKER_BOARD_BUILD_LIMIT_MS) > 0 ? Number(process.env.WORKER_BOARD_BUILD_LIMIT_MS) : 30_000
+
+/** The code of the error a build gives that took over BUILD_LIMIT_MS: the read answers from the kept state and reads anew. */
+export const LATE = 'STATE_THREAD_LATE'
 
 /**
  * B1535: a test's build that holds its thread (or the loop, after the fallback) this long, as a long build on a full PC does;
  * 0 (none) on a real board.
  */
 export const BUILD_BLOCK_MS = Number(process.env.WORKER_BOARD_BUILD_BLOCK_MS) > 0 ? Number(process.env.WORKER_BOARD_BUILD_BLOCK_MS) : 0
+/** Chat 1's core review: a test's build that holds the THREAD alone this much longer (a stuck thread; the loop's build is quick). */
+export const THREAD_BLOCK_MS = Number(process.env.WORKER_BOARD_THREAD_BLOCK_MS) > 0 ? Number(process.env.WORKER_BOARD_THREAD_BLOCK_MS) : 0
 
 /** Holds the thread it runs on for `ms` (the tests' long build). */
 export function holdBuild(ms = BUILD_BLOCK_MS) {
   for (const end = Date.now() + ms; Date.now() < end;) { /* held, as a long build holds it */ }
 }
 
-/** The verifier: a build's timer that fires this long past its time slept with the PC (the time on the wall jumped). */
+/** The verifier: a build's timer that fires this long past its time slept with the PC (the time on the wall jumped): set again. */
 export const SLEPT_MS = 30_000
 
 /** Chat 1's lens 1: a thread that ended or timed out this many times in a row is given up for good (a new one is tried before). */
@@ -38,11 +50,13 @@ export const MOST_FAILURES = 3
  * build starts a new thread, until MOST_FAILURES in a row, a thread that cannot start, or a state that cannot be copied turn the
  * thread off for good (every build in the loop then). `failed(error)` is said once per spell of failures; `recovered()` once a new
  * thread builds again. `off()` why the thread is off for good (null while threads build), `lastWay()` where the newest build was
- * made ('thread' or 'loop'), `close()` ends the thread. Ports for the tests: `start(file)` makes the thread, the timers, `soon`.
+ * made ('thread' or 'loop'), `close()` ends the thread. A build over `limitMs` fails with LATE (see above); `mayStart()` false starts
+ * no new thread. Ports for the tests: `start(file)` makes the thread, the timers, `soon`, `wall`.
  */
 export function stateThread({
-  inLoop, file = new URL('./stateWorker.mjs', import.meta.url), failed = () => {}, recovered = () => {}, limitMs = BUILD_LIMIT_MS,
-  start = url => new Worker(url), setTimer = setTimeout, clearTimer = clearTimeout, soon = setImmediate, wall = Date.now,
+  inLoop, file = new URL('./stateWorker.mjs', import.meta.url), failed = () => {}, recovered = () => {}, offForGood = () => {},
+  mayStart = () => true, limitMs = BUILD_LIMIT_MS, start = url => new Worker(url), setTimer = setTimeout, clearTimer = clearTimeout,
+  soon = setImmediate, wall = Date.now,
 } = {}) {
   let worker = null
   let off = null
@@ -50,6 +64,8 @@ export function stateThread({
   let failures = 0
   let said = false
   let way = null
+  /** After a build that took too long, the next one (the read anew) is made in the loop. */
+  let loopNext = false
   /** The builds sent to the thread and not answered: id → { raw, options, resolve, reject, timer }. */
   const pending = new Map()
 
@@ -71,13 +87,17 @@ export function stateThread({
   }
 
   /**
-   * The thread is given up: ended, and every build it held is built in the loop. `forGood` (a start or a copy that cannot work), or
-   * the MOST_FAILURES-th failure in a row, turns the thread off for every build after it. Said once per spell.
+   * The thread is given up: ended, and every build it held is built in the loop (`late`: each fails with LATE instead, as its raw is
+   * old). `forGood` (a start or a copy that cannot work), or the MOST_FAILURES-th failure in a row, turns the thread off for every
+   * build after it. Said once per spell.
    */
-  const giveUp = (why, forGood = false) => {
+  const giveUp = (why, { forGood = false, late = false } = {}) => {
     const error = why instanceof Error ? why : new Error(String(why))
     failures += 1
-    if (off === null && (forGood || failures >= MOST_FAILURES)) off = error
+    if (off === null && (forGood || failures >= MOST_FAILURES)) {
+      off = error
+      say(offForGood, error)
+    }
     if (!said) {
       said = true
       say(failed, error)
@@ -92,7 +112,10 @@ export function stateThread({
     for (const [id, one] of [...pending]) {
       pending.delete(id)
       clearTimer(one.timer)
-      inLoopFor(one, one.raw, one.options)
+      if (late) {
+        loopNext = true
+        one.reject(Object.assign(new Error(error.message), { code: LATE }))
+      } else inLoopFor(one, one.raw, one.options)
     }
   }
 
@@ -103,7 +126,7 @@ export function stateThread({
     made.on('message', message => {
       const one = pending.get(message?.id)
       if (one === undefined) return
-      if (message.copyFailed === true) return giveUp(new Error(`the state thread could not send its build back: ${message.error?.message ?? 'no reason'}`), true)
+      if (message.copyFailed === true) return giveUp(new Error(`the state thread could not send its build back: ${message.error?.message ?? 'no reason'}`), { forGood: true })
       pending.delete(message.id)
       clearTimer(one.timer)
       way = 'thread'
@@ -133,23 +156,30 @@ export function stateThread({
       return new Promise((resolve, reject) => {
         const one = { raw, options, resolve, reject, timer: null }
         if (off !== null) return inLoopFor(one, raw, options)
+        if (loopNext) {
+          loopNext = false
+          return inLoopFor(one, raw, options)
+        }
+        // A newer server in the folder: no new thread (it would load the newer code); one that runs builds on.
+        if (worker === null && !mayStart()) return inLoopFor(one, raw, options)
         let made
         try {
           made = thread()
         } catch (error) {
-          giveUp(error, true)
+          giveUp(error, { forGood: true })
           return inLoopFor(one, raw, options)
         }
         const id = ++seq
         pending.set(id, one)
         // Lens 1: an answer that waits at the PC's wake is taken first (the timer may fire before the thread's message is read).
-        // The verifier: a timer that fires far past its time slept with the PC; it is set once more, the build going on after the wake.
-        const arm = (rearmed = false) => {
+        // The verifier and chat 1: a timer that fires far past its time slept with the PC; it is set again, the build going on after
+        // the wake (every sleep within one build: a sleep is no failure).
+        const arm = () => {
           const due = wall() + limitMs
           one.timer = setTimer(() => soon(() => {
             if (!pending.has(id)) return
-            if (!rearmed && wall() - due > SLEPT_MS) return arm(true)
-            giveUp(new Error(`the state thread gave no build within ${Math.round(limitMs / 1000)} s`))
+            if (wall() - due > SLEPT_MS) return arm()
+            giveUp(new Error(`the state thread gave no build within ${Math.round(limitMs / 1000)} s`), { late: true })
           }), limitMs)
           one.timer?.unref?.()
         }
@@ -158,7 +188,7 @@ export function stateThread({
           made.postMessage({ id, raw, options })
         } catch (error) {
           // A value the copy cannot take (DataCloneError): this build and every one after it in the loop.
-          giveUp(error, true)
+          giveUp(error, { forGood: true })
         }
       })
     },

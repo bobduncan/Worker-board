@@ -79,7 +79,8 @@ async function timed(call) {
   return { answered, ms: Date.now() - from }
 }
 
-test('the 19:50 and 19:55 cases: while a build of 6 s runs in its thread, other calls are answered within 1 s and the loop stays free', { timeout: 400_000 }, async t => {
+/** A copy of the board on a made-up project with three chats, started with `env`; its work and report calls. */
+async function boardWith(t, env) {
   const dir = await mkdtemp(join(tmpdir(), 'board-thread-'))
   const started = []
   t.after(async () => {
@@ -103,7 +104,7 @@ test('the 19:50 and 19:55 cases: while a build of 6 s runs in its thread, other 
   await writeStore(join(project, '.claude', 'work'), migrateBacklog('## Garden\n- [ ] B730 Something else (about 1 h)\n', { now: NOW }), undefined, { now: NOW })
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'thread', project, port, gamePort: 7371, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), handover: 'sequence' }))
-  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_BUILD_BLOCK_MS: String(BUILD_MS) })
+  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), ...env })
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   const base = `http://127.0.0.1:${port}`
   let count = 0
@@ -137,6 +138,11 @@ test('the 19:50 and 19:55 cases: while a build of 6 s runs in its thread, other 
 
   await until(async () => (await report('Digger', 'busy')).status === 200 && (await report('Delver', 'busy')).status === 200 && (await report('Lead', 'busy')).status === 200, 'every chat\'s report kept')
   await until(async () => (await work('Delver', { action: 'pause-state' }).done).status === 200, 'the board answers work calls')
+  return { board, work, report }
+}
+
+test('the 19:50 and 19:55 cases: while a build of 6 s runs in its thread, other calls are answered within 1 s and the loop stays free', { timeout: 400_000 }, async t => {
+  const { board, work } = await boardWith(t, { WORKER_BOARD_BUILD_BLOCK_MS: String(BUILD_MS) })
 
   // 19:50: Digger's turn ends; its hand-over's decide reads the state anew, a build of 6 s.
   const turnFrom = Date.now()
@@ -178,4 +184,20 @@ test('the 19:50 and 19:55 cases: while a build of 6 s runs in its thread, other 
     assert.ok(line.jobs.includes('state build (thread)'), `${line.action}: ${JSON.stringify(line.jobs)}`)
   }
   assert.equal(traced.find(one => one.request === note.request).stateWhy, 'kept')
+})
+
+test('chat 1\'s core review: a stuck thread (10 s, its limit 3 s) holds nobody: calls answer from the kept state, the turn end gets a read anew', { timeout: 400_000 }, async t => {
+  const STUCK_MS = 10_000
+  const { work } = await boardWith(t, { WORKER_BOARD_BUILD_LIMIT_MS: '3000', WORKER_BOARD_THREAD_BLOCK_MS: String(STUCK_MS) })
+  // Digger's turn ends: its decide reads anew; the thread's build sticks, is ended at 3 s, and a read anew is made in the loop.
+  const turnFrom = Date.now()
+  const turn = work('Digger', { action: 'turn-ended', since: Date.now() - MIN })
+  await pause(1_500)
+  const noted = await timed(() => work('Delver', { action: 'note', to: 'main', text: 'a note while the thread is stuck' }).done)
+  assert.equal(noted.answered.status, 200, JSON.stringify(noted.answered.body))
+  assert.ok(noted.ms < QUICK_MS, `a work note waited ${noted.ms} ms while the thread was stuck`)
+  const ended = await turn.done
+  const turnMs = Date.now() - turnFrom
+  assert.equal(ended.status, 200, JSON.stringify(ended.body))
+  assert.ok(turnMs < STUCK_MS - 2_000, `the turn end waited ${turnMs} ms for a stuck thread`)
 })

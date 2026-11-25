@@ -5,22 +5,25 @@
 import { parentPort } from 'node:worker_threads'
 
 import { buildState } from './state.mjs'
-import { holdBuild } from './stateThread.mjs'
+import { BUILD_BLOCK_MS, holdBuild, THREAD_BLOCK_MS } from './stateThread.mjs'
 
 const errorOf = error => ({ message: String(error?.message ?? error), stack: typeof error?.stack === 'string' ? error.stack : '' })
 
-parentPort.on('message', ({ id, raw, options }) => {
+/** One build's answer, sent with `post` (the port's postMessage; the tests give their own). */
+export function answer({ id, raw, options }, { build = buildState, post, hold = () => holdBuild(BUILD_BLOCK_MS + THREAD_BLOCK_MS) }) {
   let state
   try {
-    holdBuild()
-    state = buildState(raw, options)
+    hold()
+    state = build(raw, options)
   } catch (error) {
-    parentPort.postMessage({ id, error: errorOf(error) })
+    post({ id, error: errorOf(error) })
     return
   }
   try {
-    parentPort.postMessage({ id, state })
+    post({ id, state })
   } catch (error) {
-    parentPort.postMessage({ id, error: errorOf(error), copyFailed: true })
+    post({ id, error: errorOf(error), copyFailed: true })
   }
-})
+}
+
+if (parentPort !== null) parentPort.on('message', message => answer(message, { post: one => parentPort.postMessage(one) }))
