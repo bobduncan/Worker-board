@@ -43,6 +43,8 @@ export const LOOP_WORDS = {
   'design-kinds': 'reading the kinds of idea',
   history: 'reading the other board\'s task times',
   'bridge-note': 'telling the chats where the board is',
+  // T5.2 A6b (chat 1's review of B467): the chat home's rules files, read for the note on top; shown until a read goes well again.
+  'home-files': 'reading the chat home\'s rules files',
   // B640: the newest limit readings of the chats, kept with the project.
   'limit-readings': 'keeping the limit readings',
   // T13: the chats' last reports, kept in data/reports.json so a restart keeps each chat's state.

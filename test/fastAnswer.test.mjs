@@ -35,7 +35,10 @@ test('workCtx answers from the kept state: no rebuild of its own, but for an unk
   assert.doesNotMatch(ctx.replace(/await keptStateFor\(chat, action, of, forYou\)/, '').replace(/readState\.last\(\) \?\? await readState\(\)/, ''), /await readState\(\)/, 'no other rebuild inside the context')
   // The decision is src/keptState.mjs's (pure, tested below); the server hands it the kept state, the clock, the dirty flag and laneRole.
   const kept = bodyOf('  const keptStateFor = async (chat, action, of = null, forYou = false) => {')
-  assert.match(kept, /keptStateWhy\(\{ last, now: clock\(\), chat, action, of, forYou, dirty: readState\.readAt\(\) === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS \}\)/)
+  assert.match(kept, /keptStateWhy\(\{ last, now: clock\(\), chat, action, of, forYou, dirty: readState\.readAt\(\) === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS, pause \}\)/)
+  // B1139: the store's pause for pause-state is read from pause.json at the call (fresh); one that cannot be read is no "running".
+  // The whole guard: only a pause-state call reads it (every other action hands null), and the read's state goes to keptStateWhy.
+  assert.match(kept, /const pause = action !== 'pause-state' \|\| workDir === null \? null\n\s+: await readFile\(join\(workDir, PAUSE_FILE\), 'utf8'\)\.then\(text => parsePause\(text\)\?\.state \?\? null, error => \(error\?\.code === 'ENOENT' \? null : 'unreadable'\)\)\n/)
   assert.match(kept, /return why === 'kept' \? last : readState\(\)/)
   // The work action gives the context the calling chat (a chat's call; the person's and the server's name none) and the action.
   assert.match(server, /workCtx\(\{ kept: body\?\.action === 'health', chat: as === undefined && typeof body\?\.chat === 'string' \? body\.chat : null, action: body\?\.action \?\? null, of: typeof body\?\.of === 'string' \? body\.of : null, forYou: Array\.isArray\(body\?\.forYou\) && body\.forYou\.length > 0 \}\)/)
@@ -53,7 +56,14 @@ test('workCtx answers from the kept state: no rebuild of its own, but for an unk
   // new step, a note of a goal, a refine, the pause state wait for a fresh one (they read the goal map, the recaps, the ready list, the lanes).
   for (const action of ['step', 'report', 'turn-ended', 'pull', 'health', 'asset', 'list', 'block', 'unblock']) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action, dirty: true, roleOf }), 'kept', action)
   // take and next carry the recap rows' words of the step (the verifier of 2026-11-11): a verdict just written must reach them.
-  for (const action of ['take', 'next', 'ask', 'new', 'refine', 'refined', 'answer', 'pause-state', 'resumed', 'withdraw', 'words', 'checked', 'drop', 'close', null]) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action, dirty: true, roleOf }), 'dirty', String(action))
+  for (const action of ['take', 'next', 'ask', 'new', 'refine', 'refined', 'answer', 'resumed', 'withdraw', 'words', 'checked', 'drop', 'close', null]) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action, dirty: true, roleOf }), 'dirty', String(action))
+  // B1139 (X93, chat 1's condition): pause-state answers from the kept state while the store's pause is running or none (the mods'
+  // running-state polls, 56 of the week's 200 slow calls); Pause all just written (pausing) or a resume reads fresh, so the very next
+  // pause-state answers pausing with lanes no older than the last write, and a resume's not-started list is never older than it.
+  for (const pause of [null, 'running']) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action: 'pause-state', dirty: true, roleOf, pause }), 'kept', String(pause))
+  for (const pause of ['pausing', 'resuming', 'unreadable']) assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action: 'pause-state', dirty: true, roleOf, pause }), 'dirty', pause)
+  // Without a write since the last read the kept state serves a pause-state in every pause state.
+  assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action: 'pause-state', dirty: false, roleOf, pause: 'resuming' }), 'kept')
   // A turn-ended with a For you block files asks (the goal map, the recaps, the card's step): it waits for a fresh state too.
   assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action: 'turn-ended', forYou: true, dirty: true, roleOf }), 'dirty')
   assert.equal(keptStateWhy({ last, now: 2000, chat: 'Worker 5', action: 'turn-ended', forYou: true, dirty: false, roleOf }), 'kept')
@@ -92,9 +102,11 @@ test('the side effects run after the answer, in order: the guard, the supervisor
 })
 
 test('every work call is counted with the rebuilds that started during it, and the day\'s figures travel to the health line', () => {
-  const stall = bodyOf('  const callStall = (action, session) => {')
+  const stall = bodyOf('  const callStall = (action, session, request = null) => {')
   assert.match(stall, /const rebuildsBefore = rebuilds/)
-  assert.match(stall, /workCalls\.note\(\{ action, chat, ms: clock\(\) - begun, rebuilds: rebuilds - rebuildsBefore, at: begun \}\)/)
+  // B1139 (one clock): from the chat's send, by its request id (a repeat counts once).
+  assert.match(stall, /const from = callFrom\(\{ sent: sentAtOf\(request\), begun, answered, startedAt \}\)/)
+  assert.match(stall, /workCalls\.note\(\{ action, chat, ms: answered - from, rebuilds: rebuilds - rebuildsBefore, at: begun, request \}\)/)
   assert.match(server, /const readState = cached\(\(\) => readAfterSleep\(built => trackJob\('state rebuild', async \(\) => \{\n\s+rebuilds \+= 1/)
   assert.match(server, /workCalls: workCalls\.today\(clock\(\)\),/)
   assert.match(server, /await workCalls\.load\(\)/)

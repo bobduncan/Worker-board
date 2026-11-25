@@ -116,6 +116,27 @@ export function resolveStored(config, stored, { boardDir = null } = {}) {
 }
 
 /**
+ * T5.2 A6a: a picture path a chat names, relative to its own folder (the chat home), in the board's stored form: a path under the data
+ * home's pictures folder becomes its root-relative form (`<picture root>/<subject>/<name>`), one under the project folder its project-relative form.
+ * Anything else, and every path with `data` unset (today: the chat home is the project), stays as the chat gave it. PURE.
+ */
+export function storedOfChatPath(config, chatPath) {
+  const path = String(chatPath ?? '')
+  const home = chatHomeOf(config)
+  if (dataOf(config) === null || path === '' || isAbsolute(path) || home === '') return path
+  const whole = resolve(home, ...parts(slashes(path)))
+  const inside = base => {
+    const rel = relative(resolve(base), whole)
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) ? slashes(rel) : null
+  }
+  // Chat 1's review: the pictures folder's form only under a picture root, the one form resolveStored maps back to <data>/pictures
+  // (a delivered asset, pictures/assets/A12/out.png, is no such picture: it stays as the chat gave it, as before).
+  const pictured = inside(picturesOf(config))
+  if (pictured !== null) return (config.pictureRoots ?? []).some(root => under(pictured, root)) ? pictured : path
+  return inside(config.project) ?? path
+}
+
+/**
  * F49: a whole path a check or a chat wrote for a picture, read as the stored path it stands for when it lies inside the project (or the
  * data home's pictures folder). Anything else stays as given, so the picture route's own checks refuse it: a path outside, or one with a
  * `.` or `..` part. PURE.

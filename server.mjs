@@ -45,7 +45,8 @@ import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
-import { assetsOf, backlogViewOf, chatFile, chatHomeOf, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, storedOfWholePath, wordsPath } from './src/projectPaths.mjs'
+import { fixHomeFile, homeFilesNow } from './src/homeFiles.mjs'
+import { assetsOf, backlogViewOf, chatFile, chatHomeOf, storedOfChatPath, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, storedOfWholePath, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
@@ -63,10 +64,10 @@ import { cached, gitRunner, readBranches, readFolders } from './src/folders.mjs'
 import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { gapsNow, keptSinceJump, readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
-import { hearingLog } from './src/hearing.mjs'
+import { hearingLog, sentAtOf } from './src/hearing.mjs'
 import { callTracer } from './src/callTrace.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
-import { workCallRecord } from './src/workCalls.mjs'
+import { callFrom, workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
 import { seenFromState } from './src/finished.mjs'
@@ -113,7 +114,7 @@ import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, keepPersonAction, workApi } from './src/work/api.mjs'
 import { effortOf, setsRefusedOf } from './src/work/effort.mjs'
-import { chatsAsking, chatsWithoutProcess, isHolding, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
+import { PAUSE_FILE, chatsAsking, chatsWithoutProcess, isHolding, parsePause, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
@@ -128,7 +129,7 @@ import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
 import { readTestQueue } from './src/testQueue.mjs'
 import { deliverWork, mayWake, pullFor, sendOnce } from './src/work/deliver.mjs'
 import { listedWhere, parseList, readAccountFolders } from './src/appChats.mjs'
-import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
+import { SIDE_CHATS_FILE, SIDE_WORD, sideChatsOf, sideKeepOf, sideKeptFor, sideKeptOf, sideKeyOf, sideSessionOf, sideWordFor, sideWordOf } from './src/work/sideWord.mjs'
 import { accountWatch } from './src/appAccount.mjs'
 import { asksOf, checkLaneOf, liftBan } from './src/startupCheck.mjs'
 import { createChecker } from './src/startupCheckRun.mjs'
@@ -331,6 +332,8 @@ export const POST_ROUTES = Object.freeze({
   '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
   // B767: the setup check's Allow: the missing tool rules into the project's own settings, on the person's click.
   '/api/code-jobs': { kind: 'json', guard: 'lock' },
+  // T5.2 A6b: a home file's amber line, Write again or Copy this PC's into the template, on the person's click.
+  '/api/home-file': { kind: 'json', guard: 'lock' },
   '/api/new-project': { kind: 'json', guard: 'free', why: 'makes another project\'s folder, one at a time; writes nothing of this project' },
   '/api/restart': { kind: 'json', guard: 'free', why: 'starts this process itself anew' },
   // The start-up check (2026-11-05): the Overview's Check everything. Only the board that runs the loops writes what the check fixes.
@@ -385,6 +388,7 @@ export function createBoard({
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   codeJobs = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  homeFile = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   providers = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   providerList = async () => [],
@@ -540,6 +544,10 @@ export function createBoard({
       }
       if (pathname === '/api/cpu') {
         const done = await cpu(parsed)
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
+      if (pathname === '/api/home-file') {
+        const done = await homeFile(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/code-jobs') {
@@ -869,7 +877,7 @@ async function main(args) {
   const workCalls = workCallRecord({ now: clock, file: isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'work-calls.json') })
   let rebuilds = 0
   /** B934: a chat's work call as the stall log names it (by its chat once checked); one answered after 2 s is a stall. */
-  const callStall = (action, session) => {
+  const callStall = (action, session, request = null) => {
     const begun = clock()
     const rebuildsBefore = rebuilds
     const what = by => `work ${String(action ?? 'call').slice(0, 30)} by ${by}`
@@ -880,8 +888,11 @@ async function main(args) {
       by: name => end.as(words = what(chat = name)),
       done: () => {
         end()
-        stalls.slowCall(words, begun, clock())
-        workCalls.note({ action, chat, ms: clock() - begun, rebuilds: rebuilds - rebuildsBefore, at: begun })
+        const answered = clock()
+        stalls.slowCall(words, begun, answered)
+        // B1139 (one clock): the day record times the call from the chat's send, as the chat waits (src/workCalls.mjs `callFrom`).
+        const from = callFrom({ sent: sentAtOf(request), begun, answered, startedAt })
+        workCalls.note({ action, chat, ms: answered - from, rebuilds: rebuilds - rebuildsBefore, at: begun, request })
       },
     }
   }
@@ -1864,8 +1875,12 @@ async function main(args) {
    */
   const keptStateFor = async (chat, action, of = null, forYou = false) => {
     const last = readState.last() ?? null
+    // B1139: pause-state may answer from the kept state only while the store's pause (pause.json, read now) is running or none.
+    // A pause.json that is there but cannot be read now (Windows holds it) is no "running": the state is read fresh then.
+    const pause = action !== 'pause-state' || workDir === null ? null
+      : await readFile(join(workDir, PAUSE_FILE), 'utf8').then(text => parsePause(text)?.state ?? null, error => (error?.code === 'ENOENT' ? null : 'unreadable'))
     // `dirty`: a write reset the state since it was read (folders.mjs `cached`: readAt -Infinity until the next whole read).
-    const why = keptStateWhy({ last, now: clock(), chat, action, of, forYou, dirty: readState.readAt() === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS })
+    const why = keptStateWhy({ last, now: clock(), chat, action, of, forYou, dirty: readState.readAt() === -Infinity, roleOf: laneRole, maxMs: KEPT_STATE_MS, pause })
     return why === 'kept' ? last : readState()
   }
   const workCtx = async ({ kept = false, chat = null, action = null, of = null, forYou = false } = {}) => {
@@ -1921,7 +1936,7 @@ async function main(args) {
       freeChats: new Set(lanes.filter(lane => lane.state === 'free').map(lane => lane.name)), overlapsOfStore: true,
       viewFile, boardUrl: boardAddress(HOST, config), backlogFile: backlogViewOf(config),
       // Part C of the asset providers: the requests' folder and the provider in use for each kind (the work tool's `asset`).
-      ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
+      ...(assetsDir === null ? {} : { assets: { dir: assetsDir, project: resolve(HERE, config.project), base: resolve(HERE, chatHomeOf(config)), abs: path => resolve(HERE, resolveStored(config, path, { boardDir: HERE })), providerOf: kind => providerFor(config, kind), tools: () => assetTools() } }),
       // Focus 3, the review: the goals of the map the board reads, for an ask or a daily note of a goal.
       hasGoal: id => (state.goals?.nodes ?? []).some(node => node.id === id),
       // Stop and rethink: the goal's parts, for the topic of a rethink-hold (src/work/rethinkTopic.mjs).
@@ -1934,8 +1949,13 @@ async function main(args) {
       // 2026-10-24: an ask's picture the board cannot show is refused with where to put it (api.mjs ask).
       pictureProblem: path => pictureProblem(pictureHome(), shownRoots(config), path),
       shownFolders: shownFolders(config),
+      // T5.2 A6a: a chat's picture path (from its own folder) in the stored form, and the shown folders as a chat reaches them.
+      storedPicture: path => storedOfChatPath(config, path),
+      shownFoldersWords: shownFolders(config).map(folder => wordsPath(config, resolveStored(config, folder, { boardDir: HERE }))),
       // Q311: a picture a chat's For you block names outside them is copied into the picture folder instead.
-      adoptPicture: (path, subject) => adoptPicture(pictureHome(), shownFolders(config)[0], subject, path),
+      // T5.2 A6a: with the data moved, a picture in the chat home (a worker's worktree there) is copied in as well.
+      adoptPicture: async (path, subject) => (await adoptPicture(pictureHome(), shownFolders(config)[0], subject, path))
+        ?? (dataOf(config) === null ? null : await adoptPicture(pictureHome(), shownFolders(config)[0], subject, path, resolve(HERE, chatHomeOf(config)))),
       // B814: the port of a worker's own test server, named in its take answer.
       testPort: who => workerPort(config.gamePort, who),
       // The guard (2026-10-21): a step of a kind waits for its standard's confirm and its foundation (the product plan).
@@ -3117,6 +3137,14 @@ async function main(args) {
     blocked: !canOpen ? (isShowOnly ? 'only the board that delivers launches a chat' : 'only on Windows can the board launch a chat') : openBlocked,
     timeOf,
   })
+  /** T5.2 A6b: the chat home's rules files against their copies with the data (src/homeFiles.mjs); read at most every 30 seconds. [] with `data` unset. */
+  let homeRead = { at: -Infinity, files: [] }
+  const homeFilesShown = async () => {
+    if (isDemo || isShowOnly || dataOf(config) === null) return []
+    if (clock() - homeRead.at < 30_000) return homeRead.files
+    homeRead = { at: clock(), files: (await loops.run('home-files', () => homeFilesNow(config))) ?? [] }
+    return homeRead.files
+  }
   /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
   let codeRead = { at: -Infinity, max: null, read: null }
   const codeJobsNow = async (prefix = '', owner = null) => {
@@ -3347,6 +3375,8 @@ async function main(args) {
         newProject: { parent: home === null ? null : dirname(home), canMake: !isDemo && !isShowOnly, isMaking: makingProject },
         // B767: which of the main chat's routine jobs run by code on this PC, and what is missing.
         codeJobs: await codeJobsNow(state.chatPrefix ?? '', state.ownerName ?? null),
+        // T5.2 A6b: the home files that differ from what they should be (the amber line with its two buttons).
+        homeFiles: (await homeFilesShown()).filter(one => one.state === 'differs'),
         // B322: what the page needs to open a new project's first chats in the Claude app: the board's folder (their
         // job texts), the project's name and the Advisor's; only the board that delivers opens chats.
         openChats: isDemo || isShowOnly ? null : { board: HERE, name: config.name, advisor: typeof config.advisor === 'string' && config.advisor !== '' ? config.advisor : null } })
@@ -3496,6 +3526,13 @@ async function main(args) {
       return setupAction(setupFile, body, { config, checks: providerChecks, now: clock() })
     }),
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
+    // T5.2 A6b: the person's click on a home file's line; the board never writes these by itself.
+    homeFile: async body => {
+      if (isDemo || isShowOnly || dataOf(config) === null) return { ok: false, status: 409, why: 'This board keeps no home files: its data is in the project folder.' }
+      const done = await fixHomeFile(config, { name: body?.name, action: body?.action }).catch(error => ({ ok: false, status: 500, why: `Not written: ${error instanceof Error ? error.message : 'unknown'}` }))
+      homeRead = { at: -Infinity, files: [] }
+      return done
+    },
     // B767: the setup check's Allow: only the tool rules the check finds missing, into the project's own settings.
     codeJobs: async body => {
       if (body?.action !== 'allow') return { ok: false, status: 400, why: 'Allow only.' }
@@ -3893,7 +3930,7 @@ async function main(args) {
         trace?.set({ repeat: true })
         return kept
       }
-      const stall = callStall(asked.action, session)
+      const stall = callStall(asked.action, session, request)
       trace?.mark('begin')
       const rebuildsAt = rebuilds
       // B736 (X89): a call answered after its mod gave up on it is counted for the rule board-slow.
@@ -4651,6 +4688,16 @@ async function main(args) {
         if (!isHolding(state.pause)) {
           let sides = 0
           for (const { id, why } of state.sideWordsClose ?? []) if (await store.close(id, 'dropped', why, now)) sides += 1
+          // F53 (b): a card shown because a limit is full is written down once per wait, checked against the outbox: keepCard on the
+          // word still to go, or a record of its own, so the card stays until the one word went (a restart too).
+          for (const one of state.sideCardsKept ?? []) {
+            const key = sideKeyOf(one.id, one.wait)
+            const keep = sideKeepOf({ side: { full: true }, word: sideWordOf(store.outbox(), key), kept: sideKeptOf(store.outbox(), key) })
+            if (keep === null) continue
+            if (keep.word === null) await store.say({ id: randomBytes(8).toString('hex'), ...sideKeptFor({ late: one, worker: one.chat, wait: one.wait, now }) })
+            else await store.update(keep.word, { keepCard: true })
+            sides += 1
+          }
           const due = (state.sideWordsDue ?? []).filter(one => sideWordOf(store.outbox(), sideKeyOf(one.id, one.wait)) === null)
           if (due.length > 0) {
             const chats = sideChatsOf((await readHead(localFile(config, SIDE_CHATS_FILE), 16 * 1024).catch(error => { loops.failed('side-chats', error); return null }))?.text ?? '')

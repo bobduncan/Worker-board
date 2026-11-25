@@ -7721,6 +7721,7 @@ part P1 (rev 2, three reviews folded in); built by chat 3.
   a word still to go is closed when its wait ends; the hand window is running time; a wait that was late before its word keeps its
   card (`keepCard`) with "Then the board asked chat 1 at HH:MM"; the "no word could go" record carries text '' so the log keeps it;
   a word the outbox reads as `expired` is the end of its hand window, so the Late says "a limit is full" or "no hand sent it".
+  F53 (chat 1's core review of B1394): a word closed because a limit was full is no word (`sideWordOf`), so the wait gets its one word once the limit is back; a Late shown because a limit is full stays until that word went, a restart too (the delivering board's look writes it down once: `keepCard` on the word still to go, or a record of its own, state's `sideCardsKept`). A word a hand gave back (in doubt) may have landed: never closed as "a limit is full", so never sent twice; a plain give-back called nothing and gets its word; a retry chain counts as one word.
 - **The forgotten record**: the answer to `work step` with a checkpoint while a wait stands says "You still wait on chat 1 since
   HH:MM (its go to land): work unblock B<n> once it gave its answer." Chat 1's go messages say "unblock first" (roles/main.md).
 - **Resume all** leaves a step with a standing wait out of its resume list (pause.mjs `isResumed`): a resume would only wake the
@@ -9184,6 +9185,21 @@ named them. Page code only; the store is unchanged:
 - Tests: goalsPage (the rows: by goal, closed cards and step cards left out, a recap wait keeps the state's object), focusPage (the line's
   view by goal, the focus goal's own left out), redrawKeys (the view's field). Pictures: .claude/plans/f61-before-*.jpg and f61-after-*.jpg
   (a board copy on a made-up project).
+
+## T5.2 A6b: the chat home's rules files (2026-11-23, chat 4)
+
+Only with `data` set; with it unset there are no home files and nothing is read, written or shown (src/homeFiles.mjs).
+
+- **Pointers.** The chats keep running in the chat home, so the files they read there point at the copies with the data, in
+  `<data>/home`: CLAUDE.md is one @import line, the main and worker briefings one line each. The Workers mod names the briefings
+  by their old place, so they stay there and the mod does not change.
+- **One-way copy.** AGENTS.md is the template's text as it is. The chat list and start.json are not watched: the board and Main
+  change them all the time, so they are copied only at the move (Round B).
+- **The amber line.** A file that differs from what it should be gets one line on top with two buttons: "Write again" (what it
+  should be, into the chat home) and "Copy this PC's into the template" (the chat home's text into `<data>/home`; a pointer file
+  then gets its pointer back). Only on the person's click; the board never writes either way by itself.
+- **Setup** writes a pointer only when `data` is set, its template is there and the chat home has no such file. It never
+  overwrites and never makes config.json.
 
 ## F56: a worker that waits for its own landing gate is no stale checkpoint (2026-11-24, chat 3, chat 1's finding)
 
