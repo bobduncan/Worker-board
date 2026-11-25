@@ -1340,7 +1340,7 @@ function causeWords(cause) {
     + (Number.isFinite(cause.loopMax) ? `; the loop held up to ${(cause.loopMax / 1000).toFixed(1)} s` : '')
     + (Number.isFinite(cause.cpuMax) ? `; the PC's CPU up to ${cause.cpuMax}%` : '')
     + (cause.pc !== null && cause.pc !== undefined && cause.pc.top.length > 0 ? `; busiest at ${secondsOf(cause.pc.at)}: ${cause.pc.top.map(one => `${one.name} ${one.cores} cores`).join(', ')}` : '')
-    + (cause.build === 'loop' ? '; the state is built in the loop (its thread is off)' : cause.build === 'thread' ? '; the state is built in its thread' : '')
+    + (cause.build === 'loop' ? '; the newest state was built in the loop (its thread failed)' : cause.build === 'thread' ? '; the state is built in its thread' : '')
 }
 
 /** B742, B984: how long a worker may keep working after the board's week-stop word reached it before the rule opens. */

@@ -167,6 +167,33 @@ test('lens 1: an answer that waits when the build\'s time runs out (a PC that wo
   assert.deepEqual([builder.off(), said], [null, []])
 })
 
+test('the verifier: a build whose timer fires far past its time (the PC slept) is waited for once more, not given up', async t => {
+  const timers = []
+  const handlers = {}
+  const fake = { on: (name, fn) => { handlers[name] = fn }, postMessage: () => {}, unref: () => {}, removeAllListeners: () => {}, terminate: async () => {} }
+  let wall = 0
+  const said = []
+  const builder = stateThread({
+    inLoop: () => ({ built: 'in the loop' }), start: () => fake, failed: () => said.push('failed'), limitMs: 120_000, wall: () => wall,
+    setTimer: fn => { timers.push(fn); return {} }, clearTimer: () => {}, soon: fn => fn(),
+  })
+  t.after(() => builder.close())
+  const built = builder.build({}, {})
+  // An hour's sleep: the timer fires at the wake, long past its time; it is set once more and the thread's answer comes.
+  wall = 3_600_000
+  timers[0]()
+  assert.equal(timers.length, 2)
+  handlers.message({ id: 1, state: { built: 'in the thread' } })
+  assert.deepEqual(await built, { built: 'in the thread' })
+  assert.deepEqual([builder.off(), said], [null, []])
+  // A build that hangs after the wake too is given up at its second time.
+  const hung = builder.build({}, {})
+  wall += 120_000
+  timers[2]()
+  assert.deepEqual(await hung, { built: 'in the loop' })
+  assert.deepEqual(said, ['failed'])
+})
+
 test('a value the copy cannot take falls back to the loop for that build and the ones after it', async t => {
   const failed = []
   const builder = stateThread({ inLoop: () => ({ built: 'in the loop' }), failed: error => failed.push(error.name) })

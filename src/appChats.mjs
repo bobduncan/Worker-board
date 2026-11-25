@@ -186,7 +186,13 @@ export async function readAppChats(dir, files = null, elsewhere = null, options 
   const folders = await readAccountFolders(dir)
   const read = readFoldersOf(folders, options)
   noteFiles(folders, read, files, elsewhere)
-  return read.flatMap(folder => folder.texts)
+  // B1535 (the verifier): the texts are no longer kept with the parses (37 MB held for good); this reader (the tests') reads them anew.
+  const texts = []
+  for (const path of read.flatMap(folder => folder.paths)) {
+    const head = await readHead(path, CHAT_FILE_BYTES)
+    if (head !== null && head.isWhole) texts.push(head.text)
+  }
+  return texts
 }
 
 /**
@@ -211,8 +217,8 @@ function noteFiles(folders, read, files, elsewhere) {
 
 /**
  * Start-up check, task 1 (2026-11-05): every `<dir>/<account>/<organisation>` folder of the app's chats, not only the newest:
- * `[{ account, org, at, ids, texts, chats }]`, `ids` the app id of every chat file, `texts` the whole ones, `chats` a Map from
- * app id to the parsed chat (`parseAppChat`) of each whole file. `at` is the newest activity in it (0 for none).
+ * `[{ account, org, at, ids, paths, chats }]`, `ids` the app id of every chat file, `paths` the whole ones (B1535: their texts are
+ * not kept), `chats` a Map from app id to the parsed chat (`parseAppChat`) of each whole file. `at` is the newest activity in it (0 for none).
  */
 export async function readAccountFolders(dir) {
   const folders = []
@@ -222,7 +228,7 @@ export async function readAccountFolders(dir) {
     for (const inner of await list(join(dir, outer.name))) {
       if (!inner.isDirectory()) continue
       const folder = join(dir, outer.name, inner.name)
-      const texts = []
+      const paths = []
       const ids = []
       const chats = new Map()
       const ats = []
@@ -235,13 +241,13 @@ export async function readAccountFolders(dir) {
         // A file that cannot be read is being rewritten by the app; the next read has it. One cut short is no JSON.
         const one = await chatFileOf(path)
         if (one !== null) {
-          texts.push(one.text)
+          paths.push(path)
           ats.push(one.at)
           // A copy each time: what a read hands out never changes the kept parse.
           if (one.chat !== null) chats.set(id, { ...one.chat, summary: one.chat.summary === null ? null : { ...one.chat.summary } })
         }
       }
-      if (texts.length > 0 || ids.length > 0) folders.push({ account: outer.name, org: inner.name, texts, ids, chats, at: ats.length === 0 ? 0 : Math.max(...ats) })
+      if (paths.length > 0 || ids.length > 0) folders.push({ account: outer.name, org: inner.name, paths, ids, chats, at: ats.length === 0 ? 0 : Math.max(...ats) })
     }
   }
   // A file gone from the folders is forgotten, and so is every file of a folder the board no longer reads (the app moved it: lens 2).
@@ -252,7 +258,7 @@ export async function readAccountFolders(dir) {
 /**
  * B1535 (X93): every state rebuild read and parsed all of the app's chat files (566 files, 37 MB on 2026-11-25, about 0.45 s), and
  * parsed them twice more after. A file is read and parsed again only when its stamp (time written and size) changed: by path,
- * `{ mark, text, chat, at }` (`chat` parseAppChat's, `at` activeAt's). A file the stamp changed under while it was read is read
+ * `{ mark, racy, chat, at }` (`chat` parseAppChat's, `at` activeAt's; the text itself is not kept). A file the stamp changed under while it was read is read
  * again at the next look, as its stamp then differs.
  */
 const chatFiles = new Map()
@@ -282,7 +288,7 @@ async function chatFileOf(path) {
     chatFiles.delete(path)
     return null
   }
-  const one = { mark, racy: readAt - Number(mark.split(':')[0]) < RACY_MS, text: head.text, chat: parseAppChat(head.text), at: activeAt(head.text) }
+  const one = { mark, racy: readAt - Number(mark.split(':')[0]) < RACY_MS, chat: parseAppChat(head.text), at: activeAt(head.text) }
   chatFiles.set(path, one)
   return one
 }

@@ -26,6 +26,9 @@ export function holdBuild(ms = BUILD_BLOCK_MS) {
   for (const end = Date.now() + ms; Date.now() < end;) { /* held, as a long build holds it */ }
 }
 
+/** The verifier: a build's timer that fires this long past its time slept with the PC (the time on the wall jumped). */
+export const SLEPT_MS = 30_000
+
 /** Chat 1's lens 1: a thread that ended or timed out this many times in a row is given up for good (a new one is tried before). */
 export const MOST_FAILURES = 3
 
@@ -39,7 +42,7 @@ export const MOST_FAILURES = 3
  */
 export function stateThread({
   inLoop, file = new URL('./stateWorker.mjs', import.meta.url), failed = () => {}, recovered = () => {}, limitMs = BUILD_LIMIT_MS,
-  start = url => new Worker(url), setTimer = setTimeout, clearTimer = clearTimeout, soon = setImmediate,
+  start = url => new Worker(url), setTimer = setTimeout, clearTimer = clearTimeout, soon = setImmediate, wall = Date.now,
 } = {}) {
   let worker = null
   let off = null
@@ -140,10 +143,17 @@ export function stateThread({
         const id = ++seq
         pending.set(id, one)
         // Lens 1: an answer that waits at the PC's wake is taken first (the timer may fire before the thread's message is read).
-        one.timer = setTimer(() => soon(() => {
-          if (pending.has(id)) giveUp(new Error(`the state thread gave no build within ${Math.round(limitMs / 1000)} s`))
-        }), limitMs)
-        one.timer?.unref?.()
+        // The verifier: a timer that fires far past its time slept with the PC; it is set once more, the build going on after the wake.
+        const arm = (rearmed = false) => {
+          const due = wall() + limitMs
+          one.timer = setTimer(() => soon(() => {
+            if (!pending.has(id)) return
+            if (!rearmed && wall() - due > SLEPT_MS) return arm(true)
+            giveUp(new Error(`the state thread gave no build within ${Math.round(limitMs / 1000)} s`))
+          }), limitMs)
+          one.timer?.unref?.()
+        }
+        arm()
         try {
           made.postMessage({ id, raw, options })
         } catch (error) {

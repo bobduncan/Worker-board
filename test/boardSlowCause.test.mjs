@@ -59,7 +59,7 @@ test('board-slow cites the cause: a full PC and a busy board read apart, and the
   const waited = { ...cause, boardShare: 12, build: 'loop' }
   const other = rule.check(buildView({ state: { ...state, slowCause: waited }, items: new Map(), now: AT }), { seen: new Map(), observed: [] })[0].evidence
   assert.match(other, /the board's own CPU was 12% of their time \(the board waited for the PC or the disk\)/)
-  assert.match(other, /the state is built in the loop \(its thread is off\)$/)
+  assert.match(other, /the newest state was built in the loop \(its thread failed\)$/)
   // Without a cause the evidence is as before.
   const before = rule.check(buildView({ state: { lateCalls: state.lateCalls }, items: new Map(), now: AT }), { seen: new Map(), observed: [] })[0].evidence
   assert.ok(!before.includes('cause:'), before)
@@ -81,4 +81,11 @@ test('the PC\'s busiest programs: two listings 3 s apart, by name, in cores; loo
   await keeper.look()
   assert.equal(lists, 4)
   assert.equal(pcTop({ list: null }).latest(), null)
+  // The verifier: a listing that takes 1.5 s on a full PC makes the gap 4.5 s, not the 3 s waited.
+  let slowNow = 0
+  let slowLists = 0
+  const slow = pcTop({ list: async () => { slowNow += 1500; return ++slowLists === 1 ? before : after }, now: () => slowNow, wait: async ms => { slowNow += ms } })
+  await slow.look()
+  assert.deepEqual(slow.latest().top, busiestOf(before, after, 4500))
+  assert.deepEqual(slow.latest().top[0], { name: 'msedge.exe', cores: 4.1 })
 })

@@ -8032,11 +8032,16 @@ stalls of 19:50; besides, the app's 566 chat files (37 MB of JSON) were read and
   1.5-2.6 s it held). Every other call is answered meanwhile, from the kept state (`keptStateFor`); a read that needs a fresh state
   (the decide, a dirty or unknown read) awaits the build without holding anyone. `cached` (folders.mjs) is unchanged: one read at a
   time, a reset during a build drops its answer, `revalidate` as B1502 made it; the thread takes its builds in order too.
-- **The fallback**: a thread that cannot start, throws, ends, cannot send its state back or gives no build within 120 s is given up:
-  every build it held and every one after it is made in the loop as before, and the loops line says so once ("state-thread"). An
-  error of the build itself is the read's error, as it was. The stall log's job is "state build (thread)" or "state build (loop)".
+- **The fallback**: a thread that throws, ends or gives no build within 120 s is ended and the builds it held are made in the loop as
+  before; the next build starts a new thread. Three failures in a row, a thread that cannot start or a state that cannot be copied
+  turn the thread off: every build in the loop until the board starts anew. A spell of failures is said once in the loops line
+  ("state-thread"), and cleared once a new thread builds (review lens 1). A timer that fires far past its time slept with the PC: it is
+  set once more, and an answer that waits at the wake is taken first. An error of the build itself is the read's error, as it was.
+  The stall log's job is "state build (thread)" or "state build (loop)", named after the build.
 - **The chat files are kept by stamp** (src/appChats.mjs `chatFileOf`): a file is read and parsed again only when its time written or
-  size changed; sources.mjs hands the build `appChats` (parsed) in place of the texts, so 37 MB are neither parsed again nor copied.
+  size changed, or when it was read within 2 s of its time written (git's racy rule: the app may write it again in the same tick at
+  the same size); only the parse is kept, not the 37 MB of text. sources.mjs hands the build `appChats` (parsed) in place of the
+  texts, so they are neither parsed again nor copied to the thread.
 - **board-slow names the cause** (callTrace.mjs `slowCause`, watch.mjs `causeWords`): where the slow calls of its 10 minutes waited,
   the board's own CPU over their time (near 100% the board computed; low, it waited for the PC or the disk), the loop's longest hold,
   the PC's CPU, its busiest programs then (`pcTop`: two process listings 3 s apart on a slow call, at most every 2 minutes) and where
