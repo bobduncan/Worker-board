@@ -12948,7 +12948,7 @@ function drawGoals(state) {
     track.setAttribute('aria-valuenow', String(share))
     track.setAttribute('aria-valuemin', '0')
     track.setAttribute('aria-valuemax', '100')
-    bar.append(track, el('small', 'muted', [counts !== null && counts.steps > 0 ? `${counts.done} of ${counts.steps} steps complete` : 'no steps yet', counts !== null && counts.nodes > 0 ? `${counts.nodes} goal${counts.nodes === 1 ? '' : 's'} inside` : null, counts !== null && counts.missing > 0 ? `${counts.missing} missing` : null].filter(Boolean).join(' · ')))
+    bar.append(track, el('small', 'muted', [counts !== null && counts.steps > 0 ? `${counts.done} of ${counts.steps} tasks complete` : 'no tasks yet', counts !== null && counts.nodes > 0 ? `${counts.nodes} goal${counts.nodes === 1 ? '' : 's'} inside` : null, counts !== null && counts.missing > 0 ? `${counts.missing} missing` : null].filter(Boolean).join(' · ')))
     // B384: the Done when as ticks, one part a line, ticked once its re-check passed.
     const doneBox = el('div', 'goals-done-when')
     doneBox.append(el('h4', '', 'Done when'))
@@ -13237,14 +13237,14 @@ function drawGoalChats(state) {
   for (const one of chats) {
     const item = el('li', 'goals-chat')
     const words = el('span', 'goals-chat-words')
-    words.append(el('b', '', one.chat), el('small', 'muted', one.steps.length === 1 ? one.steps[0] : `${one.steps.length} steps: ${one.steps.join(' · ')}`))
+    words.append(el('b', '', one.chat), el('small', 'muted', one.steps.length === 1 ? one.steps[0] : `${one.steps.length} tasks: ${one.steps.join(' · ')}`))
     const status = el('span', 'goals-chat-status', one.status)
     const open = one.href === null ? goalButton('goals-tool', 'Open window', { goalChatWindow: one.chat }) : el('a', 'goals-tool goals-chat-open', 'Open chat')
     if (one.href !== null) open.href = one.href
     item.append(words, status, open)
     list.append(item)
   }
-  fill(box, [el('h3', 'goals-chats-head', 'Chats on this goal'), chats.length === 0 ? el('p', 'muted', 'No chat is working on a step of this goal.') : list])
+  fill(box, [el('h3', 'goals-chats-head', 'Chats on this goal'), chats.length === 0 ? el('p', 'muted', 'No chat is working on a task of this goal.') : list])
 }
 $('goals-chats').addEventListener('click', event => {
   const hit = event.target.closest('[data-goal-chat-window]')
