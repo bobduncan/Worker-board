@@ -1317,8 +1317,30 @@ function boardSlow(view) {
       recent.slice(-6).map(one => (typeof one.popup === 'string' ? `a popup ask for a slow board call (${one.popup}) at ${clockOf(one.at)}` : `answered ${clockOf(one.at)} after ${Math.round(one.ms / 1000)} s`)).join('; '),
       stalls.length === 0 ? `the stall log names no stall in ${minutes(SLOW_LOOK_MS)} min` : `stalls: ${stalls.map(stallLine).join('; ')}`,
       slept.length === 0 ? null : `slept: ${slept.map(one => stallWords(one, secondsOf)).join('; ')}`,
+      causeWords(view.slowCause ?? null),
     ].filter(Boolean).join('. '),
   }]
+}
+
+/** B1535: a part of a call as the evidence names it (callTrace.mjs `PARTS`). */
+const PART_WORDS = { beforeBoard: 'before the board took it', decide: 'the hand-over\'s decide', ctx: 'the state it read', action: 'the store', fresh: 'the check of its chat', answered: 'the answer', handout: 'the hand-out' }
+
+/**
+ * B1535 (X93): the cause of the slow calls, so a full PC and a busy board read apart: where they waited, the board's own CPU over
+ * their time (near 100% the board computed; low, it waited for the PC or the disk), the loop's longest hold, the PC's CPU and its
+ * busiest programs then, and where the state was built. Null without slow calls in the trace.
+ */
+function causeWords(cause) {
+  if (cause === null || !(cause.calls > 0)) return null
+  const share = cause.boardShare
+  const verdict = !Number.isFinite(share) ? null : share >= 70 ? 'the board computed' : share <= 30 ? 'the board waited for the PC or the disk' : 'the board computed part of it'
+  return `cause: ${cause.calls} slow call${cause.calls === 1 ? '' : 's'} since ${secondsOf(cause.from)}`
+    + (cause.parts.length === 0 ? '' : ` waited in ${cause.parts.map(([part, pct]) => `${PART_WORDS[part] ?? part} ${pct}%`).join(', ')}`)
+    + (Number.isFinite(share) ? `; the board's own CPU was ${share}% of their time (${verdict})` : '')
+    + (Number.isFinite(cause.loopMax) ? `; the loop held up to ${(cause.loopMax / 1000).toFixed(1)} s` : '')
+    + (Number.isFinite(cause.cpuMax) ? `; the PC's CPU up to ${cause.cpuMax}%` : '')
+    + (cause.pc !== null && cause.pc !== undefined && cause.pc.top.length > 0 ? `; busiest at ${secondsOf(cause.pc.at)}: ${cause.pc.top.map(one => `${one.name} ${one.cores} cores`).join(', ')}` : '')
+    + (cause.build === 'loop' ? '; the state is built in the loop (its thread is off)' : cause.build === 'thread' ? '; the state is built in its thread' : '')
 }
 
 /** B742, B984: how long a worker may keep working after the board's week-stop word reached it before the rule opens. */

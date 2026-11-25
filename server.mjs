@@ -65,7 +65,7 @@ import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { gapsNow, keptSinceJump, readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog, sentAtOf } from './src/hearing.mjs'
-import { callTracer } from './src/callTrace.mjs'
+import { callTracer, pcTop, slowCause } from './src/callTrace.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
 import { callFrom, workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
@@ -903,7 +903,10 @@ async function main(args) {
   // B1139 (X93): every chat work call cut into its parts, with the loop's and the file system's delay and the CPU, in a local file
   // (src/callTrace.mjs, data/call-trace.jsonl, the newest day): where a call waits between the chat's send and its answer.
   const traceFile = isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'call-trace.jsonl')
+  // B1535: on a slow call the PC's busiest programs are looked up (at most every 2 min), for the rule board-slow's cause.
+  const pcBusy = pcTop({ list: traceFile === null || process.platform !== 'win32' ? null : () => windowsProcesses.list(), now: clock })
   const tracer = traceFile === null ? null : callTracer({
+    onSlow: () => void pcBusy.look(),
     now: clock, statProbe: () => stat(join(HERE, 'data')), cpus: osCpus, boardCpu: () => process.cpuUsage(),
     jobsDuring: (from, to) => stalls.jobsDuring(from, to),
     append: text => appendFile(traceFile, text), read: () => readFile(traceFile, 'utf8'), rewrite: text => writeUnflushed(traceFile, text),
@@ -2683,7 +2686,9 @@ async function main(args) {
     // (the person deletes it once read).
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
-    return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
+    // B1535: what the slow work calls of the last 10 min waited on, the build's way and the PC's busiest programs (the rule board-slow).
+    const cause = tracer === null ? null : slowCause(tracer.lines(), { from: clock() - 10 * 60_000, pc: pcBusy.latest() })
+    return { ...state, slowCause: cause === null ? null : { ...cause, build: builder.off() === null ? 'thread' : 'loop' }, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
       // T5.2 A7: the project keys config.json still holds while the project's settings file is in use (ignored: the amber line).
       settingsIgnored: isDemo || typeof config.settingsFile !== 'string' ? null : { file: basename(config.settingsFile), keys: config.settingsIgnored ?? [] }, check: checker?.view() ?? null, clicksUnsent: (await clicks.settle(one => movedOn(one, state, store.outbox()), clock()), await clicks.unsent()) }
   })), STATE_MS)
