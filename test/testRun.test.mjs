@@ -243,8 +243,8 @@ test('F39, the re-check: the list of boards fails closed: a broken boards.json g
   assert.deepEqual(boardFolders({ WORKER_BOARD_HOME: home }), ['D:\\boards\\x\\worker-board'])
 })
 
-// F68 (chat 1, 2026-11-25): a gate refusal must mean a real failure. The full run stays low; land.ps1's rerun alone of a failed file
-// runs at normal priority, through the one-at-a-time queue, and every run's first line says its priority.
+// F68 (chat 1, 2026-11-25): land.ps1's rerun alone of a failed file goes through the one-at-a-time queue and asks its priority by
+// name (below normal until the PC plan's core fence, S5, may raise it to normal); every run's first line says its priority.
 test('F68: a run asked for normal priority sets itself and node --test to normal, and its first line says the priority node --test has', async () => {
   const { start } = standIn(0)
   const set = []
@@ -273,16 +273,16 @@ test('F68: the command line takes --priority=normal or below-normal beside the f
   assert.throws(() => cliOf(['--priority=high', 'x']), /unknown priority "high"/)
 })
 
-test('F68: land.ps1 reruns a failed file at normal priority through the one-at-a-time queue; the full run stays npm test, low', () => {
+test('F68: land.ps1 reruns a failed file through the one-at-a-time queue, asking below normal by name; the full run stays npm test, low', () => {
   const script = readFileSync(new URL('../tools/land.ps1', import.meta.url), 'utf8')
-  const rerun = 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=normal {file}'
+  const rerun = 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}'
   assert.equal(script.match(/^\$gateFileCommand = '(.*)'\s*$/m)?.[1], rerun)
   assert.equal(script.match(/Get-Setting 'gateFile' '(.*)'\)\s*$/m)?.[1], rerun)
   assert.equal(script.match(/Get-Setting 'gateBoard' '(.*)'\)\s*$/m)?.[1], 'npm test')
   assert.doesNotMatch(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).scripts.test, /--priority/)
 })
 
-test('F68, the real case: land.ps1\'s own rerun command, started from a below-normal parent, waits its turn in the queue and runs its test file at normal priority', { timeout: 180_000, skip: process.platform !== 'win32' && 'priority classes are Windows\' (land.ps1 runs there only)' }, t => {
+test('F68, the real case: land.ps1\'s own rerun command, started from a normal parent (a chat in Full), waits its turn in the queue and runs its test file at below normal priority',{ timeout: 180_000, skip: process.platform !== 'win32' && 'priority classes are Windows\' (land.ps1 runs there only)' }, t => {
   const root = fileURLToPath(new URL('..', import.meta.url))
   const folder = mkdtempSync(join(os.tmpdir(), 'test-run-rerun-'))
   t.after(() => rmSync(folder, { recursive: true, force: true }))
@@ -291,12 +291,12 @@ test('F68, the real case: land.ps1\'s own rerun command, started from a below-no
   writeFileSync(file, `import os from 'node:os'\nimport { writeFileSync } from 'node:fs'\nimport { test } from 'node:test'\ntest('priority', () => writeFileSync(${JSON.stringify(seen)}, String(os.getPriority())))\n`)
   // The command exactly as land.ps1 has it (its default), the file in its place.
   const command = readFileSync(join(root, 'tools', 'land.ps1'), 'utf8').match(/^\$gateFileCommand = '(.*)'\s*$/m)[1].replace('{file}', `"${file.replace(/\\/g, '/')}"`)
-  // A parent at below normal (a landing started from a low chat): its children inherit that unless the rerun raises itself.
-  const parent = join(folder, 'low-parent.mjs')
+  // A parent at normal (a landing started from a chat in Full): its children inherit normal unless the rerun lowers itself.
+  const parent = join(folder, 'normal-parent.mjs')
   writeFileSync(parent, [
     "import os from 'node:os'",
     "import { spawnSync } from 'node:child_process'",
-    'os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL)',
+    'os.setPriority(os.constants.priority.PRIORITY_NORMAL)',
     "const run = spawnSync(process.argv[2], { shell: true, cwd: process.argv[3], encoding: 'utf8', windowsHide: true })",
     "process.stdout.write(`parent priority ${os.getPriority()}\\n${run.stdout ?? ''}`)",
     "process.stderr.write(run.stderr ?? '')",
@@ -308,8 +308,8 @@ test('F68, the real case: land.ps1\'s own rerun command, started from a below-no
   const run = spawnSync(process.execPath, [parent, command, root], { env, encoding: 'utf8', windowsHide: true, timeout: 150_000 })
   const said = `${run.stdout}\n${run.stderr}`
   assert.equal(run.status, 0, said)
-  assert.match(said, new RegExp(`^parent priority ${os.constants.priority.PRIORITY_BELOW_NORMAL}$`, 'm'), 'the parent really is below normal')
+  assert.match(said, new RegExp(`^parent priority ${os.constants.priority.PRIORITY_NORMAL}$`, 'm'), 'the parent really is normal')
   assert.match(said, /one-at-a-time: rerun runs now/, 'through the queue')
-  assert.match(said, /^test run: priority normal$/m)
-  assert.equal(Number(readFileSync(seen, 'utf8')), os.constants.priority.PRIORITY_NORMAL, 'the test file ran at normal')
+  assert.match(said, /^test run: priority below normal$/m)
+  assert.equal(Number(readFileSync(seen, 'utf8')), os.constants.priority.PRIORITY_BELOW_NORMAL, 'the test file ran at below normal')
 })

@@ -17,10 +17,11 @@
 // back the results of the files after the open one. The watchdog also ends what the run started outside its tree that names its
 // folder (on a path boundary; never in a folder that is or holds a board's, nor when the list of boards cannot be read).
 //
-// F68 (chat 1, 2026-11-25): a gate refusal must mean a real failure. The full run stays low; land.ps1's rerun alone of a failed file
-// asks for normal priority (`--priority=normal`), so a timing test that passes alone at normal was load, not the change. The run sets
-// itself and node --test to the asked priority (which also raises a run that inherited low from its parent) and writes the priority
-// node --test has as its first line, "test run: priority <word>", which land.ps1 names in its refusal.
+// F68 (chat 1, 2026-11-25): a gate refusal names the priority of each run. The full run stays low; land.ps1's rerun alone of a failed
+// file asks for its priority by name (`--priority=below-normal` for now: the PC plan keeps Full free of lag until the core fence, S5,
+// which may raise it to `--priority=normal`). The run sets itself and node --test to the asked priority (so a run that inherited
+// another from its parent gets the asked one) and writes the priority node --test has as its first line,
+// "test run: priority <word>", which land.ps1 names in its refusal.
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
@@ -41,7 +42,7 @@ const PRIORITY_WORDS = new Map([[PRIORITY_LOW, 'idle'], [LOW, 'below normal'], [
 export const priorityWord = value => PRIORITY_WORDS.get(value) ?? `nice ${value}`
 
 /**
- * F68: the command line's words: `--priority=normal` (land.ps1's rerun alone) or `--priority=below-normal` (the default), and the
+ * F68: the command line's words: `--priority=below-normal` (the default; land.ps1's rerun alone names it) or `--priority=normal`, and the
  * test files (all of them when none is named). An unknown priority throws. PURE.
  */
 export function cliOf(argv) {

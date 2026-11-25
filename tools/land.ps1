@@ -128,9 +128,9 @@ $boards = @()
 $gateBoardCommand = 'npm test'
 $gateModCommand = ''
 # F39, review 8: the rerun alone goes through tools/test.mjs too (its per-test timeout and stall watchdog).
-# F68 (chat 1, 2026-11-25): at normal priority (the full run stays low), so a timing test that passes alone was load, not the change;
-# and through the one-at-a-time queue, first-class as the gate (HEAVY_RUN_FIRST), so a normal rerun never runs beside another heavy run.
-$gateFileCommand = 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=normal {file}'
+# F68 (chat 1, 2026-11-25): through the one-at-a-time queue, first-class as the gate (HEAVY_RUN_FIRST), so a rerun never runs beside
+# another heavy run; at below normal priority, asked by name (the PC plan: no lag in Full until the core fence, S5, which may raise it).
+$gateFileCommand = 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}'
 $claudeExeSetting = ''
 $dataDir = $null
 $tempRoot = $null
@@ -258,7 +258,7 @@ function Initialize-Settings {
   }
   $script:gateBoardCommand = [string](Get-Setting 'gateBoard' 'npm test')
   $script:gateModCommand = [string](Get-Setting 'gateMod' '')
-  $script:gateFileCommand = [string](Get-Setting 'gateFile' 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=normal {file}')
+  $script:gateFileCommand = [string](Get-Setting 'gateFile' 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}')
   $script:claudeExeSetting = [string](Get-Setting 'claudeExe' '')
   $script:nodeModules = Get-Full (Get-Setting 'nodeModules' (Join-Path $script:mainDir 'node_modules'))
   $script:nodeModulesMarker = [string](Get-Setting 'nodeModulesMarker' 'happy-dom')
