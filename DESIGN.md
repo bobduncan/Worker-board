@@ -9170,8 +9170,8 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
 
 ## S3: background runs wait for an idle PC, and the hold cap survives a sleep (2026-11-25, chat 2, the PC plan's queue hygiene)
 
-What happened on 2026-11-25. The slow tier and B1517's measure and draw jobs took the slot in plain first-come order while gates
-and checks waited behind them. Two holds of 462 and 535 minutes went far past the 120-minute cap: the cap was a timer, and a timer's
+What happened on 2026-11-24 and 11-25. The slow tier and B1517's measure and draw jobs took the slot in plain first-come order while
+gates and checks waited behind them. Two holds of 535 and 462 minutes went far past the 120-minute cap: the cap was a timer, and a timer's
 clock stands still while the PC sleeps (both ended with 124, late). Plan: .claude/plans/pc-lag-test-speed-plan.md, S3.
 
 - **Idle-only runs** (tools/one-at-a-time.mjs `isIdleRun`). These are runs of work on no step's critical path: the slow tier, a
@@ -9194,8 +9194,10 @@ clock stands still while the PC sleeps (both ended with 124, late). Plan: .claud
     and the old-copy rules are unchanged.
   - There is no cap on an idle run's wait (chat 1). A measure job may wait for hours on a busy day. S9's big suite, due at least
     every 4 hours, needs its own fallback (an overdue run goes as an ordinary one). The game's slow-tier runner counts as alive past
-    its 3-hour rule while its run waits in the room or holds a slot (lava-tactics tools/slow-tier-lib.mjs `slowTierQueued`), so a
-    second runner never starts and removes the first one's folder; S9's board slow tier must keep that.
+    its 3-hour rule while its run waits in the room or holds a slot (lava-tactics tools/slow-tier-lib.mjs `slowTierQueued`, a run in a
+    `lava-slow-tier-` folder), and it renews its file before each commit it plays (`touchRunner`), so its unqueued folder, worktree
+    and npm ci count from there. A second runner then does not start and remove the first one's folder unless one commit's npm ci
+    takes 3 hours. S9's board slow tier must keep both.
   - readTestQueue (src/testQueue.mjs) lists the room's runs after every ticket, marked `idle`, with `since` set to when they came.
     The stale-checkpoint rule excuses a worker whose run waits there as it does for a ticket (up to its usual cap of counted time),
     and its health line says "waits for an idle PC since 14:02". A folder's running run, then a run waiting its turn, is named

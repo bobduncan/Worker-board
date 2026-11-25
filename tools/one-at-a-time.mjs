@@ -266,7 +266,8 @@ async function holderOf(file, nap, watched = new Map(), beatMs = BEAT_MS, holdMa
     if (performance.now() - first.at < 2 * beatMs) return seen
   }
   // S3, review: a live holder past the hold cap by the wall clock (the PC slept past it) stops itself at its first beat after the
-  // wake (runOneAtATime's watch); two beats of this waiter's own clock let it give the slot back first, so two runs never overlap.
+  // wake (runOneAtATime's watch); two beats of this waiter's own clock let it give the slot back first (an old copy without the
+  // watch is freed after them all the same, and its command may still run on).
   // Keyed on its process and `since`, as its beats rewrite the rest.
   if (why?.startsWith('it has held the slot for over')) {
     const key = `${file}#since`
@@ -656,7 +657,7 @@ export async function runOneAtATime({
         }
         const cap = setTimeout(stopAtCap, maxMs)
         cap.unref()
-        // S3: a timer's clock stands still while the PC sleeps (holds of 462 and 535 minutes on 11-25); the wall clock does not, and
+        // S3: a timer's clock stands still while the PC sleeps (holds of 535 and 462 minutes on 11-24 and 11-25); the wall clock does not, and
         // it is read at every beat.
         const watch = setInterval(() => {
           if (now() - beganAt > maxMs) stopAtCap()

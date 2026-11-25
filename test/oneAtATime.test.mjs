@@ -622,11 +622,29 @@ test('S3 review: a live holder past the cap by the wall clock (the PC slept) get
   writeFileSync(lock, lockText({ since, beat: new Date().toISOString(), order: ORDER_MARK }))
   const began = Date.now()
   const waiter = start(lock, 'after the sleep', quick, { HEAVY_RUN_BEAT_MS: '400' })
+  const planted = readFileSync(lock, 'utf8')
   await new Promise((done) => setTimeout(done, 500))
-  assert.equal(existsSync(lock), true, 'not freed at the first look')
+  assert.equal(readFileSync(lock, 'utf8'), planted, 'the planted lock is not freed at the first look')
   const result = await waiter.done
   assert.equal(result.code, 0)
   assert.ok(Date.now() - began >= 800, `freed only after two beats (${Date.now() - began} ms)`)
+})
+
+test('S3 review: after a sleep a younger idle run waits for an older idle run whose beat is old, until it stayed the same for two beats', async () => {
+  const lock = newLock()
+  mkdirSync(idleRoomOf(lock))
+  const older = join(idleRoomOf(lock), ticketName(Date.now() - 20 * 60000))
+  writeFileSync(older, lockText({ label: 'idle:older', idle: true, order: ORDER_MARK, beat: new Date(Date.now() - 6 * 60000).toISOString() }))
+  const began = Date.now()
+  const younger = start(lock, 'idle:younger', quick, { HEAVY_RUN_BEAT_MS: '600' })
+  await until(() => /waiting for an idle PC/.test(younger.err), 'the younger idle run waiting')
+  await new Promise((done) => setTimeout(done, 700))
+  assert.equal(existsSync(older), true, 'the older run\'s ticket is not removed at once')
+  assert.equal(younger.child.exitCode, null, 'the younger run still waits')
+  const result = await younger.done
+  assert.equal(result.code, 0)
+  assert.ok(Date.now() - began >= 1200, `went only after the older ticket stayed the same for two beats (${Date.now() - began} ms)`)
+  assert.equal(existsSync(older), false)
 })
 
 test('S3 review: the command of an idle run does not see HEAVY_RUN_IDLE, so the runs it starts in turn are ordinary ones', async () => {
