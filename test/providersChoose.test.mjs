@@ -59,7 +59,7 @@ test('providerCards: `last` is the kept check of that kind and provider, with it
 test('verifyOne: runs that provider\'s check with the tools and answers the record to keep, with the time', async () => {
   const seen = []
   const record = await verifyOne(settings('{}'), 'visual', 'codex', { now: NOW, codexPath: 'D:\\codex.exe', findCodex: async ask => { seen.push(ask); return 'C:\\codex.exe' } })
-  assert.deepEqual(record, { ok: true, state: 'works', why: 'Codex found', detail: 'Codex found', at: NOW })
+  assert.deepEqual(record, { ok: true, state: 'works', why: 'Codex found', detail: 'Codex found: C:\\codex.exe (the path in the settings is gone: D:\\codex.exe)', at: NOW })
   assert.deepEqual(seen, [{ given: 'D:\\codex.exe' }])
   assert.deepEqual(await verifyOne(settings('{}'), 'music', 'manual', { now: NOW }), { ok: true, state: 'works', why: 'nothing to check', detail: 'Always works', at: NOW })
   // A name or kind the board does not show is off (Claude too, since 2026-11-02).

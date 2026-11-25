@@ -606,7 +606,7 @@ project's backlog, part of B126 (the board for any project).
    `.claude\projects`, in a folder named after the project's path); set it only to read another folder.
 9. Done (B135, B214), not yet tried on a real Mac (B215): the app's folders are found per system (Windows, the
    Store app, a Mac, Linux); folders are compared with "/" and their own letters on a Mac; Codex is found on the
-   PATH as well as under `%LOCALAPPDATA%\OpenAI\Codex`. On a Mac, use `/` in paths, `HOME` for the home folder and
+   PATH as well as under `%LOCALAPPDATA%\OpenAI\Codex`, and on Windows in the Microsoft Store package `OpenAI.Codex` (B1311: found by its name, last; a `codex` path in the settings that is gone falls back to this search). On a Mac, use `/` in paths, `HOME` for the home folder and
    `claude` from your shell for the mods; the steps above are written for Windows.
 10. Done (B136): `package.json` names Node 24 or newer, and the scripts `start`, `demo` and `test`.
 11. Done (B137): an empty board says under its lanes what it looks for and where: the list of chats, a chat of the

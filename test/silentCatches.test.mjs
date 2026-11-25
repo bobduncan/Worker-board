@@ -96,6 +96,20 @@ test('B467: the app\'s folder, the kinds of idea, another board\'s task times an
   assert.match(server, /loops\.failed\('bridge-note', error\)/)
 })
 
+test('T5.2 A6b (chat 1\'s review): the chat home\'s rules files that cannot be read show as a failing read, never as "no files"', async () => {
+  assert.match(server, /files: \(await loops\.run\('home-files', \(\) => homeFilesNow\(config\)\)\) \?\? \[\]/)
+  const { loopRecord, wordsOf } = await import('../src/loops.mjs')
+  assert.equal(wordsOf('home-files'), 'reading the chat home\'s rules files')
+  // As the server runs it: a read that throws gives [] for the note and leaves the failure on the record the page shows.
+  const loops = loopRecord({ now: () => 0, write: () => {} })
+  const files = (await loops.run('home-files', async () => { throw new Error('EACCES: CLAUDE.md') })) ?? []
+  assert.deepEqual(files, [])
+  assert.deepEqual(loops.failing().map(one => one.name), ['home-files'])
+  assert.match(JSON.stringify(loops.failing()), /EACCES: CLAUDE\.md/)
+  await loops.run('home-files', async () => [])
+  assert.deepEqual(loops.failing(), [], 'a read that goes well clears it')
+})
+
 test('B446: the goal guard after a chat\'s checked runs as a loop', () => {
   const action = part('const workAction = async (body, as, trace = null) => {', 'if (done.ok && done.result.changed !== false)')
   // T9.1.1: no loop asks the Advisor for a result check any more: the work API makes the task.

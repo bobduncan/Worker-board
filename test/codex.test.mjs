@@ -78,10 +78,55 @@ test('Codex is found where its app keeps it: the newest one, or the one the sett
   await mkdir(join(bin, 'empty'), { recursive: true })
   assert.equal(await findCodex({ env: { LOCALAPPDATA: home } }), join(bin, 'bbb', 'codex.exe'))
   assert.equal(await findCodex({ given: join(bin, 'aaa', 'codex.exe'), env: { LOCALAPPDATA: home } }), join(bin, 'aaa', 'codex.exe'))
-  // A path the settings give that is not there is not replaced by a guess.
-  assert.equal(await findCodex({ given: join(bin, 'nope.exe'), env: { LOCALAPPDATA: home } }), null)
-  assert.equal(await findCodex({ env: { LOCALAPPDATA: join(home, 'elsewhere') } }), null)
-  assert.equal(await findCodex({ env: {} }), null)
+  // B1311: a path the settings give that is gone (an old package folder) falls back to the search; no Codex at all is null.
+  assert.equal(await findCodex({ given: join(bin, 'nope.exe'), env: { LOCALAPPDATA: home } }), join(bin, 'bbb', 'codex.exe'))
+  assert.equal(await findCodex({ env: { LOCALAPPDATA: join(home, 'elsewhere') }, execFile: noStore }), null)
+  assert.equal(await findCodex({ given: join(home, 'gone.exe'), env: {}, execFile: noStore }), null)
+})
+
+// B1311 (Q848, 2026-11-22): the Codex app updated itself into a Microsoft Store package.
+const noStore = (command, args, options, done) => done(null, '')
+const storeAnswer = (lines, seen = []) => (command, args, options, done) => { seen.push({ command, args, options }); done(null, lines.join('\r\n')) }
+async function storePackage(root, version, { exe = true } = {}) {
+  const location = join(root, `OpenAI.Codex_${version}_x64__abc`)
+  await mkdir(join(location, 'app', 'resources'), { recursive: true })
+  if (exe) await writeFile(join(location, 'app', 'resources', 'codex.exe'), 'x')
+  return location
+}
+
+test('the Store package is the last place: found when the old folder and the PATH have none, the newest version, a gone settings path falls back to it', async t => {
+  const root = await folder(t)
+  const old = await storePackage(root, '26.1.0')
+  const newer = await storePackage(root, '26.10.0')
+  const empty = await storePackage(root, '27.0.0', { exe: false })
+  const seen = []
+  const ask = storeAnswer([`26.1.0|${old}`, `27.0.0|${empty}`, `26.10.0|${newer}`, ''], seen)
+  const env = { LOCALAPPDATA: join(root, 'no-local'), PATH: join(root, 'no-path') }
+  const wanted = join(newer, 'app', 'resources', 'codex.exe')
+  assert.equal(await findCodex({ env, platform: 'win32', execFile: ask }), wanted)
+  assert.equal(await findCodex({ given: join(root, 'gone', 'codex.exe'), env, platform: 'win32', execFile: ask }), wanted)
+  // Asked by the package's name, hidden and with a time limit.
+  assert.equal(seen[0].command, 'powershell.exe')
+  assert.ok(seen[0].args.includes('-NoProfile') && seen[0].args.some(arg => arg.includes('Get-AppxPackage OpenAI.Codex')))
+  assert.equal(seen[0].options.windowsHide, true)
+  assert.ok(seen[0].options.timeout > 0 && seen[0].options.timeout <= 15_000)
+  // The folder of the Codex app comes first: the Store is not asked then.
+  const before = seen.length
+  const bin = join(root, 'local', 'OpenAI', 'Codex', 'bin', 'aaa')
+  await mkdir(bin, { recursive: true })
+  await writeFile(join(bin, 'codex.exe'), 'x')
+  assert.equal(await findCodex({ env: { LOCALAPPDATA: join(root, 'local') }, platform: 'win32', execFile: ask }), join(bin, 'codex.exe'))
+  assert.equal(seen.length, before)
+  // A failing or silent PowerShell is "not found", never a throw.
+  assert.equal(await findCodex({ env, platform: 'win32', execFile: (c, a, o, done) => done(new Error('timeout')) }), null)
+  assert.equal(await findCodex({ env, platform: 'win32', execFile: () => { throw new Error('no powershell') } }), null)
+})
+
+test('the Store is never asked on a Mac or Linux', async () => {
+  const seen = []
+  assert.equal(await findCodex({ env: { PATH: '/nowhere' }, platform: 'darwin', execFile: storeAnswer(['1|/x'], seen) }), null)
+  assert.equal(await findCodex({ env: { PATH: '/nowhere' }, platform: 'linux', execFile: storeAnswer(['1|/x'], seen) }), null)
+  assert.deepEqual(seen, [])
 })
 
 // B1310 (A499, 2026-11-22): Codex drew the picture, its sandbox refused the copy into the job folder, so no picture.png.
