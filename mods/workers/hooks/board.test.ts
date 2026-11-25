@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { GAVE_WAY_WHY, TAKEN_ALREADY_WHY, TURN_OR_PROMPT_WHYS, heldLineVerdict, isTurnOrPromptWhy, LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, restoredDropped, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS } from './board'
+import { GAVE_WAY_WHY, TAKEN_ALREADY_WHY, TURN_OR_PROMPT_WHYS, heldLineVerdict, isTurnOrPromptWhy, LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, restoredDropped, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS, WORK_DENY, workFieldsOf, takeDue, statusVerdict } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -609,7 +609,7 @@ describe('2026-10-28: the board names this chat by its session id', () => {
   test('the route, and the version the plugin states', () => {
     expect(WHOAMI_PATH).toBe('/api/bridge/whoami')
     // 0.27.3: the work tool says "goal definition" and takes definition-draft (this branch carried 0.27.1, the main branch is at 0.27.2).
-    expect(MOD_VERSION).toBe('0.36.0')
+    expect(MOD_VERSION).toBe('0.37.0')
   })
 
   test('the answer: a name, the role the board gives it and the session its card is filed under', () => {
@@ -689,5 +689,30 @@ describe('B1228 (X201): a clear refused for a turn or a prompt holds its line un
     expect(heldLineVerdict('B13', 3, takes)).toBe('retry')
     expect(heldLineVerdict('B14', 0, takes)).toBe('retry')
     expect(heldLineVerdict(null, 0, takes)).toBe('retry')
+  })
+})
+
+describe('0.37.0 (B421): the work tool forwards every field but its own, and the take and the pane are decided in pure functions', () => {
+  test('workFieldsOf keeps every field the chat gave and drops the mod\'s own and the undefined', () => {
+    expect(workFieldsOf({ action: 'new', title: 'x', priority: 'fix', brandNew: 1, chat: 'Evil', session: 's', request: 'r', mod: '0', via: 'form', skipped: undefined }))
+      .toEqual({ action: 'new', title: 'x', priority: 'fix', brandNew: 1 })
+  })
+
+  test('the mod\'s own fields are the board\'s MOD_FIELDS (test/work/actionsTable.test.mjs holds the two equal)', () => {
+    expect(WORK_DENY).toEqual(['chat', 'session', 'request', 'mod', 'via'])
+  })
+
+  test('takeDue: none runs, or the last began TAKE_MS ago', () => {
+    expect(takeDue(false, 1000, 1001, 15000)).toBe(true)
+    expect(takeDue(true, 1000, 15999, 15000)).toBe(false)
+    expect(takeDue(true, 1000, 16000, 15000)).toBe(true)
+  })
+
+  test('statusVerdict changes with a status, its why, its tone or the held step, and not with the rest', () => {
+    const one = { name: 'Worker 1', status: 'working', why: 'a', tone: 'ok' }
+    expect(statusVerdict([one])).toBe(statusVerdict([{ ...one }]))
+    expect(statusVerdict([one])).not.toBe(statusVerdict([{ ...one, status: 'idle' }]))
+    expect(statusVerdict([one])).not.toBe(statusVerdict([{ ...one, why: 'b' }]))
+    expect(statusVerdict([one])).not.toBe(statusVerdict([{ ...one, held: 'B1' }]))
   })
 })

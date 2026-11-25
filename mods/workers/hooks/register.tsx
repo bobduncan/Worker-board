@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, restoredDropped, takeWordsOf, typedWordsKey, MOST_CHARS, MOST_STAGES, NO_OUTCOME, GAVE_WAY_WHY, TAKEN_ALREADY_WHY, heldLineVerdict, isTurnOrPromptWhy, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, restoredDropped, takeWordsOf, typedWordsKey, MOST_CHARS, MOST_STAGES, NO_OUTCOME, GAVE_WAY_WHY, TAKEN_ALREADY_WHY, heldLineVerdict, isTurnOrPromptWhy, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, workFieldsOf, takeDue, statusVerdict } from './board'
 import type { Board, BoardStart, ClearStage, Envelope, Handover, Outcome, PauseState, PauseWhere, PendingClear, StopAsk, TurnContext, TurnReport, TurnWords, TypedWord, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -1403,7 +1403,7 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
   // Redesign Part 1, Review Focus 1: the board still hears the chat's report at every ping meanwhile.
   if (clearing !== null || isDecidingClear) return pingReport($)
   const now = await $.clock.now()
-  if (isTaking && now - takingSince < TAKE_MS) return
+  if (!takeDue(isTaking, takingSince, now, TAKE_MS)) return
   isTaking = true
   takingSince = now
   const mine = (takeNumber += 1)
@@ -1425,7 +1425,7 @@ async function takeFromBoard($: EngineInterface): Promise<void> {
       statusesAt = now
     } else if (taken !== null && taken.isAnswer) answeredAt = now
     // The pane is drawn again when the board's verdict changed (a status, its why or tone, the held step), not at every take.
-    const verdict = JSON.stringify(boardStatuses.map(one => [one.name, one.status, one.why, one.tone, one.held ?? null]))
+    const verdict = statusVerdict(boardStatuses)
     if (verdict !== shownVerdict || isFirstStatuses) {
       shownVerdict = verdict
       void refreshChats($)
@@ -3707,7 +3707,8 @@ async function workToolCall($: EngineInterface, e: { agentId?: string }, input: 
   }
   // Clear after each step: the log before a clear is the mod's own call, never the model's.
   if (action === 'save-log') return { result: 'save-log is the Workers mod\'s own call: nothing was done.' }
-  const fields = Object.fromEntries(WORK_FIELDS.filter(key => input[key] !== undefined).map(key => [key, input[key]]))
+  // B421: every field the chat gave goes on but the mod's own; the board names one it does not know.
+  const fields = workFieldsOf(input)
   // Chat 1's review (9): the call's follow-up (the card, the flags, the open instructions) runs on the board's answer, here or from a
   // background repeat that got it (bound to this turn for the per-turn flags).
   const turn = turnNumber

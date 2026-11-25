@@ -35,6 +35,7 @@ import { answerReport, answerWhoami, appOfShown, bridgeNote, checkTake, checkTyp
 import { cardFiledUnder } from './src/chatCards.mjs'
 import { hasMoved } from './src/chatReport.mjs'
 import { landedLines, runningLanding } from './src/landing.mjs'
+import { OLDER_MOD_WHY, unknownFields } from './src/work/actions.mjs'
 import { landedWaitOf } from './src/work/landedWait.mjs'
 import { chatLogKeeper, isReadOut, leftSubjects } from './src/chatLogs.mjs'
 import { backgroundOf } from './src/chatReport.mjs'
@@ -3214,6 +3215,9 @@ async function main(args) {
   /** B297: one call of a chat's work tool, made once (B412: `requests` gives a repeat of it the same answer). */
   const bridgeWorkOnce = async (body, checked, trace = null) => {
     // T8.5: the version its mod said with this very call (noteMod keeps it before the call is answered).
+    // B421: a field the board's table of actions does not know is refused by name; the mod forwards every field but its own.
+    const unknown = unknownFields(body)
+    if (unknown.length > 0) return { ok: false, status: 400, why: `${unknown.map(key => `"${String(key).slice(0, 40)}"`).join(', ')}: no field of the work tool; ${OLDER_MOD_WHY}.` }
     const mod = modOf.get(checked.chat)?.version ?? null
     const done = await workAction({ ...body, chat: checked.chat }, checked.isSide === true ? 'side' : undefined, trace)
     // The supervisor's Part 2: its chat's health read, incidents and turn's end tell the sweep that runs how it went.

@@ -237,7 +237,7 @@ export const REQUEST_HEADER = 'X-Work-Request'
  * chat that runs an older Workers mod than the one installed. The same as `version` in .claude-plugin/plugin.json.
  */
 export const MOD_HEADER = 'X-Workers-Mod'
-export const MOD_VERSION = '0.36.0'
+export const MOD_VERSION = '0.37.0'
 /** The longest text typed for the board: its own limit for an answer, with room for the request's name around it. */
 export const MOST_CHARS = 3000
 
@@ -634,6 +634,27 @@ export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 
   'fix',
   // 0.29.0: an asset request's earlier iteration (A<n>) and a library pick (a path in the library folder).
   'follows', 'picked']
+
+/** B421: what the mod sets on a call itself, never the chat: the board's table names the same five (src/work/actions.mjs, MOD_FIELDS). */
+export const WORK_DENY = ['chat', 'session', 'request', 'mod', 'via']
+
+/**
+ * B421: the fields of the model's work-tool call that go to the board: every one it gave but the few the mod sets itself, so a field
+ * this mod does not know yet reaches the board, which refuses it by name instead of the mod dropping it unseen. PURE.
+ */
+export function workFieldsOf(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(input).filter(([key, value]) => value !== undefined && !WORK_DENY.includes(key)))
+}
+
+/** B421: whether a take of the board's list is due: none runs, or the last one began TAKE_MS ago or longer. PURE. */
+export function takeDue(isTaking: boolean, takingSince: number, now: number, takeMs: number): boolean {
+  return !isTaking || now - takingSince >= takeMs
+}
+
+/** B421: the board's verdict on its chats as one string: the pane is drawn again only when it changes (a status, its why or tone, the held step). PURE. */
+export function statusVerdict(statuses: ReadonlyArray<{ name: string; status: string; why: string; tone: string; held?: unknown }>): string {
+  return JSON.stringify(statuses.map(one => [one.name, one.status, one.why, one.tone, one.held ?? null]))
+}
 
 /** What every chat in the list is told about the board, in the same words at every request. */
 export const BOARD_NOTE = ' The person also answers on their worker board, a page on this machine. What they answer or '
