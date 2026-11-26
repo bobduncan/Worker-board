@@ -24,7 +24,7 @@ function lockWith(mode) {
   return lock
 }
 /** A mode file as the person's board writes it (S4): its owner is this test's process, its beat now. */
-const modeNow = (extra = {}) => ({ level: 'full', masks: { person: '0x00000F', work: '0xFFFFF0', low: '0xC00000' }, threads: { work: 20, low: 2 }, since: 1, who: 'the board page', pid: process.pid, port: 4310, project: 'C:\\Web\\x', beat: Date.now(), ...extra })
+const modeNow = (extra = {}) => ({ level: 'full', masks: { person: '0x00000F', work: '0xFFFFF0', low: '0xC00000' }, threads: { work: 20, low: 2 }, since: 1, who: 'the board page', pid: process.pid, port: 4310, project: 'D:\\boards\\x', beat: Date.now(), ...extra })
 const plainEnv = extra => {
   const { HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, ...plain } = process.env
   return { ...plain, HEAVY_RUN_POLL_MS: '50', HEAVY_RUN_SAY_MS: '200', HEAVY_RUN_SLOTS: '1', ...extra }

@@ -83,7 +83,7 @@ test('S4: the topology is read once and cached per count; a failed read is kept 
 })
 
 test('S4: only a board whose config opts in writes the mode file: never the trial copy, the Test board, a test board, the demo or a gate\'s run', () => {
-  const config = { project: 'C:\\Web\\lava-tactics-project', heavyModeWriter: true }
+  const config = { project: 'D:\\boards\\game', heavyModeWriter: true }
   const base = { platform: 'win32', config, isDemo: false, isShowOnly: false, historyFrom: undefined, env: {} }
   assert.equal(writesModeOf(base), true)
   assert.equal(writesModeOf({ ...base, config: { ...config, heavyModeWriter: false } }), false)
@@ -110,19 +110,19 @@ test('S4: the config keeps heavyModeWriter as a PC key, false unless it says tru
 })
 
 test('S4: setup gives the PC\'s first board heavyModeWriter once, keeps the file\'s line ends, and leaves the others and a config that says it', () => {
-  const here = 'C:\\Web\\lava-tactics-project\\worker-board'
-  const boards = [{ folder: here }, { folder: 'C:\\Web\\board-trial\\worker-board' }]
+  const here = 'D:\\boards\\game\\worker-board'
+  const boards = [{ folder: here }, { folder: 'D:\\boards\\trial\\worker-board' }]
   const text = '{\r\n  "name": "Lava Tactics"\r\n}\r\n'
-  const first = heavyModeSetup({ here: 'C:/Web/lava-tactics-project/worker-board/', boards, text })
+  const first = heavyModeSetup({ here: 'D:/boards/game/worker-board/', boards, text })
   assert.equal(first.text, '{\r\n  "name": "Lava Tactics",\r\n  "heavyModeWriter": true\r\n}\r\n')
-  assert.equal(heavyModeSetup({ here: 'C:\\Web\\board-trial\\worker-board', boards, text }).text, null)
+  assert.equal(heavyModeSetup({ here: 'D:\\boards\\trial\\worker-board', boards, text }).text, null)
   assert.equal(heavyModeSetup({ here, boards, text: '{ "heavyModeWriter": false }' }).text, null)
   assert.equal(heavyModeSetup({ here, boards, text: '{ broken' }).text, null)
   assert.equal(heavyModeSetup({ here, boards: [], text }).text, null)
 })
 
 const MASKS = masksOf(parseTopology(THIS_PC))
-const owner = { pid: 4242, port: 4310, project: 'C:\\Web\\lava-tactics-project' }
+const owner = { pid: 4242, port: 4310, project: 'D:\\boards\\game' }
 
 test('S4: the mode file sits beside the queue\'s lock and says level, masks, threads, since, who, its owner and its beat', async () => {
   const folder = await temp('mode')
