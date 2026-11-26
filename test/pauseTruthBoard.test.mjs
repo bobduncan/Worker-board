@@ -9,7 +9,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import test from 'node:test'
+import { describe, it as test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
@@ -110,53 +110,56 @@ async function boardWith(t, { files = {}, app: appFiles = {}, pause = null, advi
   return { call, state, head, addFile }
 }
 
-test('on a running board: the popup ask of a done step is withdrawn by the pass, and a new fix step waits for Resume all while the pause holds', { timeout: 240_000 }, async t => {
-  const done = lines({ Id: 'B11', Kind: 'step', Title: 'Task B11', State: 'done', Owner: 'Units', Activity: 'Art', Since: stamp(NOW - 30 * MIN) }, [`- ${stamp(NOW - 30 * MIN)} Units: in progress → done`])
-  const fresh = lines({ Id: 'B30', Kind: 'step', Title: 'Fix of X1: a thing that fails', Priority: 'fix', State: 'new', Activity: 'Art', Since: stamp(NOW - 20 * MIN) }, [`- ${stamp(NOW - 20 * MIN)} Supervisor: made`])
-  const popup = lines({ Id: 'Q1', Kind: 'ask', Title: POPUP, State: 'open', Owner: 'Units', Activity: 'Art', Since: stamp(NOW - 25 * MIN), Filed: NOW - 25 * MIN, Asks: 'do', Blocking: 'no', Of: 'B11', Via: 'form', Route: 'person' }, [`- ${stamp(NOW - 25 * MIN)} Units: asked (do, with the app's question form)`]).replace('\n\n## History', `\n\n## Text\n${POPUP} Open its chat and look.\n\n## History`)
-  const incident = lines({ Id: 'X1', Kind: 'incident', Title: 'A thing fails', State: 'fix', Source: 'chain-long', Subject: 'B1', Key: 'chain-long B1', Since: stamp(NOW - 25 * MIN), 'First seen': stamp(NOW - 25 * MIN), 'Last seen': stamp(NOW - 22 * MIN), Count: 3, Fix: 'B30', Evidence: 'the chain' }, [`- ${stamp(NOW - 25 * MIN)} Supervisor: fix B30`])
-  const { state, head } = await boardWith(t, { files: { B11: done, B30: fresh, Q1: popup, X1: incident }, pause: { state: 'pausing', since: NOW - 10 * MIN, by: 'person' } })
-  // The popup-asks pass (server.mjs): Units reports no asking and its step is done. Mutant: the call left out.
-  await until(async () => (await head('Q1', 'State')) === 'withdrawn', 'the popup ask withdrawn by the board')
-  // The pause handed to the supervisor's cards (server.mjs `pause: state.pause`). Mutant: the line left out.
-  let chip = null
-  await until(async () => {
-    chip = ((await state()).supervisor?.cards ?? []).find(card => card.step === 'B30')?.state?.text ?? null
-    return chip !== null
-  }, 'the supervisor card of B30')
-  assert.equal(chip, 'new · waits for Resume all')
-})
+// B1554 (gate diet): each case starts a board of its own on a port of its own, so the three run side by side.
+describe("pause truth on a running board", { concurrency: 3 }, () => {
+  test('on a running board: the popup ask of a done step is withdrawn by the pass, and a new fix step waits for Resume all while the pause holds', { timeout: 240_000 }, async t => {
+    const done = lines({ Id: 'B11', Kind: 'step', Title: 'Task B11', State: 'done', Owner: 'Units', Activity: 'Art', Since: stamp(NOW - 30 * MIN) }, [`- ${stamp(NOW - 30 * MIN)} Units: in progress → done`])
+    const fresh = lines({ Id: 'B30', Kind: 'step', Title: 'Fix of X1: a thing that fails', Priority: 'fix', State: 'new', Activity: 'Art', Since: stamp(NOW - 20 * MIN) }, [`- ${stamp(NOW - 20 * MIN)} Supervisor: made`])
+    const popup = lines({ Id: 'Q1', Kind: 'ask', Title: POPUP, State: 'open', Owner: 'Units', Activity: 'Art', Since: stamp(NOW - 25 * MIN), Filed: NOW - 25 * MIN, Asks: 'do', Blocking: 'no', Of: 'B11', Via: 'form', Route: 'person' }, [`- ${stamp(NOW - 25 * MIN)} Units: asked (do, with the app's question form)`]).replace('\n\n## History', `\n\n## Text\n${POPUP} Open its chat and look.\n\n## History`)
+    const incident = lines({ Id: 'X1', Kind: 'incident', Title: 'A thing fails', State: 'fix', Source: 'chain-long', Subject: 'B1', Key: 'chain-long B1', Since: stamp(NOW - 25 * MIN), 'First seen': stamp(NOW - 25 * MIN), 'Last seen': stamp(NOW - 22 * MIN), Count: 3, Fix: 'B30', Evidence: 'the chain' }, [`- ${stamp(NOW - 25 * MIN)} Supervisor: fix B30`])
+    const { state, head } = await boardWith(t, { files: { B11: done, B30: fresh, Q1: popup, X1: incident }, pause: { state: 'pausing', since: NOW - 10 * MIN, by: 'person' } })
+    // The popup-asks pass (server.mjs): Units reports no asking and its step is done. Mutant: the call left out.
+    await until(async () => (await head('Q1', 'State')) === 'withdrawn', 'the popup ask withdrawn by the board')
+    // The pause handed to the supervisor's cards (server.mjs `pause: state.pause`). Mutant: the line left out.
+    let chip = null
+    await until(async () => {
+      chip = ((await state()).supervisor?.cards ?? []).find(card => card.step === 'B30')?.state?.text ?? null
+      return chip !== null
+    }, 'the supervisor card of B30')
+    assert.equal(chip, 'new · waits for Resume all')
+  })
 
-test('on a running board: a leftover chat whose need names a step that ended after it was active is archived (state and end time handed to replacedChats)', { timeout: 240_000 }, async t => {
-  const done = lines({ Id: 'B11', Kind: 'step', Title: 'Task B11', State: 'done', Owner: 'Units', Activity: 'Art', Since: stamp(NOW - 20 * MIN) }, [`- ${stamp(NOW - 20 * MIN)} Units: in progress → done`])
-  const leftover = appChat => appChat('Units', 'units-old', { sessionId: 'local_UnitsOld', createdAt: 1, lastActivityAt: NOW - 90 * MIN, postTurnSummary: { status_category: 'blocked', status_detail: 'waits', needs_action: 'answer B11: http://127.0.0.1:4310/#details=B11' } })
-  const live = appChat => appChat('Units', 'units-id', { createdAt: NOW - 60 * MIN })
-  const { call } = await boardWith(t, { files: { B11: done }, app: { 'local_UnitsOld.json': leftover, 'local_Units.json': live } })
-  // The live Units checked in (it runs and has reported); the main chat's mod can archive (0.31.0, can restart).
-  assert.equal((await call('report', { chat: 'Units', session: 'units-id', report: { state: 'idle', since: Date.now() - 2 * MIN, seq: 1, run: 1 } })).status, 200)
-  let jobs = []
-  await until(async () => {
-    const reply = await call('hands', { chat: 'Lead', session: 'lead-id', mod: '0.31.0', can: ['restart'] })
-    jobs = reply.body.jobs ?? reply.body.result?.jobs ?? []
-    return jobs.some(job => job.archive === true)
-  }, 'the job that archives the leftover')
-  assert.equal(jobs.find(job => job.archive === true).to, 'local_UnitsOld')
-})
+  test('on a running board: a leftover chat whose need names a step that ended after it was active is archived (state and end time handed to replacedChats)', { timeout: 240_000 }, async t => {
+    const done = lines({ Id: 'B11', Kind: 'step', Title: 'Task B11', State: 'done', Owner: 'Units', Activity: 'Art', Since: stamp(NOW - 20 * MIN) }, [`- ${stamp(NOW - 20 * MIN)} Units: in progress → done`])
+    const leftover = appChat => appChat('Units', 'units-old', { sessionId: 'local_UnitsOld', createdAt: 1, lastActivityAt: NOW - 90 * MIN, postTurnSummary: { status_category: 'blocked', status_detail: 'waits', needs_action: 'answer B11: http://127.0.0.1:4310/#details=B11' } })
+    const live = appChat => appChat('Units', 'units-id', { createdAt: NOW - 60 * MIN })
+    const { call } = await boardWith(t, { files: { B11: done }, app: { 'local_UnitsOld.json': leftover, 'local_Units.json': live } })
+    // The live Units checked in (it runs and has reported); the main chat's mod can archive (0.31.0, can restart).
+    assert.equal((await call('report', { chat: 'Units', session: 'units-id', report: { state: 'idle', since: Date.now() - 2 * MIN, seq: 1, run: 1 } })).status, 200)
+    let jobs = []
+    await until(async () => {
+      const reply = await call('hands', { chat: 'Lead', session: 'lead-id', mod: '0.31.0', can: ['restart'] })
+      jobs = reply.body.jobs ?? reply.body.result?.jobs ?? []
+      return jobs.some(job => job.archive === true)
+    }, 'the job that archives the leftover')
+    assert.equal(jobs.find(job => job.archive === true).to, 'local_UnitsOld')
+  })
 
-const popupOf = (id, owner, of) => lines({ Id: id, Kind: 'ask', Title: POPUP, State: 'open', Owner: owner, Activity: 'Art', Since: stamp(NOW - 25 * MIN), Filed: NOW - 25 * MIN, Asks: 'do', Blocking: 'no', Of: of, Via: 'form', Route: 'person' }, [`- ${stamp(NOW - 25 * MIN)} ${owner}: asked (do, with the app's question form)`]).replace('\n\n## History', `\n\n## Text\n${POPUP} Open its chat and look.\n\n## History`)
+  const popupOf = (id, owner, of) => lines({ Id: id, Kind: 'ask', Title: POPUP, State: 'open', Owner: owner, Activity: 'Art', Since: stamp(NOW - 25 * MIN), Filed: NOW - 25 * MIN, Asks: 'do', Blocking: 'no', Of: of, Via: 'form', Route: 'person' }, [`- ${stamp(NOW - 25 * MIN)} ${owner}: asked (do, with the app's question form)`]).replace('\n\n## History', `\n\n## Text\n${POPUP} Open its chat and look.\n\n## History`)
 
-test('on a running board: a popup ask stays while its chat, a worker or the Advisor, still reports asking on a done step; one of a chat that does not ask goes', { timeout: 240_000 }, async t => {
-  const done = lines({ Id: 'B11', Kind: 'step', Title: 'Task B11', State: 'done', Owner: 'Units', Activity: 'Art', Since: stamp(NOW - 30 * MIN) }, [`- ${stamp(NOW - 30 * MIN)} Units: in progress → done`])
-  const { call, head, state, addFile } = await boardWith(t, { advisor: true, files: { B11: done } })
-  for (const [chat, session] of [['Units', 'units-id'], ['Advisor', 'advisor-id']]) {
-    assert.equal((await call('report', { chat, session, report: { state: 'asking', since: Date.now() - MIN, seq: 1, run: 1 } })).status, 200)
-  }
-  // The chats' reports are in before the asks are filed (the pass runs at every refresh).
-  await until(async () => (await state()).chats.find(chat => chat.name === 'Units')?.state === 'waiting', 'Units reads as asking')
-  for (const [id, owner] of [['Q1', 'Units'], ['Q2', 'Advisor'], ['Q3', 'Lead']]) await addFile(id, popupOf(id, owner, 'B11'))
-  // The control: the main chat does not ask, so its popup of the done step goes (the pass has run).
-  await until(async () => (await head('Q3', 'State')) === 'withdrawn', 'the popup ask of the chat that does not ask withdrawn')
-  // The asking worker's (mutant: the asking list not sent) and the asking Advisor's (mutant: side chats left out) stay.
-  assert.equal(await head('Q1', 'State'), 'open')
-  assert.equal(await head('Q2', 'State'), 'open')
+  test('on a running board: a popup ask stays while its chat, a worker or the Advisor, still reports asking on a done step; one of a chat that does not ask goes', { timeout: 240_000 }, async t => {
+    const done = lines({ Id: 'B11', Kind: 'step', Title: 'Task B11', State: 'done', Owner: 'Units', Activity: 'Art', Since: stamp(NOW - 30 * MIN) }, [`- ${stamp(NOW - 30 * MIN)} Units: in progress → done`])
+    const { call, head, state, addFile } = await boardWith(t, { advisor: true, files: { B11: done } })
+    for (const [chat, session] of [['Units', 'units-id'], ['Advisor', 'advisor-id']]) {
+      assert.equal((await call('report', { chat, session, report: { state: 'asking', since: Date.now() - MIN, seq: 1, run: 1 } })).status, 200)
+    }
+    // The chats' reports are in before the asks are filed (the pass runs at every refresh).
+    await until(async () => (await state()).chats.find(chat => chat.name === 'Units')?.state === 'waiting', 'Units reads as asking')
+    for (const [id, owner] of [['Q1', 'Units'], ['Q2', 'Advisor'], ['Q3', 'Lead']]) await addFile(id, popupOf(id, owner, 'B11'))
+    // The control: the main chat does not ask, so its popup of the done step goes (the pass has run).
+    await until(async () => (await head('Q3', 'State')) === 'withdrawn', 'the popup ask of the chat that does not ask withdrawn')
+    // The asking worker's (mutant: the asking list not sent) and the asking Advisor's (mutant: side chats left out) stay.
+    assert.equal(await head('Q1', 'State'), 'open')
+    assert.equal(await head('Q2', 'State'), 'open')
+  })
 })

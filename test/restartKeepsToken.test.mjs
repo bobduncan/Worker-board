@@ -12,7 +12,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import test from 'node:test'
+import { describe, it as test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -86,149 +86,152 @@ async function boardCopy(dir, port) {
   return board
 }
 
-test('a board its keeper starts anew keeps the page\'s token: the open page is answered 200 all the way, and has nothing to reload', { timeout: 300_000 }, async t => {
-  const dir = await mkdtemp(join(tmpdir(), 'board-token-'))
-  const started = []
-  t.after(async () => {
-    await Promise.all(started.map(stop))
-    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
-  })
-  const port = await freePort()
-  const board = await boardCopy(dir, port)
-  const base = `http://127.0.0.1:${port}`
+// B1554 (gate diet): the two cases that start a board each use a port and a folder of their own, so the file takes as long as the slower of them.
+describe("a board's restart keeps the page's token", { concurrency: 5 }, () => {
+  test('a board its keeper starts anew keeps the page\'s token: the open page is answered 200 all the way, and has nothing to reload', { timeout: 300_000 }, async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'board-token-'))
+    const started = []
+    t.after(async () => {
+      await Promise.all(started.map(stop))
+      await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    })
+    const port = await freePort()
+    const board = await boardCopy(dir, port)
+    const base = `http://127.0.0.1:${port}`
 
-  const keeper = launch(started, board)
-  await keeper.listening
-  const pageToken = async () => /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
-  const token = await pageToken()
-  assert.ok(token, 'the served page carries the token')
-  const ask = () => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token }, signal: AbortSignal.timeout(5_000) })
-  const first = await (await ask()).json()
-  assert.match(await readFile(join(board, 'data', 'history.jsonl'), 'utf8'), /"gap":true,"why":"unknown","start":"hand"/, 'a cold start: started by hand')
-  assert.equal(first.board.lastStop.start, 'hand')
+    const keeper = launch(started, board)
+    await keeper.listening
+    const pageToken = async () => /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
+    const token = await pageToken()
+    assert.ok(token, 'the served page carries the token')
+    const ask = () => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token }, signal: AbortSignal.timeout(5_000) })
+    const first = await (await ask()).json()
+    assert.match(await readFile(join(board, 'data', 'history.jsonl'), 'utf8'), /"gap":true,"why":"unknown","start":"hand"/, 'a cold start: started by hand')
+    assert.equal(first.board.lastStop.start, 'hand')
 
-  // The page's click: the board ends with the restart code and its keeper starts the next one.
-  const restarted = await fetch(`${base}/api/restart`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': token, Origin: base }, body: '{}' })
-  assert.equal(restarted.status, 200)
-  const statuses = []
-  let next = null
-  for (let tries = 0; tries < 600 && next === null; tries += 1) {
-    try {
-      const answer = await ask()
-      statuses.push(answer.status)
-      if (answer.status === 200) {
-        const state = await answer.json()
-        if (state.version.since !== first.version.since) next = state
-      } else await answer.text()
-    } catch {
-      statuses.push('none')
+    // The page's click: the board ends with the restart code and its keeper starts the next one.
+    const restarted = await fetch(`${base}/api/restart`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': token, Origin: base }, body: '{}' })
+    assert.equal(restarted.status, 200)
+    const statuses = []
+    let next = null
+    for (let tries = 0; tries < 600 && next === null; tries += 1) {
+      try {
+        const answer = await ask()
+        statuses.push(answer.status)
+        if (answer.status === 200) {
+          const state = await answer.json()
+          if (state.version.since !== first.version.since) next = state
+        } else await answer.text()
+      } catch {
+        statuses.push('none')
+      }
+      if (next === null) await new Promise(wait => setTimeout(wait, 200))
     }
-    if (next === null) await new Promise(wait => setTimeout(wait, 200))
-  }
-  assert.ok(next !== null, `the next board answered the old page: ${[...new Set(statuses)].join(', ')}`)
-  assert.equal(statuses.includes(403), false, `the old page's token was never refused: ${[...new Set(statuses)].join(', ')}`)
-  assert.equal(await pageToken(), token, 'a page loaded now gets the same token')
-  assert.equal(keeper.process.exitCode, null, 'the keeper that was started is still the one that runs')
-  // The new board serves before it prints its line (that comes after its loops' first look): give it a moment.
-  for (let tries = 0; tries < 100 && !/Worker board: http[\s\S]*Worker board: http/.test(keeper.out); tries += 1) await new Promise(wait => setTimeout(wait, 200))
-  assert.match(keeper.out, /Worker board: http[\s\S]*Worker board: http/, 'two boards, one after the other, under one keeper')
-})
-
-test('a second process on the board\'s port ends with one line before it opens the board\'s files: no stop record taken, no gap line', { timeout: 300_000 }, async t => {
-  const dir = await mkdtemp(join(tmpdir(), 'board-port-'))
-  const started = []
-  const holder = createServer((_req, res) => res.end('another program'))
-  t.after(async () => {
-    await Promise.all(started.map(stop))
-    await new Promise(done => holder.close(done))
-    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    assert.ok(next !== null, `the next board answered the old page: ${[...new Set(statuses)].join(', ')}`)
+    assert.equal(statuses.includes(403), false, `the old page's token was never refused: ${[...new Set(statuses)].join(', ')}`)
+    assert.equal(await pageToken(), token, 'a page loaded now gets the same token')
+    assert.equal(keeper.process.exitCode, null, 'the keeper that was started is still the one that runs')
+    // The new board serves before it prints its line (that comes after its loops' first look): give it a moment.
+    for (let tries = 0; tries < 100 && !/Worker board: http[\s\S]*Worker board: http/.test(keeper.out); tries += 1) await new Promise(wait => setTimeout(wait, 200))
+    assert.match(keeper.out, /Worker board: http[\s\S]*Worker board: http/, 'two boards, one after the other, under one keeper')
   })
-  const port = await freePort()
-  await new Promise(done => holder.listen(port, '127.0.0.1', done))
-  const board = await boardCopy(dir, port)
-  // The board ended for a restart a minute after its last look, 30 minutes ago; another program holds its port now.
-  const record = JSON.stringify({ at: Date.now() - 29 * MIN, why: 'restart' })
-  await writeFile(join(board, 'data', 'stop.json'), record)
-  const history = await readFile(join(board, 'data', 'history.jsonl'), 'utf8')
 
-  const second = launch(started, board, { args: ['--port', String(port)], child: true })
-  assert.equal(await second.ended, 1)
-  assert.match(second.out, new RegExp(`Port ${port} is in use: the board may be running already\\. This one ends before it opens its files\\.`))
-  assert.equal(existsSync(join(board, 'data', 'stop.json')), true, 'the stop record is left for the board it belongs to')
-  assert.equal(await readFile(join(board, 'data', 'stop.json'), 'utf8'), record)
-  assert.equal(await readFile(join(board, 'data', 'history.jsonl'), 'utf8'), history, 'no gap line')
+  test('a second process on the board\'s port ends with one line before it opens the board\'s files: no stop record taken, no gap line', { timeout: 300_000 }, async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'board-port-'))
+    const started = []
+    const holder = createServer((_req, res) => res.end('another program'))
+    t.after(async () => {
+      await Promise.all(started.map(stop))
+      await new Promise(done => holder.close(done))
+      await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    })
+    const port = await freePort()
+    await new Promise(done => holder.listen(port, '127.0.0.1', done))
+    const board = await boardCopy(dir, port)
+    // The board ended for a restart a minute after its last look, 30 minutes ago; another program holds its port now.
+    const record = JSON.stringify({ at: Date.now() - 29 * MIN, why: 'restart' })
+    await writeFile(join(board, 'data', 'stop.json'), record)
+    const history = await readFile(join(board, 'data', 'history.jsonl'), 'utf8')
 
-  // Started as the Run pane or a chat's mod does: its keeper hears that the board never came up, and is not started again.
-  const keeper = launch(started, board, { args: ['--port', String(port)] })
-  assert.equal(await keeper.ended, 1)
-  assert.match(keeper.out, /The board ended with code 1 before it was up: the keeper does not start it again\./)
-  assert.equal([...keeper.out.matchAll(/is in use/g)].length, 1, 'one board was started, once')
-  assert.equal(await readFile(join(board, 'data', 'history.jsonl'), 'utf8'), history)
-})
+    const second = launch(started, board, { args: ['--port', String(port)], child: true })
+    assert.equal(await second.ended, 1)
+    assert.match(second.out, new RegExp(`Port ${port} is in use: the board may be running already\\. This one ends before it opens its files\\.`))
+    assert.equal(existsSync(join(board, 'data', 'stop.json')), true, 'the stop record is left for the board it belongs to')
+    assert.equal(await readFile(join(board, 'data', 'stop.json'), 'utf8'), record)
+    assert.equal(await readFile(join(board, 'data', 'history.jsonl'), 'utf8'), history, 'no gap line')
 
-// The lead's review (2026-11-02): a start that hangs after it took the port must not hold the port with 503 for ever.
+    // Started as the Run pane or a chat's mod does: its keeper hears that the board never came up, and is not started again.
+    const keeper = launch(started, board, { args: ['--port', String(port)] })
+    assert.equal(await keeper.ended, 1)
+    assert.match(keeper.out, /The board ended with code 1 before it was up: the keeper does not start it again\./)
+    assert.equal([...keeper.out.matchAll(/is in use/g)].length, 1, 'one board was started, once')
+    assert.equal(await readFile(join(board, 'data', 'history.jsonl'), 'utf8'), history)
+  })
 
-/** A clock whose one timer runs only when the test says so. */
-function fakeTimers() {
-  const timers = { set: [], cleared: [] }
-  return {
-    timers,
-    setTimer: (run, ms) => { const timer = { run, ms }; timers.set.push(timer); return timer },
-    clearTimer: timer => { timers.cleared.push(timer) },
+  // The lead's review (2026-11-02): a start that hangs after it took the port must not hold the port with 503 for ever.
+
+  /** A clock whose one timer runs only when the test says so. */
+  function fakeTimers() {
+    const timers = { set: [], cleared: [] }
+    return {
+      timers,
+      setTimer: (run, ms) => { const timer = { run, ms }; timers.set.push(timer); return timer },
+      clearTimer: timer => { timers.cleared.push(timer) },
+    }
   }
-}
 
-test('holdPort (2026-11-02, the landing\'s port race): a port still in use is tried again until it frees within BIND_RETRY_MS; one that stays in use fails as before', async t => {
-  const { BIND_EVERY_MS, BIND_RETRY_MS, holdPort } = await import('../server.mjs')
-  assert.equal(BIND_RETRY_MS, 8_000)
-  assert.equal(BIND_EVERY_MS, 100)
-  // A board that ends 300 ms after the new keeper began to bind: the keeper takes the port, no chat's mod gets the second.
-  const old = createServer((_req, res) => res.end('old')).listen(0, '127.0.0.1')
-  await new Promise(done => old.once('listening', done))
-  const port = old.address().port
-  setTimeout(() => old.close(), 300)
-  const held = await holdPort({ port, host: '127.0.0.1', bindMs: 3_000, bindEveryMs: 50 })
-  t.after(() => new Promise(done => held.server.close(done)))
-  assert.equal(held.server.address().port, port)
-  assert.equal((await fetch(`http://127.0.0.1:${port}/`)).status, 503, 'the new keeper holds the port')
-  // A port that stays in use: the start fails with EADDRINUSE once BIND_RETRY_MS passed (the caller says it and ends).
-  const busy = createServer((_req, res) => res.end('busy')).listen(0, '127.0.0.1')
-  await new Promise(done => busy.once('listening', done))
-  t.after(() => new Promise(done => busy.close(done)))
-  const began = Date.now()
-  await assert.rejects(holdPort({ port: busy.address().port, host: '127.0.0.1', bindMs: 400, bindEveryMs: 50 }), error => error?.code === 'EADDRINUSE')
-  assert.ok(Date.now() - began >= 350, 'it tried for the whole window')
-})
+  test('holdPort (2026-11-02, the landing\'s port race): a port still in use is tried again until it frees within BIND_RETRY_MS; one that stays in use fails as before', async t => {
+    const { BIND_EVERY_MS, BIND_RETRY_MS, holdPort } = await import('../server.mjs')
+    assert.equal(BIND_RETRY_MS, 8_000)
+    assert.equal(BIND_EVERY_MS, 100)
+    // A board that ends 300 ms after the new keeper began to bind: the keeper takes the port, no chat's mod gets the second.
+    const old = createServer((_req, res) => res.end('old')).listen(0, '127.0.0.1')
+    await new Promise(done => old.once('listening', done))
+    const port = old.address().port
+    setTimeout(() => old.close(), 300)
+    const held = await holdPort({ port, host: '127.0.0.1', bindMs: 3_000, bindEveryMs: 50 })
+    t.after(() => new Promise(done => held.server.close(done)))
+    assert.equal(held.server.address().port, port)
+    assert.equal((await fetch(`http://127.0.0.1:${port}/`)).status, 503, 'the new keeper holds the port')
+    // A port that stays in use: the start fails with EADDRINUSE once BIND_RETRY_MS passed (the caller says it and ends).
+    const busy = createServer((_req, res) => res.end('busy')).listen(0, '127.0.0.1')
+    await new Promise(done => busy.once('listening', done))
+    t.after(() => new Promise(done => busy.close(done)))
+    const began = Date.now()
+    await assert.rejects(holdPort({ port: busy.address().port, host: '127.0.0.1', bindMs: 400, bindEveryMs: 50 }), error => error?.code === 'EADDRINUSE')
+    assert.ok(Date.now() - began >= 350, 'it tried for the whole window')
+  })
 
-test('holdPort: a board that does not serve within START_TIMEOUT_MS (4 minutes) after taking its port ends; one that serves in time does not', async t => {
-  const { START_TIMEOUT_MS, holdPort } = await import('../server.mjs')
-  assert.equal(START_TIMEOUT_MS, 4 * MIN)
-  const hung = fakeTimers()
-  let late = 0
-  const stuck = await holdPort({ port: 0, host: '127.0.0.1', onLate: () => { late += 1 }, setTimer: hung.setTimer, clearTimer: hung.clearTimer })
-  t.after(() => new Promise(done => stuck.server.close(done)))
-  assert.equal(hung.timers.set.length, 1)
-  assert.equal(hung.timers.set[0].ms, START_TIMEOUT_MS)
-  const answer = await fetch(`http://127.0.0.1:${stuck.server.address().port}/api/state`)
-  assert.equal(answer.status, 503, 'while it starts it says so')
-  assert.match(await answer.text(), /starting/)
-  hung.timers.set[0].run()
-  assert.equal(late, 1, 'serve never came: the board ends')
+  test('holdPort: a board that does not serve within START_TIMEOUT_MS (4 minutes) after taking its port ends; one that serves in time does not', async t => {
+    const { START_TIMEOUT_MS, holdPort } = await import('../server.mjs')
+    assert.equal(START_TIMEOUT_MS, 4 * MIN)
+    const hung = fakeTimers()
+    let late = 0
+    const stuck = await holdPort({ port: 0, host: '127.0.0.1', onLate: () => { late += 1 }, setTimer: hung.setTimer, clearTimer: hung.clearTimer })
+    t.after(() => new Promise(done => stuck.server.close(done)))
+    assert.equal(hung.timers.set.length, 1)
+    assert.equal(hung.timers.set[0].ms, START_TIMEOUT_MS)
+    const answer = await fetch(`http://127.0.0.1:${stuck.server.address().port}/api/state`)
+    assert.equal(answer.status, 503, 'while it starts it says so')
+    assert.match(await answer.text(), /starting/)
+    hung.timers.set[0].run()
+    assert.equal(late, 1, 'serve never came: the board ends')
 
-  const quick = fakeTimers()
-  let quickLate = 0
-  const fine = await holdPort({ port: 0, host: '127.0.0.1', onLate: () => { quickLate += 1 }, setTimer: quick.setTimer, clearTimer: quick.clearTimer })
-  t.after(() => new Promise(done => fine.server.close(done)))
-  fine.serve(createServer((_req, res) => res.end('the board')))
-  assert.deepEqual(quick.timers.cleared, [quick.timers.set[0]], 'serve clears the timer')
-  quick.timers.set[0].run()
-  assert.equal(quickLate, 0, 'a board that serves is never ended by it')
-  assert.equal(await fetch(`http://127.0.0.1:${fine.server.address().port}/`).then(reply => reply.text()), 'the board')
-})
+    const quick = fakeTimers()
+    let quickLate = 0
+    const fine = await holdPort({ port: 0, host: '127.0.0.1', onLate: () => { quickLate += 1 }, setTimer: quick.setTimer, clearTimer: quick.clearTimer })
+    t.after(() => new Promise(done => fine.server.close(done)))
+    fine.serve(createServer((_req, res) => res.end('the board')))
+    assert.deepEqual(quick.timers.cleared, [quick.timers.set[0]], 'serve clears the timer')
+    quick.timers.set[0].run()
+    assert.equal(quickLate, 0, 'a board that serves is never ended by it')
+    assert.equal(await fetch(`http://127.0.0.1:${fine.server.address().port}/`).then(reply => reply.text()), 'the board')
+  })
 
-test('the late start says why in one line and ends with 1, not up, so its keeper does not start it again', async () => {
-  const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')
-  const late = server.slice(server.indexOf('function lateStart('), server.indexOf('function lateStart(') + 400)
-  assert.match(late, /The board did not come up within \$\{Math\.round\(timeoutMs \/ 60_000\)\} minutes after taking port \$\{port\}: it ends so its keeper and the chats see it off\./)
-  assert.match(late, /process\.exit\(1\)/)
+  test('the late start says why in one line and ends with 1, not up, so its keeper does not start it again', async () => {
+    const server = await readFile(join(ROOT, 'server.mjs'), 'utf8')
+    const late = server.slice(server.indexOf('function lateStart('), server.indexOf('function lateStart(') + 400)
+    assert.match(late, /The board did not come up within \$\{Math\.round\(timeoutMs \/ 60_000\)\} minutes after taking port \$\{port\}: it ends so its keeper and the chats see it off\./)
+    assert.match(late, /process\.exit\(1\)/)
+  })
 })
