@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { GAVE_WAY_WHY, TAKEN_ALREADY_WHY, TURN_OR_PROMPT_WHYS, heldLineVerdict, isTurnOrPromptWhy, LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, restoredDropped, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS, WORK_DENY, workFieldsOf, takeDue, statusVerdict } from './board'
+import { GAVE_WAY_WHY, TAKEN_ALREADY_WHY, TURN_OR_PROMPT_WHYS, heldLineVerdict, isTurnOrPromptWhy, LONG_WORD_CHARS, LONG_WORD_TAIL, contextForTake, restoredDropped, takeWordsOf, MOD_VERSION, MOST_CHARS, NO_OUTCOME, NO_TURN_WORDS, WHOAMI_PATH, WORK_ACTIONS, WORK_FIELDS, BOARD_LAUNCHER, backgroundStartOf, boardLogOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, boardStarts, isPaused, parseBoard, parseEnvelope, parseHandover, parseHeld, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, MERGED_MIN_CHARS, WORK_DENY, workFieldsOf, workCallRefusal, takeDue, statusVerdict } from './board'
 import type { TurnReport, TurnWords } from './board'
 
 const KEY = 'ab'.repeat(32)
@@ -700,6 +700,14 @@ describe('0.38.0 (B421): the work tool forwards every field but its own, and the
 
   test('the mod\'s own fields are the board\'s MOD_FIELDS (test/work/actionsTable.test.mjs holds the two equal)', () => {
     expect(WORK_DENY).toEqual(['chat', 'session', 'request', 'mod', 'via'])
+  })
+
+  test('workCallRefusal: only the tool\'s actions are the model\'s to call; the mod\'s own turn-ended, instruction and save-log are not', () => {
+    expect(workCallRefusal('turn-ended')).toContain('no action of the work tool')
+    expect(workCallRefusal('instruction')).toContain('no action of the work tool')
+    expect(workCallRefusal('save-log')).toContain('own call')
+    expect(workCallRefusal(undefined)).toContain('no action')
+    for (const action of WORK_ACTIONS) expect(workCallRefusal(action)).toBeNull()
   })
 
   test('takeDue: none runs, or the last began TAKE_MS ago', () => {

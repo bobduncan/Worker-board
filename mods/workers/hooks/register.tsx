@@ -7,7 +7,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, FsEntry, Register, Timer } from 'claude-code'
 
 import type { BoardRole, BoardStatus, ChatFile, ChatList, ChatRole, ChatRow, ChatsView, FolderRow, FoldersView } from '../types'
-import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, restoredDropped, takeWordsOf, typedWordsKey, MOST_CHARS, MOST_STAGES, NO_OUTCOME, GAVE_WAY_WHY, TAKEN_ALREADY_WHY, heldLineVerdict, isTurnOrPromptWhy, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, workFieldsOf, takeDue, statusVerdict } from './board'
+import { BOARD_FILE, BOARD_NOTE, LAUNCH_FILE, MOD_HEADER, MOD_VERSION, TYPED_MOST, contextForTake, restoredDropped, takeWordsOf, typedWordsKey, MOST_CHARS, MOST_STAGES, NO_OUTCOME, GAVE_WAY_WHY, TAKEN_ALREADY_WHY, heldLineVerdict, isTurnOrPromptWhy, NO_TURN_WORDS, REPORT_PATH, REQUEST_HEADER, TAKE_PATH, TASK_ID, TYPED_PATH, WHOAMI_PATH, WORK_ACTIONS, WORK_PATH, backgroundStartOf, boardLook, clearTicket, launchArgv, monitorEndsAt, parsePendingClear, pendingClearKey, boardStarts, isPaused, parseBoard, parseHandover, parsePause, parseTaken, parseWhoami, pauseContexts, reportBody, shownName, stopLine, turnBegan, typedWhy, wordSettled, wordTyping, wordsCleared, wordsIn, workFieldsOf, workCallRefusal, takeDue, statusVerdict } from './board'
 import type { Board, BoardStart, ClearStage, Envelope, Handover, Outcome, PauseState, PauseWhere, PendingClear, StopAsk, TurnContext, TurnReport, TurnWords, TypedWord, Whoami } from './board'
 import {
   BEAT_MS, CHATS_DIR, LEFT_MAX_SIZE, LEFT_TEXT, LIST_FILE, afterTurn, atTurnStart, chatNote, clearWhy, clearedStart, compactKeep, compactWhy, chatText, chatsSummary, fileName,
@@ -3706,7 +3706,8 @@ async function workToolCall($: EngineInterface, e: { agentId?: string }, input: 
     return { result: "Only the chat's main conversation changes the work: nothing was changed." }
   }
   // Clear after each step: the log before a clear is the mod's own call, never the model's.
-  if (action === 'save-log') return { result: 'save-log is the Workers mod\'s own call: nothing was done.' }
+  const refused = workCallRefusal(action)
+  if (refused !== null) return { result: refused }
   // B421: every field the chat gave goes on but the mod's own; the board leaves out one it does not know and says so once.
   const fields = workFieldsOf(input)
   // Chat 1's review (9): the call's follow-up (the card, the flags, the open instructions) runs on the board's answer, here or from a

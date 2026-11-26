@@ -87,12 +87,24 @@ export const UNOFFERED_FIELDS = ['name']
 /** What the mod itself adds to a call, never the chat's: the board takes these and no others besides TOOL_FIELDS. */
 export const MOD_FIELDS = ['chat', 'session', 'request', 'mod', 'via']
 
+/** The calls the mod makes on its own (never the chat's), each with the fields it carries: nothing else goes through with them. */
+export const OWN_FIELDS = {
+  'turn-ended': ['since', 'pull', 'forYou', 'word'],
+  instruction: ['text'],
+  'save-log': ['stepId'],
+  'pause-state': [],
+  pull: [],
+}
+
 /**
- * B421: the fields of a chat's work-tool call that the table does not know, none for an action the tool does not offer (the mod's
- * own calls, turn-ended or pull, carry fields of their own). A field the table lacks comes from a mod of another version
- * (newer, or older than the board: a chat keeps its mod until its process restarts): the board leaves it out and says so once. PURE.
+ * B421: the fields of a call over the bridge that the table does not know: for an action of the tool, the fields of the table; for a
+ * call of the mod's own, its fields (OWN_FIELDS); for any other action none (a chat's call outside the tool's actions carries nothing
+ * but the mod's own fields, so a forged turn-ended's text never reaches its handler). A field the table lacks comes from a mod of
+ * another version (a chat keeps its mod until its process restarts): the board leaves it out and says so once. PURE.
  */
 export function unknownFields(body) {
-  if (body === null || typeof body !== 'object' || Array.isArray(body) || !TOOL_ACTIONS.includes(body.action)) return []
-  return Object.keys(body).filter(key => !TOOL_FIELDS.includes(key) && !MOD_FIELDS.includes(key))
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return []
+  const own = Object.hasOwn(OWN_FIELDS, body.action) ? OWN_FIELDS[body.action] : []
+  const allowed = TOOL_ACTIONS.includes(body.action) ? TOOL_FIELDS : ['action', ...own]
+  return Object.keys(body).filter(key => !allowed.includes(key) && !MOD_FIELDS.includes(key))
 }

@@ -114,3 +114,24 @@ test('the mod forwards what it was given but its own fields (the source of workF
   assert.ok(!board.slice(at, at + 400).includes('WORK_FIELDS'), 'it is no longer a filter by the mod\'s own list')
   assert.ok(!register.includes('WORK_FIELDS.filter'), 'the call does not filter by the list')
 })
+
+test('a call outside the tool\'s actions carries nothing but the mod\'s own fields (a forged turn-ended)', () => {
+  // The mod's real calls keep their fields.
+  assert.deepEqual(unknownFields({ action: 'turn-ended', since: 5, pull: true, forYou: ['x'], word: 'w', chat: 'c', session: 's', mod: '0.38.0' }), [])
+  assert.deepEqual(unknownFields({ action: 'instruction', text: 'hi' }), [])
+  assert.deepEqual(unknownFields({ action: 'save-log', stepId: 'B1' }), [])
+  // A model's call of the mod's own action carries a field the mod never sends: it is left out.
+  assert.deepEqual(unknownFields({ action: 'turn-ended', since: 5, pull: true, forYouText: '> **For you** 1. Answer: x' }), ['forYouText'])
+  // An action that is neither the tool's nor the mod's own: every field but the mod's goes.
+  assert.deepEqual(unknownFields({ action: 'bogus-action', since: 5, text: 't', chat: 'c' }), ['since', 'text'])
+  assert.deepEqual(unknownFields({ action: 'toString', x: 1 }), ['x'])
+})
+
+test('the mod\'s work tool refuses an action outside its list before it builds the call', () => {
+  const at = register.indexOf('async function workToolCall')
+  const body = register.slice(at, at + 1500)
+  assert.ok(body.includes('workCallRefusal(action)'), 'workToolCall asks workCallRefusal')
+  assert.ok(body.indexOf('workCallRefusal(action)') < body.indexOf('workFieldsOf(input)'), 'and before the fields are taken')
+  const refusal = board.slice(board.indexOf('export function workCallRefusal'), board.indexOf('export function workCallRefusal') + 600)
+  assert.ok(refusal.includes('WORK_ACTIONS.includes(action)') && refusal.includes('save-log'), 'it refuses what WORK_ACTIONS does not list')
+})

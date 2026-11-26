@@ -639,6 +639,16 @@ export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 
 export const WORK_DENY = ['chat', 'session', 'request', 'mod', 'via']
 
 /**
+ * B421 (chat 1's review): why a call of the model's work tool is not made, or null. The tool offers WORK_ACTIONS only (Claude Code does
+ * not hold a model to the schema's enum): the mod's own calls (turn-ended, instruction, save-log) are never the model's to make. PURE.
+ */
+export function workCallRefusal(action: unknown): string | null {
+  if (action === 'save-log') return 'save-log is the Workers mod's own call: nothing was done.'
+  if (typeof action !== 'string' || !WORK_ACTIONS.includes(action)) return `"${typeof action === 'string' ? action.slice(0, 40) : ''}" is no action of the work tool (it offers ${WORK_ACTIONS.join(', ')}): nothing was done.`
+  return null
+}
+
+/**
  * B421: the fields of the model's work-tool call that go to the board: every one it gave but the few the mod sets itself, so a field
  * this mod does not know yet reaches the board, which refuses it by name instead of the mod dropping it unseen. PURE.
  */
