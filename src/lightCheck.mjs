@@ -62,14 +62,16 @@ export function slowFilesToRun({ spec, changed, probation = {} }) {
 
 /**
  * The files of the light check: every test file but the slow ones that do not run (`all` the test files, as repository paths).
- * `{ files, runs, left }`: what runs, the slow files that run with why, the slow files left out. PURE.
+ * `{ files, runs, left }`: what runs, the slow files that run with why, the slow files left out. The slow files that run go first, in
+ * the list's order (longest first: node --test starts files in the order given, so the long ones do not end the run alone). PURE.
  */
 export function lightFiles({ all, spec, changed, probation = {} }) {
   const runs = slowFilesToRun({ spec, changed, probation })
   const slow = new Set(Object.keys(spec.files ?? {}))
   const running = new Set(runs.map(one => one.file))
   const left = [...slow].filter(file => !running.has(file)).sort()
-  return { files: all.filter(file => !slow.has(file) || running.has(file)), runs, left }
+  const first = runs.map(one => one.file).filter(file => all.includes(file))
+  return { files: [...first, ...all.filter(file => !slow.has(file))], runs, left }
 }
 
 /** Every test file under `root`'s test folder (`*.test.mjs`), as repository paths, sorted. */

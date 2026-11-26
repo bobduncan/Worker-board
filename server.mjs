@@ -25,7 +25,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
 import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
-import { constants as osConstants, cpus as osCpus, setPriority } from 'node:os'
+import { constants as osConstants, cpus as osCpus, setPriority, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -2500,7 +2500,9 @@ async function main(args) {
   // S9 (the PC plan, the person's choice of 2026-11-25): the big suite runs every test file of main when the PC is idle, at least every
   // 4 hours and once each night (src/bigSuite.mjs, tools/big-suite.mjs), while each go-live's gate is the light check. Only the PC's
   // first board starts it (config `bigSuite` says otherwise), where the loops run; it files the fix step of a red run once.
+  // Core review: never a board in the temporary folder (the tests' copied boards, which may be first in a list of their own).
   const runsBigSuite = !isDemo && !isShowOnly && historyFrom === undefined
+    && !resolve(HERE).toLowerCase().startsWith(resolve(tmpdir()).toLowerCase())
     && (config.bigSuite ?? (firstBoard !== null && resolve(firstBoard).toLowerCase() === resolve(HERE).toLowerCase()))
   if (runsBigSuite) {
     const gitOf = args => new Promise(done => {

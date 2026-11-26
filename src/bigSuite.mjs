@@ -51,16 +51,17 @@ export function nightStart(now, hour = NIGHT_FROM_HOUR) {
 }
 
 /**
- * Whether a big run is due now, and why: main moved past the last run's commit (the PC runs it when idle), 4 hours since the last
- * start, or the night run (from 01:00, none started since). null when none is. PURE.
+ * Whether a big run is due now, and why (the person's words: when the PC is idle, at least every 4 hours and once each night): no run
+ * yet; the night run (from 01:00, none started since); or 4 hours since the last start while main moved past the last run, or that run
+ * was not green (core review: a run after every landing cost more than the gates it saved). null when none is. PURE.
  */
 export function dueNow({ results, mainHead, now }) {
   const lastStart = ms(results.lastStart)
   if (!Number.isFinite(lastStart)) return 'no run yet'
   const night = nightStart(now)
   if (now >= night && !(lastStart >= night)) return 'the night run'
-  if (now - lastStart >= EVERY_MS) return 'every 4 hours'
-  if (mainHead && results.last?.commit !== mainHead && results.lastTry?.commit !== mainHead) return 'main moved'
+  const changed = (mainHead && results.last?.commit !== mainHead) || results.last?.outcome !== 'passed'
+  if (now - lastStart >= EVERY_MS && changed) return 'every 4 hours'
   return null
 }
 
@@ -81,17 +82,20 @@ export function labelFor({ results, now }) {
 }
 
 /**
- * The results after a run (`outcome` passed, failed or could not run; `failed` the failing test files). A red run puts its files on
- * probation; each green run counts one for every file there, and a file leaves after PROBATION_GREENS green runs in a row. A run that
- * could not run keeps the last result and says so (`couldNotRun`), and is not tried again for the same commit. PURE.
+ * The results after a run (`outcome` passed, failed or could not run; `failed` the files that failed again alone, `flaky` the ones that
+ * passed alone). A red run puts its failing files on probation and starts every probation count anew (two green runs IN A ROW); each
+ * green run counts one for every file there, and a file leaves after PROBATION_GREENS of them. A run that could not run keeps the last
+ * result and says so (`couldNotRun`). PURE.
  */
 export function recordRun(results, run) {
-  const entry = { commit: run.commit, outcome: run.outcome, at: run.at, seconds: run.seconds, failed: run.failed ?? [], why: run.why ?? null, label: run.label ?? null }
+  const entry = { commit: run.commit, outcome: run.outcome, at: run.at, seconds: run.seconds, failed: run.failed ?? [], flaky: run.flaky ?? [], why: run.why ?? null, label: run.label ?? null }
   const lastStart = run.at
   if (run.outcome === 'could not run') return { ...results, lastStart, lastTry: entry, couldNotRun: entry }
   const probation = { ...(results.probation ?? {}) }
-  if (run.outcome === 'failed') for (const file of entry.failed) probation[file] = { since: run.at, commit: run.commit, greens: 0 }
-  else {
+  if (run.outcome === 'failed') {
+    for (const [file, held] of Object.entries(probation)) probation[file] = { ...held, greens: 0 }
+    for (const file of entry.failed) probation[file] = { since: run.at, commit: run.commit, greens: 0 }
+  } else {
     for (const [file, held] of Object.entries(probation)) {
       const greens = (held.greens ?? 0) + 1
       if (greens >= PROBATION_GREENS) delete probation[file]
@@ -101,6 +105,7 @@ export function recordRun(results, run) {
   return {
     ...results, lastStart, lastTry: entry, last: entry, couldNotRun: null, probation,
     lastGreen: run.outcome === 'passed' ? run.commit : results.lastGreen ?? null,
+    lastGreenAt: run.outcome === 'passed' ? run.at : results.lastGreenAt ?? null,
     redSince: run.outcome === 'failed' ? results.redSince ?? run.commit : null,
   }
 }
@@ -128,24 +133,37 @@ export function readLandings(file) {
   }
 }
 
-/** The fix step a red big run files: its title and lines (the failing files, the go-lives since the last green run, the log). PURE. */
+/** At most this many go-lives are named in a fix step (a first red with no green run before it would name them all). */
+export const GO_LIVES_NAMED = 20
+
+/** The fix step a red big run files: its title and lines (the files that failed again alone, the go-lives since the last green run). PURE. */
 export function fixStepOf({ run, lastGreen, goLives, log }) {
   const short = sha => String(sha ?? '').slice(0, 7)
-  const names = goLives.map(one => `${one.branch} (${one.by}, ${short(one.after)})`)
+  const names = goLives.slice(-GO_LIVES_NAMED).map(one => `${one.branch} (${one.by}, ${short(one.after)})`)
+  const more = goLives.length > GO_LIVES_NAMED ? ` (and ${goLives.length - GO_LIVES_NAMED} older)` : ''
+  const since = lastGreen ? `since the last green run (${short(lastGreen)})` : 'with no green run before it'
   return {
     title: `Big suite red on main at ${short(run.commit)}: ${run.failed.length} test file(s) fail`,
     text: [
-      `Description: the big suite (every test file, S9) failed on main at ${short(run.commit)}; the light check of each go-live left these files out.`,
+      `Description: the big suite (every test file, S9) failed on main at ${short(run.commit)}, and each failing file failed again when run alone. A go-live's light check may have left a slow one of them out.`,
       `Failing files: ${run.failed.length > 0 ? run.failed.join(', ') : 'none named (see the log)'}.`,
-      `Go-lives since the last green run${lastGreen ? ` (${short(lastGreen)})` : ''}: ${names.length > 0 ? names.join('; ') : 'none found'}.`,
-      `Each failing file runs in every light check until two green big runs in a row (probation).`,
-      `Log: ${log}`,
+      ...(run.flaky?.length > 0 ? [`Passed alone (not counted): ${run.flaky.join(', ')}.`] : []),
+      `Go-lives ${since}: ${names.length > 0 ? names.join('; ') + more : 'none found'}.`,
+      'Each failing file runs in every light check until two green big runs in a row (probation).',
+      `Log: ${log}, the run of ${run.at}.`,
     ],
   }
 }
 
-/** The big suite's lines for a gate's start and npm run big-suite -- --status: a red run with its files and probation. PURE. */
-export function statusLines(results) {
+/** A big suite with no green run for this long is stale: the gates say so. */
+export const STALE_MS = 8 * 60 * 60 * 1000
+
+/**
+ * The big suite's lines for a gate's start and `node tools/big-suite.mjs --status`: a red run with its files, the files on probation, a
+ * run that could not run, and (core review) a big suite with no run yet or no green run for 8 hours, while the light checks leave the
+ * slow files to it. PURE.
+ */
+export function statusLines(results, now = Date.now()) {
   const lines = []
   const last = results.last
   if (last?.outcome === 'failed') {
@@ -153,7 +171,12 @@ export function statusLines(results) {
   }
   const held = Object.keys(results.probation ?? {})
   if (held.length > 0) lines.push(`big suite: on probation in the light check: ${held.join(', ')}`)
-  if (results.couldNotRun && results.couldNotRun === results.lastTry) lines.push(`big suite: could not run main at ${String(results.couldNotRun.commit).slice(0, 7)} (${results.couldNotRun.why})`)
+  const tried = results.lastTry
+  const notRun = results.couldNotRun
+  if (notRun && tried && notRun.commit === tried.commit && notRun.at === tried.at) lines.push(`big suite: could not run main at ${String(notRun.commit).slice(0, 7)} (${notRun.why})`)
+  const green = ms(results.lastGreenAt)
+  if (!last) lines.push('big suite: no run yet; the light checks leave the slow test files to it')
+  else if (!(now - green < STALE_MS)) lines.push(`big suite: no green run ${Number.isFinite(green) ? `for ${Math.floor((now - green) / 3600000)} hours` : 'yet'}; the light checks leave the slow test files to it`)
   return lines
 }
 

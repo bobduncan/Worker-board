@@ -42,8 +42,9 @@ test('S9: a slow file runs when the change touches its area (its own file, its g
   assert.deepEqual(slowFilesToRun({ spec: SPEC, changed: ['src/carry/save.mjs'] }), [{ file: 'test/slowTool.test.mjs', why: 'area: src/carry/save.mjs' }])
   assert.deepEqual(slowFilesToRun({ spec: SPEC, changed: ['test/slowTool.test.mjs'] }), [{ file: 'test/slowTool.test.mjs', why: 'area: test/slowTool.test.mjs' }])
   assert.deepEqual(slowFilesToRun({ spec: SPEC, changed: [], probation: { 'test/slowBoard.test.mjs': { greens: 1 } } }), [{ file: 'test/slowBoard.test.mjs', why: 'probation' }])
-  // a change git could not read: every slow file runs
-  assert.deepEqual(lightFiles({ all: ALL, spec: SPEC, changed: null }).files, ALL)
+  // a change git could not read: every slow file runs, the slow ones first in the list's order (longest first, core review)
+  assert.deepEqual(lightFiles({ all: ALL, spec: SPEC, changed: null }).files, ['test/slowBoard.test.mjs', 'test/slowTool.test.mjs', 'test/a.test.mjs', 'test/z.test.mjs'])
+  assert.deepEqual(lightFiles({ all: ALL, spec: SPEC, changed: ['tools/land.ps1'] }).files, ['test/slowTool.test.mjs', 'test/a.test.mjs', 'test/z.test.mjs'])
 })
 
 test('S9: the board\'s own list: every slow file is a test file here, every glob matches a file of the repository, and no file is listed twice', () => {
@@ -58,7 +59,9 @@ test('S9: the board\'s own list: every slow file is a test file here, every glob
     for (const glob of globs) if (glob !== '@board' && !tracked.some(one => globToRegExp(glob).test(one))) unmatched.push(`${file}: ${glob}`)
   }
   assert.deepEqual(unmatched, [], 'a glob that matches nothing guards nothing')
-  assert.ok(Object.keys(spec.files).length >= 20, 'the slow files of 11-25 (every file over 60 s)')
+  // the files over 60 s on a quiet PC (the quiet gates of 11-25; core review: the loaded one made ten fast files look slow)
+  assert.equal(Object.keys(spec.files).length, 15)
+  assert.equal(Object.keys(spec.files)[0], 'test/landScript.test.mjs', 'longest first')
 })
 
 test('S9: without test/slow-files.json every test file runs, and the log says so', () => {
@@ -88,7 +91,13 @@ test('S9, the real case: node tools/test.mjs --gate in a branch leaves a slow fi
     writeFileSync(join(root, 'test', 'slow.test.mjs'), "import test from 'node:test'\ntest('slow', () => {})\n")
     writeFileSync(join(root, 'test', 'slow-files.json'), JSON.stringify({ board: [], files: { 'test/slow.test.mjs': ['src/carry/**'] } }))
     writeFileSync(join(root, 'src', 'carry', 'git.mjs'), 'export const a = 1\n')
-    const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true })
+    // Core review: each git call must work (no signing, no hooks of this PC's), or the test says which failed.
+    mkdirSync(join(root, '.no-hooks'))
+    const git = (...args) => {
+      const run = spawnSync('git', ['-c', 'commit.gpgsign=false', '-c', `core.hooksPath=${join(root, '.no-hooks')}`, ...args], { cwd: root, encoding: 'utf8', windowsHide: true })
+      assert.equal(run.status, 0, `git ${args.join(' ')}: ${run.stderr}`)
+      return run
+    }
     git('init', '-q', '-b', 'main')
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A')
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'main')

@@ -9230,7 +9230,7 @@ clock stands still while the PC sleeps (both ended with 124, late). Plan: .claud
     before an older idle job of the same folder.
   - The run log marks idle runs (`idle: true`).
 - **An idle run that took the slot keeps it.** A gate that comes right after it waits until it ends, for up to the idle run's
-  whole time and never past the cap. S9's big suite holds about 25 minutes. Measured in test/oneAtATime.test.mjs: a gate that came
+  whole time and never past the cap. S9's big suite holds about 15 minutes on a quiet PC (more under load). Measured in test/oneAtATime.test.mjs: a gate that came
   with 1537 ms of the idle run left began its command after 1676 ms, so the wait beyond the time left was a poll and a node start.
 - **The cap counts the time awake; a sleep is no hang** (chat 1's review). The holder also reads the wall clock at every beat
   (HEAVY_RUN_BEAT_MS, 60 s) against when it took the slot, less the time the PC slept. A sleep is a gap between two beats well over
@@ -9256,8 +9256,10 @@ The person: the light check leaves out the slowest tests, except where a change 
 when the PC is idle, at least every 4 hours and once each night. A red big run names the go-lives since the last green run, files a
 fix step itself, and that slow test runs in the light check for a while. Plan: .claude/plans/pc-lag-test-speed-plan.md, S9.
 
-- **The slow list** (`test/slow-files.json`): every test file over 60 s on average in the three gates of 11-25, board-starting ones
-  too, 25 files. Each file has honest globs (chat 1, 2026-11-25): the files that could make it fail.
+- **The slow list** (`test/slow-files.json`): every test file over 60 s on a quiet PC (the two quiet gates of 11-25), board-starting
+  ones too, 15 files, longest first. Core review: the third gate of 11-25 ran under load and made ten fast files look slow. Leaving
+  them out saved about 0.4 min and cost their coverage in every gate. Each file has honest globs (chat 1, 2026-11-25): the files that
+  could make it fail.
   - Its own path always counts.
   - `@board` stands for the board's own files (`board`: server.mjs, start-board.mjs, run-game.mjs, package.json, src/state.mjs,
     src/tick.mjs, fixtures/lines.mjs).
@@ -9268,7 +9270,8 @@ fix step itself, and that slow test runs in the light check for a while. Plan: .
   - has an area the branch changed (`git diff --name-only main...HEAD`, or origin/main; when git cannot tell, every slow file runs);
   - or is on probation.
   Its first lines say how many files run, and which slow files and why ("light check: runs test/x.test.mjs (area: src/y.mjs)").
-  Without the list, every file runs.
+  Without the list, every file runs. The slow files that run go first, longest first, because node --test starts files in the order
+  given, so a long one does not end the run alone (model: 8.2 to 7.0 min on average).
 - **The big suite** (tools/big-suite.mjs, src/bigSuite.mjs). Every test file of main's head, in its own worktree in the temporary
   folder.
   - It is a worktree like land.ps1's gate: the main checkout's node_modules as a junction. At the end the junction goes first (rmdir,
@@ -9278,24 +9281,44 @@ fix step itself, and that slow test runs in the light check for a while. Plan: .
     is stopped and started again as an ordinary one.
   - Its state lies beside the PC's test lock (`<lock>.board-big-suite.json`), so every gate worktree reads the same probation.
   - A run the queue stopped at its hold cap (124) is "could not run", never red. A stall is red, with the files it left open.
-- **When it runs** (`dueNow`): no run yet; the night run (from 01:00, none started since); 4 hours since the last start; or main moved
-  past the last run's commit (the PC runs it when idle). A commit that could not run is not tried again at every look.
+  - Core review: each file that failed in the full run runs again alone once (`big-suite-rerun`, as land.ps1 does). One that passes
+    alone is flaky: it is recorded, but it is no red and gets no fix step and no probation. Only the files that fail again are red.
+    In 8 of the last 9 full gates a file failed that then passed alone.
+  - The failing files are repository paths: on Windows node prints `test at test\a.test.mjs`, and a `location:` line gives the whole
+    path in the run's worktree. With the backslash the probation key never matched the light check's.
+  - A runner killed by a sleep or a reboot leaves its worktree with a live junction. The next runner sweeps every `board-big-suite-*`
+    folder first, each the safe way: junction first.
+- **When it runs** (`dueNow`, the person's words: idle, at least every 4 hours, each night):
+  - no run yet;
+  - the night run (from 01:00, none started since);
+  - 4 hours since the last start, while main moved past the last run or that run was not green.
+  Core review: an earlier "main moved" made a big run follow almost every landing, more full-suite load than the gates it saved,
+  and a gate that came in its 15-45 minutes waited behind it.
 - **Red** (`recordRun`, `goLivesIn`, `fixStepOf`):
-  - A red run puts its failing files on probation, and they leave after two green big runs in a row (chat 1).
+  - A red run puts the files that failed again on probation, and they leave after two green big runs in a row (chat 1). A red run
+    of other files starts every count anew, because the two must be in a row.
   - The board's pass (src/bigSuitePass.mjs, every 10 minutes, only on the PC's first board; config `bigSuite`) files one fix step
     for each red commit. It is filed as a board fix (`priority: 'fix'`, in the place the board's fixes go), with the failing files
     and the go-lives since the last green run: the landed records of data/landings.jsonl whose new main is in
     `git rev-list <last green>..<red>`.
   - What it filed is kept in the board's own data (data/big-suite-filed.json), never in the runner's file.
-  - Gates say the red and the probation at their start (land.ps1 runs `big-suite.mjs --status --quiet` from the main checkout).
+  - Gates say the red and the probation at their start (land.ps1 runs `big-suite.mjs --status --quiet` from the main checkout). They
+    also say a run that could not run, and a big suite with no run yet or no green run for 8 hours, because the light checks leave
+    the slow files to it.
+  - At most 20 go-lives are named; a first red with no green run before it says so.
+  - The board's pass never runs on a board in the temporary folder (the tests' copied boards).
 - **The runner's rules are the game slow tier's** (S3):
   - it counts as alive past 3 hours while its run waits in the idle room or holds a slot (a run in a `board-big-suite-` folder);
   - it renews its file before each phase, and stops when another runner took the file over;
   - it gives the file back only while the file is its own.
-- **What it saves** (the model of the last 10 landings, with each file's time from the quiet gates of 11-25):
-  - The full gate is about 14.6 min. The light check is about 2.7 min when no slow area changes.
-  - Over the last 10 landings, a light check would have taken 2.7 to 14 min, about 8 min on average. A change to server.mjs or
-    src/state.mjs still runs the board-starting slow files.
+- **What it saves** (the model of the last 10 landings, with each file's time from the quiet gates of 11-25, 12 slots):
+  - The full gate is about 14.6 min.
+  - The light check takes about 3-4 min when no slow area changes. It is bound by the total test time over 12 slots plus each file's
+    start, which the model sets at 1 s (2.7 min); at 2-3 s it is 3.5-4.3 min.
+  - Over the last 10 landings, a light check would have taken about 7 min on average with the long files first. A change to
+    server.mjs or src/state.mjs still runs the board-starting slow files.
+  - Left out of that number: a gate that comes while a big run holds the slot waits for it (about 15 min quiet, up to 45 under load).
+    Now that the big suite no longer runs after every landing, that is rare.
   - The long poles stay: landScript (about 13 min, when land.ps1 or the landing code changes) and wakeNoHandsBoard (about 11 min, on a
     server change). S10 shortens those.
 
