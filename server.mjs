@@ -43,7 +43,7 @@ import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from '.
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, levelWho, logicalCores, powershell, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
-import { masksOf, modeFileOf, TOPOLOGY_SCRIPT, topologyOf, writeMode } from './src/cpuTopology.mjs'
+import { masksOf, modeFileOf, modeWriter, TOPOLOGY_SCRIPT, topologyOf, writesModeOf } from './src/cpuTopology.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
 import { fixHomeFile, homeFilesNow } from './src/homeFiles.mjs'
@@ -2751,17 +2751,20 @@ async function main(args) {
     const listed = (await loops.run('chat-list', () => readState()))?.chats ?? []
     return [...new Set([...sessionsOfCards(cards), ...listed.filter(chat => !chat.isLeftover && typeof chat.session === 'string').map(chat => chat.session)])]
   }
-  // S4 (PC plan): the PC's core map, read once at start, and the heavy-run queue's mode file (level, masks, since, who), written
-  // at start and on every level change. Only the person's board writes it: never a trial copy, a test board or the demo. No map
-  // (not Windows, a failed read) removes the file, so the queue keeps today's behaviour.
-  const writesMode = process.platform === 'win32' && !isDemo && !isShowOnly && historyFrom === undefined && config.project !== '' && process.env.HEAVY_RUN_HELD !== '1'
-  const masksNow = writesMode
-    ? loops.run('cpu-topology', () => topologyOf({ file: join(HERE, 'data', 'cpu-topology.json'), logical: logicalCores(), read: () => powershell(TOPOLOGY_SCRIPT, '', 60_000) })).then(topology => (topology ? masksOf(topology) : null))
-    : Promise.resolve(null)
-  const heardLevel = async ({ level, since, who }) => {
-    if (!writesMode) return
-    const masks = await masksNow
-    await loops.run('cpu-mode', () => writeMode(modeFileOf(), { level, masks, since, who }))
+  // S4 (PC plan): the heavy-run queue's mode file (level, masks, since, who, owner, beat), written by the person's board alone
+  // (`heavyModeWriter: true`, chat 1's review): at start, on every level change and as a beat on every CPU pass; removed on a
+  // clean stop. Only that board reads the core map (once per PC, cached also when there is none). No map: no file, and the
+  // queue keeps today's behaviour; the CPU line says so as information.
+  const heavyMode = writesModeOf({ config, isDemo, isShowOnly, historyFrom }) ? modeWriter({ file: modeFileOf(), owner: { pid: process.pid, port: config.port, project: config.project }, run: fn => loops.run('cpu-mode', fn) }) : null
+  let coreMapNote = null
+  if (heavyMode !== null) {
+    process.on('exit', () => heavyMode.stop())
+    loops.run('cpu-topology', async () => {
+      const found = await topologyOf({ file: join(HERE, 'data', 'cpu-topology.json'), logical: logicalCores(), read: () => powershell(TOPOLOGY_SCRIPT, '', 60_000) })
+      const masks = found.topology ? masksOf(found.topology) : null
+      if (masks === null) coreMapNote = `No core map (${found.none ?? 'no room beside your cores'}): heavy runs are not fenced.`
+      await heavyMode.masks(masks)
+    })
   }
   const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
     file: join(HERE, 'data', 'cpu.json'),
@@ -2773,10 +2776,11 @@ async function main(args) {
     // B440: the parent is the keeper only when there is one (it talks to the board); otherwise it may be a chat.
     spare: typeof process.send === 'function' ? [process.pid, process.ppid] : [process.pid],
     log: line => console.log(line),
-    onLevel: heardLevel,
+    onLevel: state => heavyMode?.level(state),
+    note: () => coreMapNote,
   })
   if (cpu !== null && cpu.available) {
-    const applyCpu = () => loops.run('cpu', () => cpu.apply())
+    const applyCpu = () => loops.run('cpu', () => cpu.apply()).then(() => heavyMode?.beat())
     applyCpu()
     setInterval(applyCpu, Math.max(5, config.refreshSeconds) * 1000)
   }

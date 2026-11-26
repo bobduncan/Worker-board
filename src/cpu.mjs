@@ -452,11 +452,12 @@ export const windowsProcesses = {
  * chat that started the board handed its Idle priority on) gives it Normal and all cores; under Full the first pass
  * does the same (2026-10-19).
  */
-export function cpuLimiter({ file, fallback = 'full', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [], log = () => {}, onLevel = async () => {} }) {
+export function cpuLimiter({ file, fallback = 'full', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [], log = () => {}, onLevel = () => {}, note = () => null }) {
   const available = platform === 'win32'
   let level = null
-  // S4: the level, since when and by whom, to the board (which writes the heavy-run queue's mode file); the caller records its failure.
-  const heard = () => onLevel({ level, since, who })
+  // S4: the level, since when and by whom, to the board (which writes the heavy-run queue's mode file). Never awaited: the first
+  // pass, which gives the board its own Normal priority back (F24), waits on nothing; the board's writer records its own failures.
+  const heard = () => { onLevel({ level, since, who }) }
   let restore = 0
   let applied = new Map()
   // F44: since when Low is on (ms), kept through Full's passes, and the processes outside any tree the board limited or gave back
@@ -487,7 +488,7 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
       since = await readLevelAt(file)
       who = await readLevelWho(file)
       if (level === 'low') lowSince = since ?? now()
-      await heard()
+      heard()
     }
     return level
   }
@@ -577,7 +578,7 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
     return running
   }
 
-  const view = () => ({ available, level: level ?? 'full', count, fault, cores, lowCores: lowCores(cores), since, who })
+  const view = () => ({ available, level: level ?? 'full', count, fault, cores, lowCores: lowCores(cores), since, who, coreMap: note() })
 
   return {
     available,
@@ -597,7 +598,7 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
         isFreed = false
       }
       await saveLevel(file, next, since, who)
-      await heard()
+      heard()
       await apply()
       return { ok: true, result: view() }
     },
