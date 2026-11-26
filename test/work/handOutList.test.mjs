@@ -7,7 +7,7 @@ import test from 'node:test'
 
 import { DEFAULTS } from '../../src/config.mjs'
 import { isReady } from '../../src/work/guards.mjs'
-import { CHOICE_WHY, HAND_OUT_DEFAULTS, addedAt, followUpOf, readyList } from '../../src/work/handOut.mjs'
+import { CHOICE_WHY, HAND_OUT_DEFAULTS, NEARLY_RANK, addedAt, followUpOf, readyList } from '../../src/work/handOut.mjs'
 import { parseItem } from '../../src/work/item.mjs'
 import { stamp } from '../../src/work/migrate.mjs'
 
@@ -98,9 +98,10 @@ test('a follow-up: the task waits on one its worker just finished; kept for that
 test('a fix of a task is kept for the task\'s builder ten minutes from when it was made', () => {
   const b13 = step('B13', 'review', { Owner: 'Worker 1' })
   const b14 = step('B14', 'refined', { 'Fix of': 'B13' }, { History: [`${at(NOW - 3 * MIN)} Advisor: made by the result check of B13`] })
-  assert.deepEqual(list([b13, b14]).ready, [{ id: 'B14', rank: 2, keptFor: 'Worker 1', keptUntil: NOW + 7 * MIN, pinned: null, prefers: null }])
+  // F74: a fix of a built step is nearly finished work: its own band, before the board's repairs.
+  assert.deepEqual(list([b13, b14]).ready, [{ id: 'B14', rank: NEARLY_RANK, keptFor: 'Worker 1', keptUntil: NOW + 7 * MIN, pinned: null, prefers: null }])
   // followUpMs 0, the default (the review of 2026-10-25): a preference only, no keep, however long ago.
-  assert.deepEqual(list([b13, b14], { followUpMs: 0, now: NOW + 60 * MIN }).ready, [{ id: 'B14', rank: 2, keptFor: null, keptUntil: null, pinned: null, prefers: 'Worker 1' }])
+  assert.deepEqual(list([b13, b14], { followUpMs: 0, now: NOW + 60 * MIN }).ready, [{ id: 'B14', rank: NEARLY_RANK, keptFor: null, keptUntil: null, pinned: null, prefers: 'Worker 1' }])
   assert.equal(followUpOf(b14, mapOf([b13, b14]), { now: NOW, followUpMs: 0, prefix: '' }), null)
 })
 

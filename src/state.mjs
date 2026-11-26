@@ -31,6 +31,7 @@ import { taskTimesOf } from './taskTimes.mjs'
 import { isFix, sinceMs, valueOf } from './work/item.mjs'
 import { planOf } from './work/stepPlan.mjs'
 import { heldOf, lastReportedOf, pickHeld, sizeOf } from './work/held.mjs'
+import { onlyWaits, waitOf, waitingIds } from './work/parked.mjs'
 import { planStarting, planState, withPlanWork } from './plan.mjs'
 import { standardHold } from './work/standardHold.mjs'
 import { askIdsIn, askKey, askPartsOf, sameAsk } from './work/askWords.mjs'
@@ -770,8 +771,10 @@ function card(chat, raw, { now, aliveAt = null, config, last, lines, main, prefi
   // work/waitsOn.mjs) is parked on purpose too (the same shape, kind 'chat'): no "go on" line, no give-back, no stall.
   // The lead's ruling of 2026-11-11 (B1094 and Q715): a stopped chat whose held steps all wait for the goal's recap (builtState's
   // `recapWait`) is parked the same way, kind 'recap': never Working, never Stopped.
-  const parked = paused === null && isStopped && step?.blockedBy?.length > 0 ? { by: 'parked', on: step.blockedBy, limit: null, since: null, named: null }
-    : paused === null && isStopped ? waitSuspension(step?.waitsOn ?? null) ?? recapSuspension(reported?.recapWait ?? null) ?? assetSuspension(reported?.assetWait ?? null) : null
+  // F74 (chat 1's call, 2026-11-26): a step that only waits on a record (a blocker, a chat, its landing) parks its lane no more: the
+  // worker counts free for new work, the lane reads its report, and the waiting step shows as its own line (`waiting`). The recap
+  // and asset waits still park the lane.
+  const parked = paused === null && isStopped ? recapSuspension(reported?.recapWait ?? null) ?? assetSuspension(reported?.assetWait ?? null) : null
   // Suspended is the board's own fact, whatever the chat reports.
   const readState = paused !== null || parked !== null ? 'suspended' : reported !== null ? reported.state : wasCutOff ? 'interrupted' : held === null ? ended : 'working'
   // Redesign Part 1: what the chat says of its question to the person, or what its transcript shows.
@@ -1911,6 +1914,18 @@ function withReplacement(notice, replacement, timeOf = hourMinute) {
     : Number.isFinite(replacement.heldAt) ? `no new worker in its place: the last launch (${timeOf(replacement.heldAt)}) started no chat` : null
   return line === null ? notice : { ...notice, text: `${notice.text} · ${line}` }
 }
+/**
+ * F74: the blocker whose done freed a held step: its newest History line is the board's "no longer blocked by B<n>: done" (api.mjs
+ * `unblockDependants`), nothing holds it any more (not in `waiting`), and it is still its worker's (taken or in progress). `{ by, at }` or null.
+ */
+const UNBLOCKED_LINE = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?) server: no longer blocked by (B\d+): done\s*$/
+function unblockedOf(item, waiting) {
+  if (!['taken', 'in progress'].includes(item.head.get('State')) || waiting.has(item.head.get('Id'))) return null
+  const last = (item.sections.get('History') ?? []).at(-1) ?? ''
+  const found = UNBLOCKED_LINE.exec(String(last))
+  return found === null ? null : { by: found[2], at: sinceMs(found[1]) }
+}
+
 export function buildState(raw, options) {
   // B917 (X93): the fixes and asks of every step from one index of the store per rebuild (work/links.mjs).
   return withLinks(raw?.work?.items, () => builtState(raw, options))
@@ -2011,10 +2026,14 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // store holds for it, the one work/held.mjs picks (in progress over waiting on you over taken, then its newest activity),
   // no longer the one its card's words name nor the newest head Since (every move rewrites it: X23, Worker 3 held B547 and
   // B534; a parked step going on flipped "newest"). The lane's `held` adds the hand-over's step on top (buildState).
+  // F74: the steps that only wait on a record (parked.mjs `waitOf`), once for this state; `landing` the branch a landing runs for now
+  // (server.mjs, `raw.landing`), or null.
+  const landingNow = typeof raw.landing === 'string' && raw.landing !== '' ? raw.landing : null
+  const waiting = workOk ? waitingIds(raw.work.items, { landing: landingNow }) : new Set()
   const stepOfChat = name => {
     const mine = itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step' && ['in progress', 'waiting on you', 'taken'].includes(one.head.get('State'))
       && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
-    const item = pickHeld(mine, name, prefix)
+    const item = pickHeld(mine, name, prefix, null, waiting, raw.work.items)
     if (item === undefined) return null
     const id = item.head.get('Id')
     const branch = item.head.get('Branch')
@@ -2038,9 +2057,21 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const storeStepsOf = name => itemsOf(raw.work)
     .filter(one => one.head.get('Kind') === 'step' && ['taken', 'in progress', 'waiting on you', 'review'].includes(one.head.get('State'))
       && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
-    .map(one => ({ id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state: one.head.get('State'), since: one.head.get('Since') ?? '' }))
+    // F74: `waits` when the step only waits on a record (no stop word for it: B771 sense); `unblocked` the blocker whose done freed it, when
+    // its newest History line says so and nothing holds it any more (the board's one word to its worker, say.mjs `unblockedDue`).
+    .map(one => ({ id: one.head.get('Id'), title: withoutNotes(one.head.get('Title') ?? ''), state: one.head.get('State'), since: one.head.get('Since') ?? '', waits: waiting.has(one.head.get('Id')), unblocked: unblockedOf(one, waiting) }))
     .sort((a, b) => a.since.localeCompare(b.since))
     .map(({ since, ...one }) => one)
+  // F74: the extra line of a worker that holds a waiting step beside its active one: `{ id, title, on, since }`, or null.
+  const waitingLineOf = name => {
+    const active = stepOfChat(name)?.id ?? null
+    const mine = itemsOf(raw.work).filter(one => one.head.get('Kind') === 'step' && waiting.has(one.head.get('Id')) && one.head.get('Id') !== active
+      && String(one.head.get('Owner') ?? '').replace(prefix, '').trim().toLowerCase() === name.toLowerCase())
+    const item = mine[0] ?? null
+    if (item === null) return null
+    const wait = waitOf(item, raw.work.items, { landing: landingNow })
+    return { id: item.head.get('Id'), title: withoutNotes(item.head.get('Title') ?? ''), on: wait?.words ?? 'waits', since: Number.isFinite(wait?.since) ? wait.since : sinceMs(item.head.get('Since')) }
+  }
   // Redesign Part 1: each chat's last report of its turn state (server.mjs `reports`, kept by bridge.mjs `noteReport`),
   // as its lane: for a chat on a Workers mod that reports, from the session the board shows under its name. It holds a
   // task when the store holds a step taken, in progress or waiting on the person for it (not one in review); a blocking
@@ -2324,6 +2355,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
       // B438, the review: the steps the store holds for it (taken, in progress, waiting on you, review), whatever its
       // card says, for the main chat's sync check.
       storeSteps: lane.isLeftover ? [] : storeStepsOf(lane.name),
+      waiting: lane.isLeftover || lane.isMain ? null : waitingLineOf(lane.name),
       folders: lane.isLeftover ? [] : (folders ?? []).filter(folder => owner(folder) === lane.name),
       ahead: lane.isLeftover ? [] : aheadOf(withQueue, now),
     }
@@ -2644,7 +2676,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const planMemory = new Map(planSeen instanceof Map ? planSeen : Object.entries(planSeen ?? {}))
   const planKept = new Map()
   const chats = sequenced.map(lane => withHeld(lane, {
-    found: lane.isLeftover === true || lane.isMain === true || !workOk ? null : heldOf(raw.work.items, lane.name, prefix, { handoverStep: handovers.get(lane.name)?.step ?? null }),
+    found: lane.isLeftover === true || lane.isMain === true || !workOk ? null : heldOf(raw.work.items, lane.name, prefix, { handoverStep: handovers.get(lane.name)?.step ?? null, waiting }),
     // eta-remaining: the time not worked between two moments, for when the worked time reached the estimate.
     notWorkedTo: notWorkedBetween(lines, lane.name, now, aliveAt),
     lastReported: lane.isLeftover === true || lane.isMain === true || !workOk ? null : lastReportedOf(raw.work.items, lane.name, prefix),
@@ -2692,6 +2724,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const routingHeld = workOk ? routingHolds(itemsOf(raw.work), config.routing) : new Set()
   // Autopilot (2026-10-31): the partner's answers count as on while it is (the Focus page's switch reads "covered by Autopilot").
   const reconciled = !workOk ? null : reconcile({
+    landing: landingNow,
     store: config.autopilot === true ? { ...raw.work, partnerAnswers: { on: true } } : raw.work, flow: raw.work.flow, lanes: chats, now, times: { graceMs: GRACE_MS, askMs: ASK_MS, idleMs: IDLE_HOLD_MS }, prefix, hasPartner: advisorChat !== undefined, partner,
     standardHold: item => standardHold(item, plan?.standards ?? []),
     focus: goalMap?.focus ?? null, focusGoals: goalsUnder(goalMap, goalMap?.focus ?? null), routingHeld, sent,

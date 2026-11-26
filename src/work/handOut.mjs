@@ -71,6 +71,12 @@ export function followUpOf(item, items, { now, followUpMs, prefix = '' }) {
 
 /** The ready list's rank of a task of the backup focus: after the focus goal's (1), before the rest (2). */
 export const BACKUP_RANK = 1.5
+/**
+ * F74 (the person, 2026-11-26: "give priority to work thats almost completed vs completely new items"): the rank of nearly finished
+ * work, a fix made by a failed result check or by the person's Send back (`Fix of`: it continues a step that was already built): after
+ * the checks of finished work (-1), before the board's repairs (0), the focus goal (1), the backup goal (1.5) and the rest (2).
+ */
+export const NEARLY_RANK = -0.5
 
 /** The Backlog tab's blocks (2026-10-25): why a refined task outside the focus goal waits, until the person adds it. */
 export const CHOICE_WHY = 'outside the focus goal: waits until you add it to the queue or switch the focus'
@@ -162,7 +168,7 @@ export function readyList(items, { now, focus = null, focusGoals = [], backup = 
     const isQa = isQaTask(item)
     const follow = pinned === null && !isQa ? followUpOf(item, items, { now, followUpMs: isKept ? followUpMs : Infinity, prefix }) : null
     const chain = fixChain(item, items)
-    const rank = isQa ? -1 : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : chain.some(one => inBackup.has(valueOf(one, 'Goal'))) ? BACKUP_RANK : 2
+    const rank = isQa ? -1 : isNearlyFinished(item) ? NEARLY_RANK : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : chain.some(one => inBackup.has(valueOf(one, 'Goal'))) ? BACKUP_RANK : 2
     const added = addedStamp(item)
     // B691: a fix goes out as its root does: the person's pick (added or pinned) of any step down its chain is its own.
     // A dropped root has nothing left to make pass: its pick does not carry the fix.
@@ -180,6 +186,9 @@ export function readyList(items, { now, focus = null, focusGoals = [], backup = 
   const addedOrder = one => (one.rank !== 2 || one.added === undefined ? Infinity : Number.isFinite(addedAt(items.get(one.id))) ? addedAt(items.get(one.id)) : Number.MAX_SAFE_INTEGER)
   return { ready: ready.sort((a, b) => a.rank - b.rank || addedOrder(a) - addedOrder(b) || byId(a.id, b.id)), held }
 }
+
+/** F74: nearly finished work: a step that is the fix of another (`Fix of`, made by a failed result check or the person's Send back). */
+const isNearlyFinished = item => typeof valueOf(item, 'Fix of') === 'string' && /\bB\d+\b/.test(valueOf(item, 'Fix of'))
 
 /** The History line of the board's give (api.mjs `give`). */
 const GIVE_LINE = / → queued \(given by the board to /
@@ -214,10 +223,19 @@ export function oldQueued(items) {
 
 /** The states in which a step holds its worker for the hand-out: given (queued) or under way. */
 const HOLDS_WORKER = ['queued', 'taken', 'in progress']
+/** F74: the states that count toward the cap of two steps per worker (handover.mjs HOLDS plus queued). */
+const HOLDS_FOR_CAP = ['queued', 'taken', 'in progress', 'waiting on you']
 /** A step given (queued) or under way: its Touches count against a task to give. */
 const COUNTS_FOR_TOUCHES = ['queued', ...UNDER_WAY]
-const holdsOf = (items, name, prefix) => [...items.values()].some(item => kindOf(item) === 'step' && HOLDS_WORKER.includes(stateOf(item))
-  && plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix))
+/**
+ * Whether a worker holds a step for the hand-out: one given or under way that does not only wait (F74: `waiting`, the pass's set of
+ * steps that only wait on a record), or (the cap of two) two held steps whatever their states.
+ */
+const holdsOf = (items, name, prefix, waiting = null) => {
+  const mine = [...items.values()].filter(item => kindOf(item) === 'step' && HOLDS_FOR_CAP.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix))
+  if (mine.length >= 2) return true
+  return mine.some(item => HOLDS_WORKER.includes(stateOf(item)) && !(waiting instanceof Set && waiting.has(idOf(item))))
+}
 const isWorkerLane = lane => lane.isMain !== true && lane.isLeftover !== true
 
 /** The outbox's command of a hand-over envelope (handover.mjs `HANDOVER_COMMAND`; kept here because handover.mjs imports this file). */
@@ -279,11 +297,11 @@ export function strandedGives({ items, lanes = [], now, waitMs, prefix = '', sen
  * by name. T13 part 3: an asleep one (its process ended after it said idle: state.mjs `asleep`) is free too: its task's
  * line wakes it (the board's start word beside it, deliver.mjs `sendOnce`).
  */
-export function idleWorkers(lanes, { items, prefix = '', restFree = [], stuck = new Set() }) {
+export function idleWorkers(lanes, { items, prefix = '', restFree = [], stuck = new Set(), waiting = null }) {
   // T13 part 3: or asleep after its session ended (a routine chat ends it after its idle turn).
   return lanes.filter(lane => isWorkerLane(lane) && lane.report !== null && lane.report !== undefined && (lane.report.state === 'idle' || (lane.asleep === true && lane.report.state === 'ended'))
     && (lane.state === 'free' || restFree.includes(lane.name)) && (lane.isRunning === true || lane.asleep === true)
-    && !stuck.has(lane.name) && !holdsOf(items, lane.name, prefix))
+    && !stuck.has(lane.name) && !holdsOf(items, lane.name, prefix, waiting))
     .sort((a, b) => (a.report.since ?? 0) - (b.report.since ?? 0) || byId(a.name, b.name))
 }
 

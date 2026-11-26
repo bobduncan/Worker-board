@@ -1977,6 +1977,8 @@ async function main(args) {
       // needs the focus goal's demo still to come, or a recap that names the step (`recaps` above).
       autopilot: config.autopilot === true,
       focusHasDemo: (state.focus?.demo ?? null) !== null,
+      // F74: the branch a landing runs for now, for the give's "only waits" reading and the resume of a parked step (parked.mjs `waitOf`).
+      landingNow: () => runningLanding({ dir: join(HERE, 'data'), now: clock() }),
       // B1240 (chat 1's review): the steps the focus goal's work blocks list: a recap ask of a step in none of them is routed as one at work.
       focusSteps: (state.focus?.parts ?? []).flatMap(part => (part.steps ?? []).map(one => one?.id)).filter(one => typeof one === 'string'),
       // B656: the ready list's held steps, so a step in review whose fix it holds says why in work next and list.
@@ -2617,7 +2619,8 @@ async function main(args) {
     blockRead()
     // 2026-11-09: the plan's time as the partner's answer: the board's own write of a decision is not one (src/planWrite.mjs `partnerPageAt`).
     const fresh = await withAssets(await readRaw())
-    const raw = { ...fresh, productPlanAt: await partnerPageAt(fresh.productPlanAt ?? null, PLAN_WRITES_FILE, productPlanFile(config)) }
+    // F74: the branch a landing runs for now (src/landing.mjs), so the state and its reconciler read a step whose landing runs as one that only waits.
+    const raw = { ...fresh, productPlanAt: await partnerPageAt(fresh.productPlanAt ?? null, PLAN_WRITES_FILE, productPlanFile(config)), landing: isDemo || isShowOnly ? null : runningLanding({ dir: join(HERE, 'data'), now: clock() }) }
     const keptReadings = await readingsOnDisk()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
     keep.pause = raw.work?.pause ?? null

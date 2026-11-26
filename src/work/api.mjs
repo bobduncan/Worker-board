@@ -58,7 +58,7 @@ import { isAskedSide } from './sideWord.mjs'
 import { estimateAtOf, nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { askedForOf, takenAtOf, takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
-import { ACTIVE, parkWords, parkedAfter, workingOnOther } from './parked.mjs'
+import { ACTIVE, onlyWaits, parkWords, parkedAfter, waitOf, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
 import { writeView } from './view.mjs'
 import { rowWordsOf, rowWordsText } from './rowWords.mjs'
@@ -415,8 +415,15 @@ function oneLine(item, items, held = null, now = null, recaps = null) {
   return `- ${valueOf(item, 'Id')} ${stateOf(item)}${fix}${turns}${waits.length > 0 ? ` (${waits.join('; ')})` : ''}: ${valueOf(item, 'Title') ?? valueOf(item, 'Text') ?? ''}`
 }
 
-/** B567: the words of a step waiting on you in its one line: the asks it waits for, or that it is parked. */
-function waitingWords(item, items) {
+/** B567: the words of a step waiting on you in its one line: the asks it waits for, or that it is parked. F74: a step taken or in progress that only waits, or is parked behind the worker's new step, says so too. */
+function waitingWords(item, items, landing = null) {
+  if (ACTIVE.includes(stateOf(item))) {
+    const parked = parkedAfter(item, items)
+    const wait = waitOf(item, items, { landing })
+    if (parked !== null && wait === null) return [`parked: its wait ended; it resumes after ${parked} is reported`]
+    if (parked !== null) return [`parked: ${wait.words}; it resumes after ${parked} is reported`]
+    return wait === null ? [] : [`${wait.words}; the board gives you new work meanwhile`]
+  }
   if (stateOf(item) !== 'waiting on you') return []
   const parked = parkedAfter(item, items)
   if (parked !== null) return [`parked: its answers came; it resumes after ${parked} is reported`]
@@ -3047,9 +3054,19 @@ async function resumeParked(reported, w) {
   const parked = [...items.values()].filter(one => kindOf(one) === 'step' && isOwner(one, w.who, w.prefix) && parkedAfter(one, items) !== null)
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   const resumed = []
+  const landing = typeof w.landingNow === 'function' ? w.landingNow() : null
   for (const step of parked) {
     const found = await load(valueOf(step, 'Id'), w, { kind: ['step'] })
     if (!found.ok) continue
+    // F74: a step that only waited (taken or in progress) is handed back first once its wait ended; one whose wait still stands stays
+    // parked, and its worker is free for new work again.
+    if (ACTIVE.includes(stateOf(found.item))) {
+      if (onlyWaits(found.item, items, { landing })) continue
+      const goes = await save(ordered(appendHistory(copy(found.item), 'server', `resumes after ${valueOf(reported, 'Id')}`, w.now)), found.text, w)
+      if (!goes.ok) continue
+      resumed.push(valueOf(step, 'Id'))
+      break
+    }
     const goesOn = move(found.item, 'in progress', 'server', w, flowCtx(w, [reported, found.item]),` (resumes after ${valueOf(reported, 'Id')})`)
     if (!goesOn.ok) continue
     const done = await save(ordered(goesOn.item), found.text, w)
@@ -5250,6 +5267,8 @@ async function retireQueue(body, w) {
 
 /** Redesign Part 2: the states in which a worker holds a task for the give: given (queued) or under way. */
 const HOLDS_FOR_GIVE = ['queued', 'taken', 'in progress']
+/** F74: the states that count toward the cap of two steps per worker. */
+const HOLDS_FOR_CAP = ['queued', 'taken', 'in progress', 'waiting on you']
 
 /**
  * Redesign Part 2: the board gives a ready task to a worker (since T8.5 step 6 the hand-over's decision, handover.mjs), by the flow's
@@ -5271,8 +5290,14 @@ async function give(found, body, w) {
   if (pinned !== null && plain(pinned, w.prefix) !== plain(chat, w.prefix)) return refuse(409, `${id} is pinned to ${pinned}, not given to ${chat}.`)
   // T9.1.1: a Quality Assurance task is never given to a chat that built the step it checks.
   if (isQaTask(found.item) && barredFrom(found.item, w.store.items).some(name => plain(name, w.prefix) === plain(chat, w.prefix))) return refuse(409, `${id} is a Quality Assurance task: ${chat} built ${valueOf(found.item, 'Checks')} (or a fix of it), so it does not check it.`)
-  const holds = [...w.store.items.values()].find(one => kindOf(one) === 'step' && HOLDS_FOR_GIVE.includes(stateOf(one)) && isOwner(one, chat, w.prefix))
+  // F74: a step that only waits on a record (parked.mjs `waitOf`: a blocker not done, a Waits on record, its landing running) holds no
+  // worker; two held steps, whatever their states, do (the cap of two). The running landing comes from the context (`landingNow`).
+  const landing = typeof w.landingNow === 'function' ? w.landingNow() : null
+  const held = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && HOLDS_FOR_CAP.includes(stateOf(one)) && isOwner(one, chat, w.prefix))
+  if (held.length >= 2) return refuse(409, `${chat} holds ${held.map(one => valueOf(one, 'Id')).sort(byId).join(' and ')}: no third task.`)
+  const holds = held.find(one => HOLDS_FOR_GIVE.includes(stateOf(one)) && !onlyWaits(one, w.store.items, { landing }))
   if (holds !== undefined) return refuse(409, `${chat} holds ${valueOf(holds, 'Id')} (${stateOf(holds)}): no second task.`)
+  const waitingStep = held.find(one => onlyWaits(one, w.store.items, { landing })) ?? null
   const hold = w.standardHold?.(found.item) ?? null
   if (hold !== null) return refuse(409, hold)
   const ctx = flowCtx(w, [found.item])
@@ -5281,7 +5306,13 @@ async function give(found, body, w) {
   const next = ordered(put(moved.item, 'Owner', chat))
   next.head.delete('Queue note')
   const done = await save(next, found.text, w)
-  return done.ok ? changed(next, `${id}: given by the board to ${chat}.`, { given: { id, chat, since: stamp(w.now) } }) : done
+  if (!done.ok) return done
+  // F74: the step that only waits is parked behind the new one: it goes back to this worker first, at the new step's report.
+  if (waitingStep !== null) {
+    const parked = await load(valueOf(waitingStep, 'Id'), w, { kind: ['step'] })
+    if (parked.ok) await save(ordered(appendHistory(copy(parked.item), 'server', parkWords(id), w.now)), parked.text, w)
+  }
+  return changed(next, `${id}: given by the board to ${chat}.`, { given: { id, chat, since: stamp(w.now) }, ...(waitingStep === null ? {} : { parked: valueOf(waitingStep, 'Id') }) })
 }
 
 /**

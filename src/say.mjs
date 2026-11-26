@@ -775,7 +775,7 @@ const RESUMED_STEPS = ['taken', 'in progress']
  * board's check handed back (`state.reconciled.handedBack`: its report failed, the worker stays in its turn to fix it). A step in
  * review, or none, holds no work a stop word could stop.
  */
-export const holdsOpenStep = (state, lane) => (lane.storeSteps ?? []).some(one => RESUMED_STEPS.includes(one.state)) || (state.reconciled?.handedBack ?? []).includes(lane.name)
+export const holdsOpenStep = (state, lane) => (lane.storeSteps ?? []).some(one => RESUMED_STEPS.includes(one.state) && one.waits !== true) || (state.reconciled?.handedBack ?? []).includes(lane.name)
 
 /**
  * 2026-10-26: the board's word to a worker that holds a step: `resume your step B<id> from your checkpoint`, the words the
@@ -925,6 +925,33 @@ export function fiveHourStopDue(state, outbox) {
   return words
 }
 
+/**
+ * F74 (the person, 2026-11-26): the board's one word to a worker whose waiting step is no longer blocked (the blocker went done:
+ * `unblockDependants` writes the step's line, and until now woke nobody): with another step active, "it resumes when you report
+ * B<new>" (never a switch mid-step); with none, "go on with it". Once per unblock: not again while a word about the step was sent at or
+ * after the unblock; never while the person pauses all chats; not to a worker that is not running (its wake comes with its step).
+ */
+export const unblockedWords = (to, step, by, active) => ({
+  to, ask: null, step: null, title: null, version: null, verdict: null, command: 'unblocked', about: step,
+  text: active === null ? `${step} is no longer blocked by ${by}: go on with it.` : `${step} is no longer blocked by ${by}: it resumes when you report ${active}.`,
+})
+export function unblockedDue(state, outbox) {
+  if (isHolding(state.pause)) return []
+  const words = []
+  for (const lane of state.chats ?? []) {
+    if (lane.isLeftover === true || lane.isMain === true || lane.isRunning === false) continue
+    const steps = lane.storeSteps ?? []
+    for (const one of steps) {
+      if (one.unblocked === null || one.unblocked === undefined || !Number.isFinite(one.unblocked.at)) continue
+      const isTold = (outbox ?? []).some(sent => sent.command === 'unblocked' && sent.to === lane.name && sent.about === one.id && Number.isFinite(sent.at) && sent.at >= one.unblocked.at)
+      if (isTold) continue
+      const active = steps.find(other => other.id !== one.id && RESUMED_STEPS.includes(other.state) && other.waits !== true) ?? null
+      words.push(unblockedWords(lane.name, one.id, one.unblocked.by, active === null ? null : active.id))
+    }
+  }
+  return words
+}
+
 /** B812 (X109): the board's stop words, the week's (B742) and the 5-hour limit's (B758). */
 export const isLimitStopWord = command => command === 'week-stop' || command === 'five-hour-stop'
 
@@ -935,7 +962,7 @@ export const isLimitStopWord = command => command === 'week-stop' || command ===
  * `store.sayAll` puts the words in at once and writes them after. Answers the words said.
  */
 export async function sayStopWords(state, store, sent, now, newId) {
-  const said = [...weekStopDue(state, sent()), ...fiveHourStopDue(state, sent())].map(words => ({ id: newId(), at: now, ...words, state: 'waiting' }))
+  const said = [...weekStopDue(state, sent()), ...fiveHourStopDue(state, sent()), ...unblockedDue(state, sent())].map(words => ({ id: newId(), at: now, ...words, state: 'waiting' }))
   if (said.length > 0) await store.sayAll(said)
   return said
 }

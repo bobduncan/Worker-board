@@ -12,7 +12,7 @@ import { GO_ON_LINE, continuationOf } from '../work/holderTimers.mjs'
 import { isFailedForGood } from '../work/outboxSweep.mjs'
 import { openQaTaskOf, qaStandOf } from '../work/qaTask.mjs'
 import { reportCheckFailedOf, reviewWaitOf } from '../work/resultCheck.mjs'
-import { ACTIVE, heldReason, openAskIds, workingOnOther } from '../work/parked.mjs'
+import { ACTIVE, heldReason, openAskIds, waitingIds, workingOnOther } from '../work/parked.mjs'
 import { readingAgeMinutes } from '../limits.mjs'
 import { chatWaitWords, isChatWait, isRecapWait, recapSuspensionWords } from '../work/waitsOn.mjs'
 import { assetWaitWords, isAssetWait } from '../work/assetWait.mjs'
@@ -109,6 +109,8 @@ function chatLines(view, now) {
     ...(view.helper === null ? [] : [{ lane: view.helper, role: "partner's helper" }]),
   ]
   const steps = stepsOf(view)
+  // F74: a step that only waits on a record (parked.mjs `waitOf`; the lane's `waiting` line carries the landing kind too) is nobody's work now.
+  const waiting = waitingIds(view.items)
   return chats.map(({ lane, role }) => {
     const mine = steps.filter(item => plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix))
     const since = view.since.get(lane.name)
@@ -118,7 +120,7 @@ function chatLines(view, now) {
     // B544: the level, never the partner's mode object ("[object Object]", X9).
     const runs = `runs ${familyOf(lane.model) ?? 'a model not known'} · ${chatEffort(lane) ?? 'effort not known'}`
     // The step it is on: its card's, else the one the store holds for it.
-    const onId = lane.task?.stepId ?? mine.find(item => HELD.slice(0, 3).includes(valueOf(item, 'State')))?.head.get('Id') ?? null
+    const onId = lane.task?.stepId ?? mine.find(item => HELD.slice(0, 3).includes(valueOf(item, 'State')) && !waiting.has(item.head.get('Id')) && lane.waiting?.id !== item.head.get('Id'))?.head.get('Id') ?? null
     const on = onId === null ? null : view.items.get(onId) ?? null
     // B576 (X26): how the switch to the step's setting stands; a mismatch is odd only once it lasts after the take.
     const switching = on === null ? null : switchOf(lane, on, view)
@@ -129,7 +131,7 @@ function chatLines(view, now) {
     // handed back to it (`reportCheckFailedOf`: not merged, or a fact to fix) is the step it is on, not no step.
     const back = onId === null && handed === null ? mine.find(item => reportCheckFailedOf(item) !== null) ?? null : null
     const backWords = back === null ? '' : `; on ${valueOf(back, 'Id')} "${oneLine(valueOf(back, 'Title'), 60)}" (review, back with it since ${dayClockOf(reportCheckFailedOf(back).at, now)}${reportCheckFailedOf(back).notMerged === null ? '' : ': not merged'})`
-    const onWords = onId === null ? back !== null ? backWords : `; on no step${handed === null ? '' : `; ${handed} handed to it`}` : `; on ${onId}${on === null ? '' : ` "${oneLine(valueOf(on, 'Title'), 60)}" (${valueOf(on, 'State')})`}`
+    const onWords = onId === null ? back !== null ? backWords : `; on no step${handed === null ? '' : `; ${handed} handed to it`}${waitingWords(lane)}` : `; on ${onId}${on === null ? '' : ` "${oneLine(valueOf(on, 'Title'), 60)}" (${valueOf(on, 'State')})`}`
     const reports = mine.flatMap(item => (item.sections?.get('History') ?? []).filter(line => REPORTED.test(line)).map(line => ({ id: valueOf(item, 'Id'), at: historyAt(line) })))
       .filter(one => Number.isFinite(one.at)).sort((a, b) => b.at - a.at)
     const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${dayClockOf(reports[0].at, now)}`
@@ -176,7 +178,12 @@ function chatLines(view, now) {
  * (the step waiting on you, or an ask under it open). A stop for a limit (the app's, a note's) is not on purpose: the
  * limits judge it. What the person parked without a fact in the store shows only in the step's checkpoint line.
  */
+/** F74: the lane's waiting step as its own words: "; holds B1081, waits on chat 1 (its go to land)", or ''. */
+const waitingWords = lane => (lane.waiting !== null && typeof lane.waiting === 'object' && typeof lane.waiting.id === 'string' ? `; holds ${lane.waiting.id}, ${lane.waiting.on}` : '')
+
 function onPurposeOf(lane, held, view) {
+  // F74: a chat that stopped while its only held step waits on a record stopped on purpose (it recorded the wait): no fault.
+  if (held === null && lane.state === 'interrupted' && lane.waiting !== null && typeof lane.waiting === 'object' && typeof lane.waiting.id === 'string') return `holds ${lane.waiting.id}, ${lane.waiting.on}`
   // The asset wait (the person's "A, Working"): a lane working for the provider's pictures: "Codex draws 4 pictures for it · 2 of 4 done · since 10:43".
   if (lane.state === 'working' && lane.heldBy === 'asset' && typeof lane.assetWork?.words === 'string') return lane.assetWork.words
   if (lane.state === 'suspended') {

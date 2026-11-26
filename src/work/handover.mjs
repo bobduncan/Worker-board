@@ -223,11 +223,24 @@ const settledAt = envelope => [envelope?.settledAt, envelope?.deliveredAt, envel
 
 /** Verifier 1: the states in which the work API refuses a worker a second task (api.mjs HOLDS_FOR_GIVE). */
 const HOLDS_FOR_GIVE = ['queued', 'taken', 'in progress']
-/** Whether `name` owns a step the work API would refuse it a second task for. */
-export const holdsForGive = (items, name, prefix = '') => [...items.values()].some(item => kindOf(item) === 'step' && HOLDS_FOR_GIVE.includes(stateOf(item)) && isMine(item, name, prefix))
+/** F74: the states that count toward the cap of two steps per worker. */
+const HOLDS_FOR_CAP = ['queued', 'taken', 'in progress', 'waiting on you']
+/**
+ * Whether `name` owns a step the work API would refuse it a second task for: one given or under way that does not only wait (F74:
+ * `waiting`, the pass's set of steps that only wait on a record), or two held steps whatever their states (the cap of two).
+ */
+export const holdsForGive = (items, name, prefix = '', waiting = null) => {
+  const mine = [...items.values()].filter(item => kindOf(item) === 'step' && HOLDS_FOR_CAP.includes(stateOf(item)) && isMine(item, name, prefix))
+  if (mine.length >= 2) return true
+  return mine.some(item => HOLDS_FOR_GIVE.includes(stateOf(item)) && !(waiting instanceof Set && waiting.has(valueOf(item, 'Id'))))
+}
 
-/** The step the worker holds now (taken, in progress or waiting on you), or undefined. */
-export const holdingOf = (items, name, prefix) => [...items.values()].find(item => kindOf(item) === 'step' && HOLDS.includes(stateOf(item)) && isMine(item, name, prefix))
+/**
+ * The step the worker holds now (taken, in progress or waiting on you), or undefined. F74: never one that only waits (`waiting`): its
+ * worker is on its other step, or on none and free for a new one.
+ */
+export const holdingOf = (items, name, prefix, waiting = null) => [...items.values()].find(item => kindOf(item) === 'step' && HOLDS.includes(stateOf(item)) && isMine(item, name, prefix)
+  && !(waiting instanceof Set && waiting.has(valueOf(item, 'Id'))))
 
 const isQueuedFor = (items, id, name, prefix) => {
   const item = items.get(id)
@@ -404,7 +417,7 @@ const result = (state, why = null, more = {}) => ({ state, why, step: null, take
  * give in the same call, the envelope to write, the envelope the net fired for (marked once), one that waits in the outbox
  * and is to be closed (its task went back).
  */
-export function decide({ worker, peers = [], setsRefused = false, nextCheckAt = null, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null, landing = null, landings = [], assets = [] }) {
+export function decide({ waiting = null, worker, peers = [], setsRefused = false, nextCheckAt = null, items = new Map(), ready = [], prefix = '', paused = false, limitFull = false, installed = null, owed = null, envelopes: all = [], setFor = () => null, now, runningMs = from => now - from, event = { kind: 'pass' }, pause = null, stops = [], timers = {}, localOnly = new Set(), wake = null, boardStartedAt = null, landing = null, landings = [], assets = [] }) {
   const name = worker.name
   const isTurnEnd = event?.kind === 'turn-ended'
   const turnSince = isTurnEnd && Number.isFinite(event.since) ? event.since : -Infinity
@@ -430,13 +443,13 @@ export function decide({ worker, peers = [], setsRefused = false, nextCheckAt = 
     const why = paused ? PAUSED_WHY : LIMIT_WHY
     // P1 (2026-11-09): a "go on" line still waiting for a holder whose lane is parked now (it recorded its wait after the line) is
     // closed: the line would only wake it to wait.
-    const held = holdingOf(items, name, prefix)
+    const held = holdingOf(items, name, prefix, waiting)
     const staleGoOn = held === undefined ? null : resumes.find(one => one.state === 'waiting' && markerStep(one.resume) === valueOf(held, 'Id')) ?? null
     const closing = inFlight !== null ? closeOf(inFlight) : staleGoOn === null ? null : staleGoOn.id
     return result(STATES.SUSPENDED, why, inFlight === null ? (closing === null ? {} : { close: closing }) : { takeBack: { id: inFlight.step, why }, close: closing, step: inFlight.step })
   }
   // 2. Its own step: the take ended the hand-over.
-  const holding = holdingOf(items, name, prefix)
+  const holding = holdingOf(items, name, prefix, waiting)
   if (holding !== undefined) {
     const id = valueOf(holding, 'Id')
     // Signals change 3: a holder that stopped gets one "go on" line, and its step goes back when it does not go on.
@@ -596,7 +609,7 @@ export function decide({ worker, peers = [], setsRefused = false, nextCheckAt = 
   // Verifier 1: never a peer that owns a step queued, taken or in progress (the work API refuses it a second task, HOLDS_FOR_GIVE),
   // also one given a step earlier in this pass. Verifier 8: its bans from the envelopes its own decide reads (no 'go on' lines).
   // Verifier 13: its bars are worked out only when a step could go to it, once per peer.
-  const others = open.length === 0 ? [] : peers.filter(one => plain(one?.name, prefix) !== plain(name, prefix) && !holdsForGive(items, one.name, prefix))
+  const others = open.length === 0 ? [] : peers.filter(one => plain(one?.name, prefix) !== plain(name, prefix) && !holdsForGive(items, one.name, prefix, waiting))
   const peerBars = new Map()
   const barsOf = lane => {
     if (!peerBars.has(lane.name)) peerBars.set(lane.name, { ids: notOfferedAgain(items, lane.name, prefix), models: failedModels((lane.envelopes ?? []).filter(one => one?.kind !== RESUME_KIND), now), setFor: typeof lane.setFor === 'function' ? lane.setFor : () => null })
@@ -608,12 +621,15 @@ export function decide({ worker, peers = [], setsRefused = false, nextCheckAt = 
     const bars = barsOf(lane)
     return !bars.ids.has(task.id) && !bars.models.has(bars.setFor(task.id)?.model ?? null)
   }
-  const given = match({ ready: open, idle: [worker, ...others], items: scratch, prefix, mayTake }).find(one => plain(one.chat, prefix) === plain(name, prefix)) ?? null
+  // F74: the cap of two: a worker that holds two steps (one waiting, one given; two waiting) gets nothing new, whatever their states;
+  // a task this decision takes back is not held any more.
+  const capped = [...items.values()].filter(item => kindOf(item) === 'step' && HOLDS_FOR_CAP.includes(stateOf(item)) && isMine(item, name, prefix) && valueOf(item, 'Id') !== (takenBack?.id ?? null)).length >= 2
+  const given = capped ? null : match({ ready: open, idle: [worker, ...others], items: scratch, prefix, mayTake }).find(one => plain(one.chat, prefix) === plain(name, prefix)) ?? null
   const clear = owed === null || owed === undefined ? null : { step: owed.step, reportedAt: owed.reportedAt }
   const said = takenBack === null ? null : `${NOT_TAKEN_WHY.replace('it', takenBack.id)}`
   // The lazy clear (R1, 2026-11-03): no clear is ever sent alone. A free worker that owes one stays FREE and uncleared (an
   // idle chat costs no tokens); the clear rides its next task's envelope. Its lane says nothing of it (D6).
-  if (given === null) return result(STATES.FREE, [said, banWhy(envelopes, now), setsRefused ? refusedWords(worker, nextCheckAt, now) : null].filter(one => one !== null).join('; ') || null, { takeBack: takenBack })
+  if (given === null) return result(STATES.FREE, [said, capped ? 'holds two steps already' : null, banWhy(envelopes, now), setsRefused ? refusedWords(worker, nextCheckAt, now) : null].filter(one => one !== null).join('; ') || null, { takeBack: takenBack })
   const set = setFor(given.id) ?? null
   // Signals change 3: a step the board gave back goes to its next worker as a continuation from its checkpoint.
   const item = items.get(given.id)

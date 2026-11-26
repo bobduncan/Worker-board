@@ -9300,3 +9300,36 @@ lock's `branch` (its `cwd` becomes the branch, `gate` keeps the folder), so b144
 that is unknown, leaves the run as it was, and a branch without a step id stays unmatched. The memory of the last pass keys the branch as
 it keys a folder. Tests: test/supervisor/testQueueWait.test.mjs (the reading, the rule at 130 minutes of quiet, the memory, the server's
 wiring); 4 mutants red.
+
+## F74: waiting workers take new work (2026-11-26, chat 3; the person's wish, chat 1's spec section 9 and six changes)
+
+The person, 2026-11-26: a worker whose work only waits should take something new, "but after it's finished it should give priority to work
+thats almost completed vs completely new items. so it doesnt stall." The live case: three ready World 2-4 maps waited from 09:08 with no
+worker while Worker 1 held a step blocked by two others for 14 hours and Worker 4 one that waited for its go-live.
+- **"Only waits"** (`src/work/parked.mjs` `waitOf`): the RECORD a held step (taken, in progress, waiting on you) waits on, one of three in
+  this order: a `Blocked by` naming a step not done or dropped (a blocker the store lacks is gone), a `Waits on` record, or its branch being
+  the one a landing runs for now (`landing`, the lock's branch as the gate log names it). A checkpoint's words never count. `waitingIds`
+  computes the set once per pass (the reconciler, the hand-over's facts, the state, the health summary), so every reader sees one answer.
+- **Free** (a, d): `waitsFree` names a worker that runs, is not suspended, and holds exactly one step, which only waits; handOut's `holdsOf`,
+  the hand-over's `holdsForGive`/`holdingOf`/`decide` and the work API's give skip a waiting step, and refuse at two held steps whatever
+  their states (chat 1's hard cap: never a third). A waiting step still keeps steps with the same files off the list (g, unchanged).
+- **The way back** (b): the give writes "parked (resumes after B<new>)" on the waiting step (its state untouched; `parkedAfter` accepts an
+  active step; any later move or the resume line ends the park). The wait ends by a record: the blocker done (`unblockDependants` writes
+  the step's line; say.mjs `unblockedDue` sends the owner ONE word, "it resumes when you report B<new>" with a step active, "go on with it"
+  with none: never a switch mid-step), the go-live landed (the landed word; a landed waiting step can be reported while another is active)
+  or refused (the worker's own rerun; parked the same way), or chat 1's go (a message; the worker clears its `Waits on`). At the new step's
+  report (`resumeParked`) a parked step whose wait ended is handed back FIRST (History "resumes after B<new>", the report's `resumed`); one
+  whose wait still stands stays parked and the worker is free again, parked behind its next step at the next give.
+- **The order** (c): `readyList` NEARLY_RANK (-0.5): a refined step with `Fix of` (a failed result check's or the person's Send back's fix:
+  it continues a step already built) comes after the checks of finished work and before the board's repairs, the focus goal, the backup
+  goal and the rest.
+- **The active step everywhere** (e, h): `held.mjs` `pickHeld` leaves a waiting step out and ranks a parked one last, so the row, the status,
+  the timers, the give-back, the wake and resume words, the pause and limit words (say.mjs `holdsOpenStep`: no stop word for a worker
+  whose only step waits) and the Workers mod's card follow the active step. The lane carries `waiting: { id, title, on, since }`, drawn as one
+  muted line under the worker's task ("also holds B1442 … · blocked by B1440 · since 09:08"); the health summary names it, and a chat
+  that stopped while its only step waits stopped on purpose. The "parked" lane suspension for a blocked step or a chat wait is gone
+  (chat 1's call): the lane reads its report; the recap and asset waits still park it.
+- Tests: test/work/waitingWorkers.test.mjs (a to h, the hand-over, the stop and unblock words, the live case replayed through the work
+  API and the reconciler, the wait that still stands, the landed step reported beside an active one); test/waitsOn.test.mjs's B1081 case
+  reads the new way. 15 mutants (the three records, a done blocker, the cap in waitsFree, holdsOf and the hand-over, the order, the park
+  at the give, the resume of a standing wait, pickHeld, the stop word, the unblock word), each red.

@@ -3424,6 +3424,8 @@ function drawMore(lane, state) {
   const task = isHeldRow(lane) ? null : lane.task
   // Signals change 7: a worker's details from the store's records: its step, its take, its size, worked time, checkpoint, plan.
   if (isHeldRow(lane)) for (const line of heldDetails(lane.held ?? null, now)) list.append(el('li', line.muted ? 'muted' : '', line.text))
+  // F74: the step the worker also holds while it only waits (a blocker, a chat, its landing), one muted line; the row follows the active step.
+  if (isHeldRow(lane) && lane.waiting !== null && lane.waiting !== undefined) list.append(el('li', 'muted', `also holds ${lane.waiting.id} ${lane.waiting.title} · ${lane.waiting.on}${Number.isFinite(lane.waiting.since) ? ` · since ${clock(lane.waiting.since)}` : ''}`))
   if (task !== null) {
     const waited = task.waitedMs >= MIN ? `, ${span(task.waitedMs)} of it waiting for you` : ''
     list.append(el('li', '', `Started ${clock(task.startedAt)}: ${span(now - task.startedAt - (task.offStartMs ?? 0))} worked so far${waited}`))

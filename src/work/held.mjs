@@ -10,6 +10,7 @@ import { handedBackOf } from '../clearOwed.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { checkpointOf } from './pause.mjs'
 import { estimateAtOf, planOf } from './stepPlan.mjs'
+import { parkedAfter } from './parked.mjs'
 
 /** The states in which a step is its worker's work now, in the order one of them is picked over another (R1). */
 export const HELD_RANK = ['in progress', 'waiting on you', 'taken']
@@ -74,11 +75,16 @@ export const takenForLine = minutes => `${Math.round(minutes)} min`
  * last; ties by the holder's newest History activity (X23, 24 Oct 21:15: Worker 3 held B547 and B534 in progress; its
  * newest activity was on B534). Undefined for none.
  */
-export function pickHeld(candidates, holder, prefix = '', handoverStep = null) {
+export function pickHeld(candidates, holder, prefix = '', handoverStep = null, waiting = null, items = null) {
   const byHandover = handoverStep === null ? undefined : candidates.find(item => valueOf(item, 'Id') === handoverStep)
   if (byHandover !== undefined) return byHandover
-  const rank = item => { const at = HELD_RANK.indexOf(valueOf(item, 'State')); return at < 0 ? HELD_RANK.length : at }
-  return [...candidates].sort((a, b) => rank(a) - rank(b) || activityOf(b, holder, prefix) - activityOf(a, holder, prefix))[0]
+  // F74: a step that only waits on a record (`waiting`, the pass's set) is nobody's work now: left out, so a worker whose every held step
+  // waits holds none for the row, the status, the timers and the words (its lane reads its report, and the waiting step is its own
+  // line). A step parked behind the worker's new one (`parkedAfter`) ranks after every other: the active step comes first.
+  const isWaiting = item => waiting instanceof Set && waiting.has(valueOf(item, 'Id'))
+  const isParked = item => items !== null && items !== undefined && parkedAfter(item, items) !== null
+  const rank = item => { const at = HELD_RANK.indexOf(valueOf(item, 'State')); return (isParked(item) ? HELD_RANK.length + 1 : 0) + (at < 0 ? HELD_RANK.length : at) }
+  return [...candidates].filter(item => !isWaiting(item)).sort((a, b) => rank(a) - rank(b) || activityOf(b, holder, prefix) - activityOf(a, holder, prefix))[0]
 }
 
 /**
@@ -88,13 +94,13 @@ export function pickHeld(candidates, holder, prefix = '', handoverStep = null) {
  * (`sizeOf`), `checkpoint` `{ commit, next, at }` (next clipped to NEXT_CHARS; one older than the take belongs to an earlier
  * run: null), `plan` the store's saved plan `{ step, steps, names, at }` or null.
  */
-export function heldOf(items, chatName, prefix = '', { handoverStep = null } = {}) {
+export function heldOf(items, chatName, prefix = '', { handoverStep = null, waiting = null } = {}) {
   if (!(items instanceof Map) || typeof chatName !== 'string' || chatName === '') return null
   const mine = [...items.values()].filter(item => isStep(item) && HELD_RANK.includes(valueOf(item, 'State')) && isMine(item, chatName, prefix))
   const back = handedBackOf(items, chatName, prefix)
   const backItem = back === null ? undefined : items.get(back.id)
   if (backItem !== undefined && valueOf(backItem, 'State') === 'review' && isMine(backItem, chatName, prefix)) mine.push(backItem)
-  const item = pickHeld(mine, chatName, prefix, handoverStep)
+  const item = pickHeld(mine, chatName, prefix, handoverStep, waiting, items)
   if (item === undefined) return null
   const since = takenAtOf(item, prefix)
   const point = checkpointOf(item)

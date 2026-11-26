@@ -12,7 +12,7 @@ import { earlierOfCard, shortAnswer } from './autopilot.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
-import { REST_GUARD, REST_MS, flowRests, openAskIds, restsFree } from './parked.mjs'
+import { REST_GUARD, REST_MS, flowRests, openAskIds, restsFree, waitingIds, waitsFree } from './parked.mjs'
 import { givenBackOf } from './holderTimers.mjs'
 import { isKeptLook } from './keptLook.mjs'
 import { NOT_MERGED, backWordsOf } from './resultCheck.mjs'
@@ -79,7 +79,7 @@ const span = ms => {
  * `sent`: not a task whose envelope is in flight, nor one of a worker whose mod is not known yet, for the net's time).
  * `handOutHeld` says whether the hand-out holds now (a pause, a resume, a full limit).
  */
-export function reconcile({ store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], backup = null, backupGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, wakeable = null }) {
+export function reconcile({ landing = null, store, flow = store.flow, lanes = [], now, times, prefix = '', hasPartner = true, partner = null, standardHold = null, focus = null, focusGoals = [], backup = null, backupGoals = [], routingHeld = new Set(), settings = {}, sent = [], limitsFull = false, wakeable = null }) {
   const items = store.items ?? new Map()
   const broken = new Set((store.problems ?? []).map(problem => problem.file?.match(/^([A-Z]\d+|L-[0-9a-f]{8})\.md$/)?.[1]).filter(Boolean))
   const live = lanes.filter(lane => !lane.isLeftover)
@@ -117,6 +117,10 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
     }
   }
   const restFree = live.filter(lane => restsFree(lane, ok, prefix, resting)).map(lane => lane.name)
+  // F74: the steps that only wait on a record (a blocker not done, a Waits on record, their landing running: parked.mjs `waitOf`), once
+  // for this pass; a worker whose one held step only waits counts free for new work (`waitFree`, as `restFree`).
+  const waiting = waitingIds(items, { landing })
+  const waitFree = live.filter(lane => waitsFree(lane, items, prefix, { landing })).map(lane => lane.name)
   // B737 (X86): a worker whose newest report failed the board's check was handed the step back: it gets no new step
   // until it reports that step again and the check passes (src/clearOwed.mjs); it counts as no idle worker for a start.
   const handedBack = new Set(live.filter(lane => lane.isMain !== true && handedBackOf(items, lane.name, prefix) !== null).map(lane => lane.name))
@@ -330,7 +334,7 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const retiredIds = new Set(retired.map(one => one.id))
   const stranded = handOutHeld || !handsOut ? [] : strandedGives({ items, lanes: live, now, waitMs: NET_MS, prefix, sent }).filter(one => !retiredIds.has(one.id))
   // A free worker counts as free for the start of one more worker (its task comes by the hand-over).
-  const idle = idleWorkers(live, { items, prefix, restFree, stuck: handedBack })
+  const idle = idleWorkers(live, { items, prefix, restFree: [...restFree, ...waitFree], stuck: handedBack, waiting })
   const asked = !handsOut || !isHandoverOn ? null : workerStart({ ready: ready.ready, idle, lanes: live, maxWorkers: settings.maxWorkers, isHeld: handOutHeld, items, sent, now, prefix,
     // Gap 2: a pinned task's worker unknown this long counts as off.
     offAfterMs: Number.isFinite(settings.offAfterMinutes) ? settings.offAfterMinutes * MIN : Infinity,
@@ -342,5 +346,5 @@ export function reconcile({ store, flow = store.flow, lanes = [], now, times, pr
   const start = asked === null ? null : asked.spawn > 0 ? { spawn: asked.spawn } : Array.isArray(asked.passedOver) ? null : asked
   // B1304: a new worker asked for in their place (`replaces`), or held as the last launch started nothing (`held`): the notice says which.
   const replacement = passedOver.length === 0 ? null : asked.replaces === true ? { asked: true } : Number.isFinite(asked.held?.at) ? { heldAt: asked.held.at } : null
-  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, handedBack: [...handedBack], ready, start, retired, stranded, handOutHeld, startsByWake: wakeable !== null, passedOver, replacement }
+  return { moves, deliveries, flags, notes, partnerAsks, escalations, restFree, waitFree, waiting: [...waiting], handedBack: [...handedBack], ready, start, retired, stranded, handOutHeld, startsByWake: wakeable !== null, passedOver, replacement }
 }

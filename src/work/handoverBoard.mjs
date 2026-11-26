@@ -13,6 +13,7 @@
 // outcome.
 
 import { RESTART_COMMAND, restartWords } from './modRollout.mjs'
+import { waitingIds } from './parked.mjs'
 import { EFFORTS, chatEffort, effortOf, effortWords, isSetRefused, modelOf, readBackMarkOf, runSettings, sameModel, setsRefusedOf, settingOf } from './effort.mjs'
 import { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, isClearOwedOnly, mergeStages, onSequence } from './handover.mjs'
 import { giveBackStep } from './giveBack.mjs'
@@ -103,6 +104,8 @@ export function factsOf({ lane, state, items, pause, sent, config, installed = n
     // line yet: src/landing.mjs `runningLanding`), or null: no give-back of its step. `landings`: the landed lines of
     // data/landings.jsonl (`{ branch, at, result }`): a landed line for the step's branch counts as the holder's progress.
     landing: typeof landing === 'string' && landing !== '' ? landing : null,
+    // F74: the steps that only wait on a record (parked.mjs `waitOf`): they hold no worker for the hand-over.
+    waiting: waitingIds(items, { landing: typeof landing === 'string' && landing !== '' ? landing : null }),
     landings: Array.isArray(landings) ? landings : [],
     // The asset wait (2026-11-11): the asset requests as the state read them (`state.assets`, src/work/assetWait.mjs): an open one of the
     // holder for its step keeps the holder timers off.
