@@ -61,9 +61,9 @@
 //   queue and a slot is free: it puts a ticket in the queue for one look, takes the slot, or goes back to the room. The queue's order
 //   and the old copies' rules do not change, and an old copy never sees an idle run waiting ahead of it (no two runs wait for each
 //   other). An idle run that took the slot keeps it: a gate that comes right after waits for it to end (at most the cap). The hold
-//   cap is also read against the wall clock at every beat, less the time the PC slept (a gap between beats well over the beat,
-//   sleepGapOf): a sleep is no hang (chat 1's review). The holder's beats write that time into its lock (`slept`), and whyStale
-//   leaves it out, so no waiter frees a holder that only slept.
+//   cap is the hold's time awake, read against the wall clock at every beat, less the time the PC slept (a gap between beats well
+//   over the beat, sleepGapOf): a sleep is no hang (chat 1's review). No timer: libuv's timers count the time asleep here. The
+//   holder's beats move its lock's `since` on by the time slept, so no waiter, old copies too, frees a holder that only slept.
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import os from 'node:os'
@@ -173,10 +173,9 @@ export function whyStale(info, now = Date.now(), runs = pidRuns, holdMaxMs = HOL
   if (!info) return 'it cannot be read'
   if (!runs(info.pid)) return 'its process is gone'
   // F39, review: no holder keeps the slot for good (its own copy stops its command at the cap; this is the margin past it). S3, chat 1's
-  // review: the time the PC slept while it held the slot (`slept`, which its beats write) does not count.
+  // review: a holder's beats move `since` on by the time the PC slept, so this is its time awake.
   const since = Date.parse(info.since ?? info.startedAt)
-  const slept = Number(info.slept) > 0 ? Number(info.slept) : 0
-  if (Number.isFinite(since) && now - since - slept > holdMaxMs + HOLD_MARGIN_MS) return `it has held the slot for over ${Math.round((holdMaxMs + HOLD_MARGIN_MS) / 60000)} minutes`
+  if (Number.isFinite(since) && now - since > holdMaxMs + HOLD_MARGIN_MS) return `it has held the slot for over ${Math.round((holdMaxMs + HOLD_MARGIN_MS) / 60000)} minutes`
   // F39: a holder that beats keeps its slot however long it runs; one whose beat stopped (a reused process id) does not.
   const beat = Date.parse(info.beat)
   if (Number.isFinite(beat)) return now - beat > BEAT_STALE_MS ? 'its beat is older than 5 minutes' : null
@@ -277,9 +276,9 @@ async function holderOf(file, nap, watched = new Map(), beatMs = BEAT_MS, holdMa
     }
     if (performance.now() - first.at < 2 * beatMs) return seen
   }
-  // S3, review: a live holder past the hold cap by the wall clock (the PC slept past it) writes the time it slept into its lock at its
+  // S3, review: a live holder past the hold cap by the wall clock (the PC slept past it) moves its `since` on by the time slept at its
   // first beat after the wake, and is then no longer past the cap; two beats of this waiter's own clock give it that beat (an old copy
-  // that writes no `slept` is freed after them all the same). Keyed on its process and `since`, as its beats rewrite the rest.
+  // that does not move it is freed after them all the same). Keyed on its process and `since`.
   if (why?.startsWith('it has held the slot for over')) {
     const key = `${file}#since`
     const mark = `${seen.info.pid} ${seen.info.since ?? seen.info.startedAt}`
@@ -480,17 +479,18 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
       if (createLock(slot, text)) {
         // F14: the moment the work begins, for a log of the run (land.ps1 starts the gate's clock here).
         say(`one-at-a-time: ${label} runs now (waited ${Math.round((Date.now() - came) / 1000)} s)`)
-        // F39: the beat, while the command runs: only into the lock that is still ours. S3, chat 1's review: with the time the PC
-        // slept since the slot was taken (`slept`), which the waiters leave out of the hold.
+        // F39: the beat, while the command runs: only into the lock that is still ours. S3, chat 1's review: after a sleep of the PC
+        // (a gap between beats well over the beat) `since` moves on by the time slept, so it says the time awake to every waiter, old
+        // copies too (they judge the hold by `since` alone).
         const clockNow = timing.now ?? Date.now
         let lastBeat = clockNow()
-        let slept = 0
+        let sinceMs = Date.parse(held.since)
         const beat = setInterval(() => {
           const at = clockNow()
-          if (at - lastBeat > sleepGapOf(timing.beat)) slept += at - lastBeat - timing.beat
+          if (at - lastBeat > sleepGapOf(timing.beat)) sinceMs += at - lastBeat - timing.beat
           lastBeat = at
           const now = new Date(at).toISOString()
-          const next = JSON.stringify({ ...held, startedAt: now, beat: now, ...(slept > 0 ? { slept } : {}) })
+          const next = JSON.stringify({ ...held, since: new Date(sinceMs).toISOString(), startedAt: now, beat: now })
           if (rewriteLock(slot, text, next)) text = next
         }, timing.beat)
         beat.unref()
@@ -673,11 +673,9 @@ export async function runOneAtATime({
           stopTree(child, 'SIGTERM')
           setTimeout(() => resolve(124), STOP_WAIT_MS).unref()
         }
-        const cap = setTimeout(stopAtCap, maxMs)
-        cap.unref()
-        // S3: the hold is also read against the wall clock at every beat, whatever clock the timer keeps. Chat 1's review: the time the
-        // PC slept is no hang and does not count (a gap between two beats well over the beat, sleepGapOf), so a slow-tier run that spans
-        // a night's sleep is not stopped with 124 when the PC wakes.
+        // S3, chat 1's review: the cap is the hold's time awake, read against the wall clock at every beat; the time the PC slept is no
+        // hang and does not count (a gap between two beats well over the beat, sleepGapOf). No timer: on this PC libuv's timers count the
+        // time asleep, so a timer stopped a run that spanned a sleep at the moment of waking (124 within seconds of a wake, 11-23 to 11-25).
         const beatMs = positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS)
         let lastTick = beganAt
         let slept = 0
@@ -688,10 +686,7 @@ export async function runOneAtATime({
           if (at - beganAt - slept > maxMs) stopAtCap()
         }, beatMs)
         watch.unref()
-        quiet = () => {
-          clearTimeout(cap)
-          clearInterval(watch)
-        }
+        quiet = () => clearInterval(watch)
         child.on('exit', quiet)
         child.on('error', quiet)
       }

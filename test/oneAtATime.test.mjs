@@ -459,7 +459,8 @@ test('F39 review 4: a live holder with an old beat (the PC slept) is not freed b
 
 test('F39 review 5: a run is stopped at the cap (HEAVY_RUN_MAX_MS) with code 124 and gives the slot back; a lock past the cap is stale', async () => {
   const lock = newLock()
-  const result = await start(lock, 'hangs', node('setTimeout(() => {}, 60000)'), { HEAVY_RUN_MAX_MS: '800' }).done
+  // S3, chat 1's review: the watch at every beat is the cap (no timer), so the beat is short here.
+  const result = await start(lock, 'hangs', node('setTimeout(() => {}, 60000)'), { HEAVY_RUN_MAX_MS: '800', HEAVY_RUN_BEAT_MS: '100' }).done
   assert.equal(result.code, 124)
   assert.match(result.err, /one-at-a-time: hangs ran longer than 0 minutes and was stopped/)
   assert.equal(existsSync(lock), false)
@@ -574,20 +575,33 @@ test('S3: a gate that comes right after an idle run took the slot waits for that
   assert.ok(waited - left < 10000, `the gate waited ${waited - left} ms beyond the idle run's time left (a poll and a node start)`)
 })
 
-test('S3, chat 1\'s review: a sleep is no hang: a run that spans a sleep of the PC is not stopped, and its lock says how long it slept', async () => {
+test('S3, chat 1\'s review: a sleep is no hang: a run that spans a sleep is not stopped, and its lock\'s since moves on by the time slept, so no waiter (old copies too) calls it stale', async () => {
   const lock = newLock()
   let jump = 0
   const run = runOneAtATime({
     label: 'slow-tier', command: node('setTimeout(() => {}, 2500)'), env: envFor(lock, { HEAVY_RUN_BEAT_MS: '100', HEAVY_RUN_MAX_MS: String(60 * 60000) }),
     signals: new EventEmitter(), say: () => {}, now: () => Date.now() + jump,
   })
-  await until(() => existsSync(lock), 'the run holding the slot')
+  const before = await until(() => existsSync(lock) && JSON.parse(readFileSync(lock, 'utf8')), 'the run holding the slot')
   // The PC slept three hours, well past the cap.
   jump = 3 * 60 * 60000
-  const held = await until(() => { try { const info = JSON.parse(readFileSync(lock, 'utf8')); return info.slept > 0 && info } catch { return false } }, 'a beat that says how long it slept', 5000)
-  assert.ok(held.slept >= 3 * 60 * 60000 - 1000, `slept ${held.slept} ms`)
-  assert.equal(whyStale(held, Date.now() + jump, () => true), null, 'no waiter calls it stale')
+  const held = await until(() => { try { const info = JSON.parse(readFileSync(lock, 'utf8')); return Date.parse(info.since) > Date.parse(before.since) + 60 * 60000 && info } catch { return false } }, 'a beat that moved since on', 5000)
+  // since says the time awake: an F39 copy (since alone) and this one both see a run of a few seconds, not one of three hours
+  assert.ok(Date.now() + jump - Date.parse(held.since) < 60000, `awake ${Date.now() + jump - Date.parse(held.since)} ms by since`)
+  assert.equal(whyStale(held, Date.now() + jump, () => true), null)
   assert.equal(await run, 0, 'the command ran to its end')
+})
+
+test('S3, chat 1\'s review: no timer is the cap: a run past the cap in real time but not awake (a clock that slept) runs to its end', async () => {
+  const lock = newLock()
+  const began = Date.now()
+  // The wall clock moves at a twentieth of real time: 1.5 s real are 75 ms awake, the cap is 400 ms. A timer of 400 ms would stop it.
+  const run = runOneAtATime({
+    label: 'long', command: node('setTimeout(() => {}, 1500)'), env: envFor(lock, { HEAVY_RUN_BEAT_MS: '50', HEAVY_RUN_MAX_MS: '400' }),
+    signals: new EventEmitter(), say: () => {}, now: () => began + (Date.now() - began) / 20,
+  })
+  assert.equal(await run, 0)
+  assert.ok(Date.now() - began >= 1400)
 })
 
 test('S3, chat 1\'s review: the hold cap counts the time awake: a run past it by the wall clock, with no gap of a sleep, is stopped with 124', async () => {
@@ -603,23 +617,6 @@ test('S3, chat 1\'s review: the hold cap counts the time awake: a run past it by
   assert.ok(Date.now() - began < 20000, 'stopped at a beat, not when the command ended')
   assert.ok(said.some((line) => /hangs ran longer than 60 minutes and was stopped/.test(line)), said.join('\n'))
   assert.equal(existsSync(lock), false)
-})
-
-test('S3, chat 1\'s review: whyStale leaves the time a holder slept out of its hold, and a waiter keeps waiting for a holder that only slept', async () => {
-  const now = Date.parse('2026-11-21T12:00:00Z')
-  const held = (minutes, slept = 0) => ({ pid: 1, label: 'x', cwd: 'y', since: new Date(now - minutes * 60000).toISOString(), startedAt: new Date(now).toISOString(), beat: new Date(now).toISOString(), ...(slept ? { slept: slept * 60000 } : {}) })
-  assert.match(whyStale(held(200), now, () => true), /held the slot for over 130 minutes/)
-  assert.equal(whyStale(held(200, 150), now, () => true), null)
-  assert.match(whyStale(held(300, 150), now, () => true), /held the slot for over 130 minutes/)
-  const lock = newLock()
-  writeFileSync(lock, lockText({ since: new Date(Date.now() - 200 * 60000).toISOString(), slept: 150 * 60000, beat: new Date().toISOString(), order: ORDER_MARK }))
-  const planted = readFileSync(lock, 'utf8')
-  const waiter = start(lock, 'after it', quick, { HEAVY_RUN_BEAT_MS: '200' })
-  await new Promise((done) => setTimeout(done, 1200))
-  assert.equal(readFileSync(lock, 'utf8'), planted, 'the holder that slept keeps its slot past two beats')
-  rmSync(lock)
-  const result = await waiter.done
-  assert.equal(result.code, 0)
 })
 
 // S3, core review (2026-11-25): after a PC sleep an idle run still counts a live ticket whose beat is only old, and a waiter gives a

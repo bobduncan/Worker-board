@@ -9213,17 +9213,25 @@ clock stands still while the PC sleeps (both ended with 124, late). Plan: .claud
 - **The cap counts the time awake; a sleep is no hang** (chat 1's review). The holder also reads the wall clock at every beat
   (HEAVY_RUN_BEAT_MS, 60 s) against when it took the slot, less the time the PC slept. A sleep is a gap between two beats well over
   the beat (`sleepGapOf`: 3 beats, at least the beat plus 2 minutes), because the holder only waits on its command, so nothing else
-  holds its timers up. Past HEAVY_RUN_MAX_MS (120 minutes awake), it stops its tree and the run ends with code 124. The timer stays
-  as well, and both are stopped on every way out of the run. Idle runs start when the queue is empty, which is when the PC sleeps;
+  holds its timers up. Past HEAVY_RUN_MAX_MS (120 minutes awake), it stops its tree and the run ends with code 124. This watch is the
+  only cap, and it is stopped on every way out of the run. Idle runs start when the queue is empty, which is when the PC sleeps;
   before this, a slow-tier run that spanned a night's sleep was stopped at wake and the gates said "slow tier: RED".
-  - The holder's beats write the time it slept into its lock (`slept`), and `whyStale` leaves it out of the 130-minute rule, so no
-    waiter frees a holder that only slept.
-  - A waiter that finds a live holder past that rule still gives it two beats of its own clock (keyed on pid and `since`). That
-    covers the moments after a wake before the holder's first beat. An old copy that writes no `slept` is freed after them as before.
+  - No timer (chat 1's second check). On this PC libuv's timers count the time asleep: three runs ended with 124 within 0-7 s of a
+    wake (run log 11-23 23:04Z, 11-24 23:30Z, 11-25 22:49Z, against Kernel-Power 42 in the System log), and so did gates that night.
+    The earlier claim here that "a timer stands still while the PC sleeps" was wrong.
+  - After a sleep the holder's beats move its lock's `since` on by the time slept, so `since` says the time awake. Every waiter,
+    old copies too (they judge the hold by `since` alone), then sees a holder that only slept as within the cap.
+  - A waiter that finds a live holder past the 130-minute rule still gives it two beats of its own clock (keyed on pid and
+    `since`). That covers the moments after a wake before the holder's first beat. An old copy as holder, which does not move its
+    `since`, is freed after them as before.
 - **The game's slow tier** (lava-tactics tools/slow-tier-lib.mjs, chat 1's review):
   - A run the queue stopped with 124 is "could not run" (it tries again on the next request), never a red of main.
-  - The runner renews its file before each phase: the commit, the run, the result and the clean-up. It stops at once when the file
-    is no longer its own, because another runner took over. So it never plays that runner's commit or removes its folder.
+  - The runner renews its file before each phase: the commit, the run and the result. It stops at once when the file is no longer
+    its own, because another runner took over, so it never plays that runner's commit.
+  - Chat 1's second check: a runner that stopped that way removes the folder it made, unless the new runner plays the same commit
+    (whose prepare takes that folder over).
+  - Once its result is in, the folder is its own to remove. Nobody plays a commit whose result is in, and the file it just renewed
+    keeps any other runner out for 3 hours.
   - It gives the file back only while it is its own.
   - `playRequests` takes its steps as a seam, so the takeover is tested.
 - The game's copy (lava-tactics/tools/one-at-a-time.mjs) has the same change and lands right after this one.
