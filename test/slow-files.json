@@ -1,0 +1,263 @@
+{
+  "board": [
+    "server.mjs",
+    "start-board.mjs",
+    "run-game.mjs",
+    "package.json",
+    "src/state.mjs",
+    "src/tick.mjs",
+    "fixtures/lines.mjs"
+  ],
+  "files": {
+    "test/landScript.test.mjs": [
+      "tools/land.ps1",
+      "tools/landing.mjs",
+      "src/landing.mjs",
+      "fixtures/land/**",
+      "tools/test.mjs"
+    ],
+    "test/wakeNoHandsBoard.test.mjs": [
+      "@board",
+      "src/wake.mjs",
+      "src/wakeCarry.mjs",
+      "src/hands.mjs",
+      "src/store.mjs",
+      "src/work/pause.mjs",
+      "src/work/sideWord.mjs",
+      "src/work/handOut.mjs",
+      "src/work/routing/**"
+    ],
+    "test/wakeCarryBoard.test.mjs": [
+      "@board",
+      "src/wake.mjs",
+      "src/wakeCarry.mjs",
+      "src/hands.mjs",
+      "src/store.mjs",
+      "src/work/pause.mjs",
+      "src/work/sideWord.mjs",
+      "src/work/handOut.mjs",
+      "src/work/routing/**"
+    ],
+    "test/carryTwoPc.test.mjs": [
+      "src/carry/**",
+      "tools/carry.mjs",
+      "test/fixtures/carry-real/**",
+      "src/work/store.mjs",
+      "src/work/migrate.mjs",
+      "src/config.mjs",
+      "src/projectPaths.mjs",
+      "src/write.mjs"
+    ],
+    "test/carryGit.test.mjs": [
+      "src/carry/**",
+      "src/work/store.mjs",
+      "src/work/migrate.mjs",
+      "src/config.mjs",
+      "src/projectPaths.mjs",
+      "src/write.mjs"
+    ],
+    "test/cpuStartIdle.test.mjs": [
+      "@board",
+      "src/cpu.mjs",
+      "src/keeper.mjs",
+      "mods/**",
+      "fixtures/demo*",
+      "test/tempDir.mjs"
+    ],
+    "test/clearAfterStepBoard.test.mjs": [
+      "@board",
+      "src/clearOwed.mjs",
+      "src/chatReport.mjs",
+      "src/keptState.mjs",
+      "src/work/autopilotCleared.mjs",
+      "src/work/deliver.mjs",
+      "src/work/keptLook.mjs",
+      "src/work/store.mjs",
+      "src/work/migrate.mjs",
+      "fixtures/fake-claude.mjs"
+    ],
+    "test/startBoard.test.mjs": [
+      "start-board.mjs",
+      "server.mjs",
+      "src/keeper.mjs",
+      "src/keeperStart.mjs",
+      "src/shutdown.mjs",
+      "src/ports.mjs",
+      "src/folders.mjs",
+      "src/projectPaths.mjs",
+      "src/config.mjs",
+      "tools/job-kill.ps1",
+      "fixtures/demo*"
+    ],
+    "test/boardDeafLive.test.mjs": [
+      "@board",
+      "src/hearing.mjs",
+      "src/chatStatus.mjs",
+      "src/stallWords.mjs",
+      "src/stopped.mjs",
+      "src/transcript.mjs",
+      "src/limits.mjs",
+      "src/wake.mjs",
+      "src/history.mjs",
+      "src/supervisor/**",
+      "src/work/autopilot.mjs",
+      "src/work/handOut.mjs",
+      "src/work/handover.mjs",
+      "src/work/holderTimers.mjs",
+      "src/work/outboxSweep.mjs",
+      "src/work/refineWait.mjs",
+      "src/work/workLines.mjs"
+    ],
+    "test/work/worktreeSweep.test.mjs": [
+      "src/work/worktrees.mjs",
+      "src/work/holder*.mjs",
+      "src/folders.mjs",
+      "src/work/item.mjs",
+      "src/work/line.mjs",
+      "src/work/stepNames.mjs",
+      "src/work/waitsOn.mjs",
+      "src/work/pause.mjs",
+      "src/work/migrate.mjs"
+    ],
+    "test/work/worktrees.test.mjs": [
+      "src/work/worktrees.mjs",
+      "src/work/check.mjs",
+      "src/work/holder*.mjs",
+      "src/folders.mjs",
+      "tools/leftover-worktrees.mjs",
+      "server.mjs"
+    ],
+    "test/rebuildsBoard.test.mjs": [
+      "@board",
+      "src/work/autopilot.mjs",
+      "src/work/handOut.mjs",
+      "src/boardSelf.mjs"
+    ],
+    "test/reportedBackgroundBoard.test.mjs": [
+      "@board",
+      "src/chatReport.mjs",
+      "src/work/deliver.mjs",
+      "src/work/reportNote.mjs",
+      "src/work/pause.mjs",
+      "fixtures/stoppedBackground.mjs",
+      "src/say.mjs",
+      "src/bridge.mjs"
+    ],
+    "test/oneLoopProcess.test.mjs": [
+      "@board",
+      "src/loops.mjs",
+      "src/store.mjs",
+      "src/keeper.mjs",
+      "src/shutdown.mjs"
+    ],
+    "test/listNotRunning.test.mjs": [
+      "@board",
+      "src/work/api.mjs",
+      "src/work/list*.mjs",
+      "src/work/pause.mjs",
+      "src/work/migrate.mjs",
+      "src/chatCards.mjs"
+    ],
+    "test/boardSelfBoard.test.mjs": [
+      "@board",
+      "src/boardSelf.mjs",
+      "src/keeper.mjs",
+      "src/selfUpdate.mjs",
+      "src/version.mjs",
+      "src/shutdown.mjs"
+    ],
+    "test/reportsKeptLive.test.mjs": [
+      "@board",
+      "src/reportsKept.mjs",
+      "src/keptState.mjs",
+      "src/chatReport.mjs",
+      "src/work/store.mjs",
+      "src/work/migrate.mjs"
+    ],
+    "test/fiveHourStopBoard.test.mjs": [
+      "@board",
+      "src/limits.mjs",
+      "src/work/pause.mjs",
+      "src/work/handOut.mjs",
+      "src/work/providerLimit.mjs"
+    ],
+    "test/demoFeedbackBoard.test.mjs": [
+      "@board",
+      "src/demoFeedback.mjs",
+      "src/demo.mjs",
+      "src/recapRound.mjs",
+      "src/recaps.mjs",
+      "src/work/recap.mjs",
+      "src/work/recapWords.mjs",
+      "src/work/rowWords.mjs",
+      "test/partnerState.mjs"
+    ],
+    "test/appAccountBoard.test.mjs": [
+      "@board",
+      "src/appAccount.mjs",
+      "src/appChats.mjs",
+      "src/files.mjs",
+      "src/work/handOut.mjs",
+      "src/work/pause.mjs"
+    ],
+    "test/boardSlowRead.test.mjs": [
+      "@board",
+      "src/supervisor/**",
+      "src/testQueue.mjs",
+      "src/hearing.mjs",
+      "src/transcript.mjs",
+      "src/limits.mjs",
+      "src/work/workLines.mjs",
+      "src/work/autopilot.mjs",
+      "src/work/handOut.mjs",
+      "src/work/refineWait.mjs"
+    ],
+    "test/evidence.test.mjs": [
+      "tools/evidence.mjs",
+      "src/config.mjs",
+      "src/projectPaths.mjs",
+      "src/write.mjs",
+      "src/picturesSetup.mjs",
+      "src/design.mjs",
+      "src/codex.mjs",
+      "src/work/standard.mjs",
+      "src/work/resultCheck.mjs",
+      "src/work/routing/**"
+    ],
+    "test/boardBanner.page.test.mjs": [
+      "public/index.html",
+      "public/board.js",
+      "public/board.css",
+      "test/pageHarness.mjs",
+      "test/partnerState.mjs",
+      "test/withStore.mjs",
+      "src/state.mjs",
+      "src/tick.mjs",
+      "src/boardSelf.mjs",
+      "src/stopped.mjs",
+      "fixtures/lines.mjs",
+      "src/work/view.mjs",
+      "src/work/api.mjs",
+      "src/work/stepPlan.mjs"
+    ],
+    "test/etaRemaining.test.mjs": [
+      "public/index.html",
+      "public/board.js",
+      "test/pageHarness.mjs",
+      "test/heldFixtures.mjs",
+      "src/work/api.mjs",
+      "src/work/item.mjs",
+      "src/work/stepPlan.mjs",
+      "src/work/view.mjs",
+      "src/state.mjs",
+      "src/taskTimes.mjs",
+      "src/plan*.mjs"
+    ],
+    "test/demoFeedbackPage.test.mjs": [
+      "public/index.html",
+      "public/board.js",
+      "src/demo.mjs",
+      "src/demoFeedback.mjs"
+    ]
+  }
+}

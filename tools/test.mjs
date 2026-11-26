@@ -22,11 +22,19 @@
 // which may raise it to `--priority=normal`). The run sets itself and node --test to the asked priority (so a run that inherited
 // another from its parent gets the asked one) and writes the priority node --test has as its first line,
 // "test run: priority <word>", which land.ps1 names in its refusal.
+//
+// S9 (the PC plan, 2026-11-25): `--gate` is the light check of land.ps1's gate: every test file but the slowest ones (test/slow-files.json),
+// except a slow file whose area the branch changed or that a red big run put on probation (src/lightCheck.mjs). Its first lines say
+// which slow files run and why; the big suite (tools/big-suite.mjs) runs every file when the PC is idle.
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+
+import { readJson, stateFiles } from '../src/bigSuite.mjs'
+import { changedFiles, lightFiles, lightLines, readSlowFiles, testFiles } from '../src/lightCheck.mjs'
+import { lockPath } from './one-at-a-time.mjs'
 
 /** Half the cores, at least one. */
 export function halfTheCores(cores) {
@@ -43,19 +51,33 @@ export const priorityWord = value => PRIORITY_WORDS.get(value) ?? `nice ${value}
 
 /**
  * F68: the command line's words: `--priority=below-normal` (the default; land.ps1's rerun alone names it) or `--priority=normal`, and the
- * test files (all of them when none is named). An unknown priority throws. PURE.
+ * test files (all of them when none is named). An unknown priority throws. S9: `--gate` asks for the light check (`gate` true). PURE.
  */
 export function cliOf(argv) {
   let priority = LOW
+  let gate = false
   const files = []
   for (const arg of argv) {
     const asked = /^--priority=(.*)$/.exec(arg)
-    if (asked === null) files.push(arg)
+    if (arg === '--gate') gate = true
+    else if (asked === null) files.push(arg)
     else if (asked[1] === 'normal') priority = NORMAL
     else if (asked[1] === 'below-normal') priority = LOW
     else throw new Error(`tools/test.mjs: unknown priority "${asked[1]}" (normal or below-normal)`)
   }
-  return { priority, files: files.length > 0 ? files : ['test/**/*.test.mjs'] }
+  return { priority, gate, files: files.length > 0 ? files : ['test/**/*.test.mjs'] }
+}
+
+/**
+ * S9: the light check's files in `root` (a gate's worktree): `{ files, lines }`, the lines first in the log. Without test/slow-files.json
+ * every file runs. `git` runs git in `root` (stdout, or null when it fails); `probation` the big suite's.
+ */
+export function gateFiles({ root, git, probation = {} }) {
+  const all = testFiles(root)
+  const spec = readSlowFiles(root)
+  if (spec === null) return { files: all, lines: ['light check: no test/slow-files.json here: every test file runs'] }
+  const picked = lightFiles({ all, spec, changed: changedFiles(git), probation })
+  return { files: picked.files, lines: lightLines({ all, picked }) }
 }
 /** F39: a test that runs longer than this fails (node --test's own timeout). */
 export const TEST_TIMEOUT_MS = 10 * 60 * 1000
@@ -251,6 +273,14 @@ export function runTests({
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const { priority, files } = cliOf(process.argv.slice(2))
-  runTests({ files, priority }).then((code) => process.exit(code))
+  const { priority, gate, files } = cliOf(process.argv.slice(2))
+  if (gate) {
+    const git = (args) => {
+      const run = spawnSync('git', args, { cwd: process.cwd(), encoding: 'utf8', windowsHide: true })
+      return run.status === 0 ? run.stdout : null
+    }
+    const picked = gateFiles({ root: process.cwd(), git, probation: readJson(stateFiles(lockPath()).results).probation ?? {} })
+    for (const line of picked.lines) process.stdout.write(`${line}\n`)
+    runTests({ files: picked.files, priority }).then((code) => process.exit(code))
+  } else runTests({ files, priority }).then((code) => process.exit(code))
 }

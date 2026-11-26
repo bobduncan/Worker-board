@@ -49,6 +49,8 @@ import { fixHomeFile, homeFilesNow } from './src/homeFiles.mjs'
 import { assetsOf, backlogViewOf, chatFile, chatHomeOf, storedOfChatPath, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, storedOfWholePath, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
+import { stateFiles as bigSuiteFiles } from './src/bigSuite.mjs'
+import { BIG_SUITE_LOOK_MS, bigSuitePass } from './src/bigSuitePass.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { boardView, exitAt, keptStart, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
 import { START_ANEW, keep, startEnv } from './src/keeper.mjs'
@@ -2495,6 +2497,43 @@ async function main(args) {
     await assetsQueue.pass()
   })
   if (assetsQueue !== null) setInterval(lookAtAssets, ASSETS_MS)
+  // S9 (the PC plan, the person's choice of 2026-11-25): the big suite runs every test file of main when the PC is idle, at least every
+  // 4 hours and once each night (src/bigSuite.mjs, tools/big-suite.mjs), while each go-live's gate is the light check. Only the PC's
+  // first board starts it (config `bigSuite` says otherwise), where the loops run; it files the fix step of a red run once.
+  const runsBigSuite = !isDemo && !isShowOnly && historyFrom === undefined
+    && (config.bigSuite ?? (firstBoard !== null && resolve(firstBoard).toLowerCase() === resolve(HERE).toLowerCase()))
+  if (runsBigSuite) {
+    const gitOf = args => new Promise(done => {
+      const child = spawn('git', args, { cwd: HERE, windowsHide: true })
+      let out = ''
+      child.stdout.on('data', chunk => { out += chunk })
+      child.on('error', () => done({ code: 1, out }))
+      child.on('close', code => done({ code, out }))
+    })
+    const lookAtBigSuite = () => loops.run('big-suite', async () => {
+      if (!(await ownsLoops())) return
+      const heavy = await import('./tools/one-at-a-time.mjs')
+      const lock = heavy.lockPath()
+      await bigSuitePass({
+        lock, tool: heavy, landings: join(HERE, 'data', 'landings.jsonl'), filed: join(HERE, 'data', 'big-suite-filed.json'),
+        mainHead: async () => {
+          const head = await gitOf(['rev-parse', 'main'])
+          return head.code === 0 ? head.out.trim() : null
+        },
+        commitsBetween: async (from, to) => {
+          const list = await gitOf(from === null ? ['rev-list', '--max-count=500', to] : ['rev-list', `${from}..${to}`])
+          return new Set(list.code === 0 ? list.out.split('\n').map(one => one.trim()).filter(Boolean) : [])
+        },
+        start: () => {
+          const log = openSync(bigSuiteFiles(lock).log, 'a')
+          spawn(process.execPath, [join(HERE, 'tools', 'big-suite.mjs'), '--run', HERE], { detached: true, stdio: ['ignore', log, log], windowsHide: true, cwd: HERE }).unref()
+          closeSync(log)
+        },
+        make: call => workAction(call, 'person'), read: () => readStore(workDir),
+      })
+    })
+    setInterval(lookAtBigSuite, BIG_SUITE_LOOK_MS)
+  }
   // T5.2 P2: a stored path's place, through the table (today: `join(project, path)`; P3 moves the pictures and the store with it).
   const inProject = (project, path) => resolveStored({ ...config, project }, path, { boardDir: HERE })
   /** The picture readers' and writers' home: `root` the boundary, `abs` the table's answer for a stored path (src/pictures.mjs). */

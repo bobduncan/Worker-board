@@ -389,8 +389,9 @@ test('a stale lock in a slot beyond this run\'s own (its process gone) does not 
 
 test('a landing\'s gate waits in the same queue: land.ps1 gates with npm test, which runs through the helper', () => {
   const land = readFileSync(new URL('../tools/land.ps1', import.meta.url), 'utf8')
-  assert.match(land, /\$gateBoardCommand = 'npm test'/)
-  assert.match(land, /Get-Setting 'gateBoard' 'npm test'/)
+  // S9: npm test with --gate, the light check, still through the helper.
+  assert.match(land, /\$gateBoardCommand = 'npm test -- --gate'/)
+  assert.match(land, /Get-Setting 'gateBoard' 'npm test -- --gate'/)
   assert.doesNotMatch(land, /HEAVY_RUN_(HELD|LOCK|SLOTS)/, 'the landing never skips or moves the queue')
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.match(pkg.scripts.test, /^node tools\/one-at-a-time\.mjs /)

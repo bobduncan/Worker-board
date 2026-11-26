@@ -278,7 +278,7 @@ test('F68: land.ps1 reruns a failed file through the one-at-a-time queue, asking
   const rerun = 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}'
   assert.equal(script.match(/^\$gateFileCommand = '(.*)'\s*$/m)?.[1], rerun)
   assert.equal(script.match(/Get-Setting 'gateFile' '(.*)'\)\s*$/m)?.[1], rerun)
-  assert.equal(script.match(/Get-Setting 'gateBoard' '(.*)'\)\s*$/m)?.[1], 'npm test')
+  assert.equal(script.match(/Get-Setting 'gateBoard' '(.*)'\)\s*$/m)?.[1], 'npm test -- --gate')
   assert.doesNotMatch(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).scripts.test, /--priority/)
 })
 
