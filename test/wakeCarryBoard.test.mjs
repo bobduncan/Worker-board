@@ -216,7 +216,7 @@ describe("F17 wake carry on a running board", { concurrency: 2 }, () => {
     })
   })
 
-  describe("the other cases", { concurrency: 6 }, () => {
+  describe("the other cases", { concurrency: 5 }, () => {
     test('while the app refuses the hands\' sends, no hand gets a message job; without the refusal it does', { timeout: 240_000 }, async t => {
       const refused = await boardWith(t, { refused: true, lines: [WAKE_WORD] })
       for (let at = 0; at < 3; at += 1) {
@@ -403,9 +403,9 @@ describe("F17 wake carry on a running board", { concurrency: 2 }, () => {
       // The board's state has read Main's report (it runs) before the courier calls.
       await new Promise(done => setTimeout(done, 3000))
       await json('/api/bridge/wakes-due', {})
-      // Within 20 s (Main's report in this test goes stale after a minute; then Main no longer covers the list either way).
+      // Within 40 s (B1554: 20 s before; a board that starts beside nine others is slower; Main's report in this test goes stale after a minute; then Main no longer covers the list either way).
       let found = false
-      for (const end = Date.now() + 20_000; Date.now() < end && !found;) {
+      for (const end = Date.now() + 40_000; Date.now() < end && !found;) {
         found = (await words()).some(one => one.command === 'wake-carry' && one.about === 'Worker 2' && typeof one.of !== 'string')
         if (!found) await new Promise(done => setTimeout(done, 250))
       }
