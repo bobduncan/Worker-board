@@ -274,7 +274,8 @@ export async function runner(repo, env = process.env, steps = bigSuiteSteps(repo
   }
   // Core review: never beside a big run of the queue, also one whose runner died (its one-at-a-time child may still run).
   if (bigRunQueued(lock, tool)) return null
-  if (!takeRunner(files.runner, Date.now(), undefined, () => bigRunQueued(lock, tool))) return null
+  // (With no big run queued, a live runner's file is alive only by its age.)
+  if (!takeRunner(files.runner, Date.now())) return null
   try {
     // Core review: what a killed runner left goes first (only this runner lives now).
     steps.sweep?.()

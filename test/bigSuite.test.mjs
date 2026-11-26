@@ -409,8 +409,8 @@ test('S9, core review: a big suite that could not run three times in a row gets 
     for (const hour of [9, 10]) results = recordRun(results, { commit: 'x', outcome: 'could not run', at: iso(local(26, hour)), why: 'stopped' })
     writeFileSync(files.results, JSON.stringify(results))
     const made = []
-    const pass = () => bigSuitePass({
-      lock, tool, landings: join(dir, 'none.jsonl'), filed, now: local(26, 12), mainHead: async () => 'x', commitsBetween: async () => new Set(),
+    const pass = (at = local(26, 12)) => bigSuitePass({
+      lock, tool, landings: join(dir, 'none.jsonl'), filed, now: at, mainHead: async () => 'x', commitsBetween: async () => new Set(),
       start: () => {}, make: async call => { made.push(call); return { ok: true, result: { id: 'B7' } } }, read: async () => ({ items: new Map(), activities: [{ name: 'Board' }] }),
     })
     await pass()
@@ -418,6 +418,8 @@ test('S9, core review: a big suite that could not run three times in a row gets 
     writeFileSync(files.results, JSON.stringify(recordRun(results, { commit: 'x', outcome: 'could not run', at: iso(local(26, 11)), why: 'stopped' })))
     await pass()
     await pass()
+    // filed once for the streak, also hours later
+    await pass(local(26, 16))
     assert.equal(made.length, 1)
     assert.equal(made[0].title, 'Big suite could not run 3 times in a row')
     assert.equal(made[0].priority, 'fix')
