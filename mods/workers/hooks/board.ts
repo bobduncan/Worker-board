@@ -635,15 +635,15 @@ export const WORK_FIELDS = ['action', 'id', 'branch', 'step', 'steps', 'names', 
   // 0.29.0: an asset request's earlier iteration (A<n>) and a library pick (a path in the library folder).
   'follows', 'picked']
 
-/** B421: what the mod sets on a call itself, never the chat: the board's table names the same five (src/work/actions.mjs, MOD_FIELDS). */
-export const WORK_DENY = ['chat', 'session', 'request', 'mod', 'via']
+/** B421: what the mod sets on a call itself, never the chat (the board's MOD_FIELDS, src/work/actions.mjs), and the two keys the engine adds to a tool's input (the tool's name and the call's id). */
+export const WORK_DENY = ['chat', 'session', 'request', 'mod', 'via', 'tool', 'tool_use_id']
 
 /**
  * B421 (chat 1's review): why a call of the model's work tool is not made, or null. The tool offers WORK_ACTIONS only (Claude Code does
  * not hold a model to the schema's enum): the mod's own calls (turn-ended, instruction, save-log) are never the model's to make. PURE.
  */
 export function workCallRefusal(action: unknown): string | null {
-  if (action === 'save-log') return 'save-log is the Workers mod's own call: nothing was done.'
+  if (action === 'save-log') return "save-log is the Workers mod's own call: nothing was done."
   if (typeof action !== 'string' || !WORK_ACTIONS.includes(action)) return `"${typeof action === 'string' ? action.slice(0, 40) : ''}" is no action of the work tool (it offers ${WORK_ACTIONS.join(', ')}): nothing was done.`
   return null
 }

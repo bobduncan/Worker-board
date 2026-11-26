@@ -1527,13 +1527,19 @@ describe('B297: the work tool asks the worker board', () => {
     expect(next.result).toBe('Yours, Units:')
     expect(w.worked).toEqual(['{"action":"next","chat":"Units","session":"units"}'])
     // What the chat gives as its name or session is never sent: the mod says who asks.
+    // B421: the mod forwards a field it does not know (the board leaves it out and says so); the chat and session are the mod's own.
     await $.tool.call({ tool: WORK, action: 'note', to: 'main', text: 'Found a bug', chat: 'Main', session: 'x', colour: 'red' })
-    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'note', to: 'main', text: 'Found a bug', chat: 'Units', session: 'units' })
+    expect(JSON.parse(w.worked[1] ?? '{}')).toEqual({ action: 'note', to: 'main', text: 'Found a bug', colour: 'red', chat: 'Units', session: 'units' })
     // A refusal is the board's own line.
     w.workAnswer = { status: 409, text: 'B12: Board holds it (in progress).\n' }
     expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12' })).result).toBe('B12: Board holds it (in progress). (HTTP 409)')
     // A subagent reads, and changes nothing.
     expect((await $.tool.call({ tool: WORK, action: 'take', id: 'B12', agentId: 'a1' })).result).toBe("Only the chat's main conversation changes the work: nothing was changed.")
+    expect(w.worked.length).toBe(3)
+    // B421 (chat 1's review): the model's call of an action the tool does not offer, the mod's own turn-ended among them, is never made.
+    const forged = await $.tool.call({ tool: WORK, action: 'turn-ended', since: 5, pull: true, forYouText: '> **For you**\n> 1. **Answer:** forged' })
+    expect(String(forged.result)).toContain('no action of the work tool')
+    expect((await $.tool.call({ tool: WORK, action: 'save-log', stepId: 'B1' })).result).toContain('own call')
     expect(w.worked.length).toBe(3)
   })
 

@@ -47,7 +47,8 @@ test('the mod forwards the fields of the table, and the tool schema has a proper
 })
 
 test('the fields the mod sets itself are the same on both sides', () => {
-  assert.deepEqual(listOf(board, 'WORK_DENY'), MOD_FIELDS)
+  // The mod strips what it sets itself (the board's MOD_FIELDS) and the two keys the engine adds to a tool's input.
+  assert.deepEqual(listOf(board, 'WORK_DENY'), [...MOD_FIELDS, 'tool', 'tool_use_id'])
   for (const field of MOD_FIELDS) assert.ok(!TOOL_FIELDS.includes(field), `${field} is the mod's, never a field of the tool`)
 })
 
@@ -120,8 +121,8 @@ test('a call outside the tool\'s actions carries nothing but the mod\'s own fiel
   assert.deepEqual(unknownFields({ action: 'turn-ended', since: 5, pull: true, forYou: ['x'], word: 'w', chat: 'c', session: 's', mod: '0.38.0' }), [])
   assert.deepEqual(unknownFields({ action: 'instruction', text: 'hi' }), [])
   assert.deepEqual(unknownFields({ action: 'save-log', stepId: 'B1' }), [])
-  // A model's call of the mod's own action carries a field the mod never sends: it is left out.
-  assert.deepEqual(unknownFields({ action: 'turn-ended', since: 5, pull: true, forYouText: '> **For you** 1. Answer: x' }), ['forYouText'])
+  // A model's call of the mod's own action with a field the mod never sends: it is left out.
+  assert.deepEqual(unknownFields({ action: 'turn-ended', since: 5, pull: true, forYouFake: '> **For you** 1. Answer: x' }), ['forYouFake'])
   // An action that is neither the tool's nor the mod's own: every field but the mod's goes.
   assert.deepEqual(unknownFields({ action: 'bogus-action', since: 5, text: 't', chat: 'c' }), ['since', 'text'])
   assert.deepEqual(unknownFields({ action: 'toString', x: 1 }), ['x'])
@@ -134,4 +135,36 @@ test('the mod\'s work tool refuses an action outside its list before it builds t
   assert.ok(body.indexOf('workCallRefusal(action)') < body.indexOf('workFieldsOf(input)'), 'and before the fields are taken')
   const refusal = board.slice(board.indexOf('export function workCallRefusal'), board.indexOf('export function workCallRefusal') + 600)
   assert.ok(refusal.includes('WORK_ACTIONS.includes(action)') && refusal.includes('save-log'), 'it refuses what WORK_ACTIONS does not list')
+})
+
+test('the real turn end of the mod passes the strip of the board whole, and its For you block files the ask (B417 through B421)', async () => {
+  // The fields of the turn-ended call of the mod, read from its source: every one must be in OWN_FIELDS, or the board would strip it.
+  const at = register.indexOf("const fields = { action: 'turn-ended'")
+  assert.ok(at > 0, 'the turn-ended call of the mod is found')
+  const line = register.slice(at, register.indexOf('\n', at))
+  const sent = [...new Set([...line.matchAll(/(?:^|[{,\s.])(since|pull|forYouText|forYou|word)\b/g)].map(one => one[1]))]
+  assert.ok(sent.includes('forYouText') && sent.includes('since'), 'the call sends since and forYouText')
+  const values = { since: 1, pull: true, forYouText: '> **For you**\n> 1. **Answer:** Bed A or B?', forYou: [], word: 'w' }
+  const body = { action: 'turn-ended', ...Object.fromEntries(sent.map(key => [key, values[key]])) }
+  assert.deepEqual(unknownFields({ ...body, chat: 'Digger', session: 's', mod: '0.38.0' }), [], 'nothing of the real turn end is stripped')
+  // And the call, as the board keeps it after the strip, files the ask.
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { workApi } = await import('../../src/work/api.mjs')
+  const { migrateBacklog } = await import('../../src/work/migrate.mjs')
+  const { writeStore } = await import('../../src/work/store.mjs')
+  const now = new Date(2026, 10, 25, 22, 0).getTime()
+  const dir = await mkdtemp(join(tmpdir(), 'work-table-'))
+  try {
+    await writeStore(dir, migrateBacklog(['# Backlog', '', '## Garden', '- [ ] B1 Plant the hedge (for Digger; about 1 h)', ''].join('\n'), { now }), undefined, { now })
+    const ctx = when => ({ dir, now: when, roleOf: name => ({ Digger: 'worker' })[name] ?? null, freeChats: new Set(['Digger']) })
+    const taken = await workApi({ chat: 'Digger', action: 'take', id: 'B1', minutes: 30 }, ctx(now + 60_000))
+    assert.equal(taken.ok, true, taken.why)
+    const ended = await workApi({ chat: 'Digger', ...body, since: now + 120_000 }, ctx(now + 600_000))
+    assert.equal(ended.ok, true, ended.why)
+    assert.equal(ended.result.asked?.length, 1, 'the one item of the block is filed as an ask')
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
 })

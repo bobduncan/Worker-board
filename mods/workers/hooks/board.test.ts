@@ -699,7 +699,7 @@ describe('0.38.0 (B421): the work tool forwards every field but its own, and the
   })
 
   test('the mod\'s own fields are the board\'s MOD_FIELDS (test/work/actionsTable.test.mjs holds the two equal)', () => {
-    expect(WORK_DENY).toEqual(['chat', 'session', 'request', 'mod', 'via'])
+    expect(WORK_DENY).toEqual(['chat', 'session', 'request', 'mod', 'via', 'tool', 'tool_use_id'])
   })
 
   test('workCallRefusal: only the tool\'s actions are the model\'s to call; the mod\'s own turn-ended, instruction and save-log are not', () => {

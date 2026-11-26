@@ -89,7 +89,7 @@ export const MOD_FIELDS = ['chat', 'session', 'request', 'mod', 'via']
 
 /** The calls the mod makes on its own (never the chat's), each with the fields it carries: nothing else goes through with them. */
 export const OWN_FIELDS = {
-  'turn-ended': ['since', 'pull', 'forYou', 'word'],
+  'turn-ended': ['since', 'pull', 'forYou', 'forYouText', 'word'],
   instruction: ['text'],
   'save-log': ['stepId'],
   'pause-state': [],
