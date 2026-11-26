@@ -7,9 +7,11 @@
 // build without holding anyone. One build at a time is `cached`'s rule, unchanged; the thread also takes its builds in order.
 // The fallback: when the thread throws or ends, the builds it held are made in the loop as before and the next build starts a new
 // thread; after MOST_FAILURES in a row, or at once when no thread can start or a state cannot be copied, every build is made in the
-// loop. A thread that gives no build within BUILD_LIMIT_MS is ended too, but its build is NOT made from the old raw (chat 1's core
-// review): the read fails with LATE, the server answers from the kept state and reads anew, that build in the loop. A spell of
-// failures is said once (`failed`), its end once (`recovered`: a new thread built), the thread off for good once (`offForGood`). An
+// loop. A slow build is never cut short (chat 1's check of the core review fixes): it finishes in its thread, whoever may take the
+// kept state takes it meanwhile (keptState.mjs) and the rest wait for that build. Only a thread that gives no build within
+// BUILD_LIMIT_MS (a hang: minutes) is ended: its build is NOT made from its old raw, the read fails with LATE and the next one is
+// built in the loop; a hang never counts toward off for good. A spell of failures is said once (`failed`), its end once
+// (`recovered`: a new thread built), the thread off for good once (`offForGood`). An
 // error of the build itself (buildState threw) is the read's error, as it was in the loop. While the board's folder holds a newer
 // server than the one running (`mayStart` false: a landing or self-update before its restart), no new thread starts: it would load
 // the newer code; the builds are made in the loop until the restart.
@@ -17,12 +19,12 @@
 import { Worker } from 'node:worker_threads'
 
 /**
- * How long a build may take in the thread before the board ends it (a build took 2.6 s on a quiet PC, 14 s on a full one). Chat 1's
- * core review: well under the kept state's age limit (keptState.mjs KEPT_STATE_MS, 60 s), so a stuck build never has every call wait on it.
+ * How long a build may take in the thread before the board counts it a hang and ends the thread (a build took 2.6 s on a quiet PC,
+ * 14 s on a full one). Chat 1's check: a slow but live build is never cut short; only a hang of minutes is.
  */
-export const BUILD_LIMIT_MS = Number(process.env.WORKER_BOARD_BUILD_LIMIT_MS) > 0 ? Number(process.env.WORKER_BOARD_BUILD_LIMIT_MS) : 30_000
+export const BUILD_LIMIT_MS = Number(process.env.WORKER_BOARD_BUILD_LIMIT_MS) > 0 ? Number(process.env.WORKER_BOARD_BUILD_LIMIT_MS) : 5 * 60_000
 
-/** The code of the error a build gives that took over BUILD_LIMIT_MS: the read answers from the kept state and reads anew. */
+/** The code of the error of a build that hung past BUILD_LIMIT_MS: the read fails, and the next read is built in the loop. */
 export const LATE = 'STATE_THREAD_LATE'
 
 /**
@@ -64,7 +66,7 @@ export function stateThread({
   let failures = 0
   let said = false
   let way = null
-  /** After a build that took too long, the next one (the read anew) is made in the loop. */
+  /** After a build that hung, the next one (the read anew) is made in the loop. */
   let loopNext = false
   /** The builds sent to the thread and not answered: id → { raw, options, resolve, reject, timer }. */
   const pending = new Map()
@@ -87,13 +89,13 @@ export function stateThread({
   }
 
   /**
-   * The thread is given up: ended, and every build it held is built in the loop (`late`: each fails with LATE instead, as its raw is
-   * old). `forGood` (a start or a copy that cannot work), or the MOST_FAILURES-th failure in a row, turns the thread off for every
-   * build after it. Said once per spell.
+   * The thread is given up: ended, and every build it held is built in the loop (`late`, a hang: each fails with LATE instead, as its
+   * raw is old, and the hang does not count toward off for good). `forGood` (a start or a copy that cannot work), or the
+   * MOST_FAILURES-th failure in a row, turns the thread off for every build after it. Said once per spell.
    */
   const giveUp = (why, { forGood = false, late = false } = {}) => {
     const error = why instanceof Error ? why : new Error(String(why))
-    failures += 1
+    if (!late) failures += 1
     if (off === null && (forGood || failures >= MOST_FAILURES)) {
       off = error
       say(offForGood, error)
@@ -152,7 +154,9 @@ export function stateThread({
   }
 
   return {
-    build(raw, options) {
+    async build(raw, options) {
+      // A newer server in the folder: no new thread (it would load the newer code); one that runs builds on. Asked before a start only.
+      const startable = off !== null || loopNext || worker !== null ? true : await Promise.resolve().then(mayStart).catch(() => true)
       return new Promise((resolve, reject) => {
         const one = { raw, options, resolve, reject, timer: null }
         if (off !== null) return inLoopFor(one, raw, options)
@@ -160,8 +164,7 @@ export function stateThread({
           loopNext = false
           return inLoopFor(one, raw, options)
         }
-        // A newer server in the folder: no new thread (it would load the newer code); one that runs builds on.
-        if (worker === null && !mayStart()) return inLoopFor(one, raw, options)
+        if (worker === null && startable === false) return inLoopFor(one, raw, options)
         let made
         try {
           made = thread()

@@ -186,18 +186,22 @@ test('the 19:50 and 19:55 cases: while a build of 6 s runs in its thread, other 
   assert.equal(traced.find(one => one.request === note.request).stateWhy, 'kept')
 })
 
-test('chat 1\'s core review: a stuck thread (10 s, its limit 3 s) holds nobody: calls answer from the kept state, the turn end gets a read anew', { timeout: 400_000 }, async t => {
+test('chat 1\'s check: a hung thread (10 s, its hang limit 3 s) holds nobody: calls answer from the kept state, the hung read fails, the next is built in the loop', { timeout: 400_000 }, async t => {
   const STUCK_MS = 10_000
   const { work } = await boardWith(t, { WORKER_BOARD_BUILD_LIMIT_MS: '3000', WORKER_BOARD_THREAD_BLOCK_MS: String(STUCK_MS) })
-  // Digger's turn ends: its decide reads anew; the thread's build sticks, is ended at 3 s, and a read anew is made in the loop.
+  // Digger's turn ends: its decide reads anew; the thread's build hangs and is ended at 3 s (that read fails, never answered with
+  // the kept state), and the turn end's own repeat or the next call reads anew, in the loop.
   const turnFrom = Date.now()
   const turn = work('Digger', { action: 'turn-ended', since: Date.now() - MIN })
   await pause(1_500)
-  const noted = await timed(() => work('Delver', { action: 'note', to: 'main', text: 'a note while the thread is stuck' }).done)
+  const noted = await timed(() => work('Delver', { action: 'note', to: 'main', text: 'a note while the thread hangs' }).done)
   assert.equal(noted.answered.status, 200, JSON.stringify(noted.answered.body))
-  assert.ok(noted.ms < QUICK_MS, `a work note waited ${noted.ms} ms while the thread was stuck`)
-  const ended = await turn.done
+  assert.ok(noted.ms < QUICK_MS, `a work note waited ${noted.ms} ms while the thread hung`)
+  await turn.done
   const turnMs = Date.now() - turnFrom
-  assert.equal(ended.status, 200, JSON.stringify(ended.body))
-  assert.ok(turnMs < STUCK_MS - 2_000, `the turn end waited ${turnMs} ms for a stuck thread`)
+  assert.ok(turnMs < STUCK_MS - 2_000, `the turn end waited ${turnMs} ms for a hung thread`)
+  // The next read is built in the loop: the turn end again answers, with a decision.
+  const again = await timed(() => work('Digger', { action: 'turn-ended', since: Date.now() - MIN }).done)
+  assert.equal(again.answered.status, 200, JSON.stringify(again.answered.body))
+  assert.ok(again.ms < STUCK_MS - 2_000, `the turn end after the hang waited ${again.ms} ms`)
 })

@@ -130,7 +130,7 @@ test('the fallback: a thread that throws, ends or cannot send back is given up o
   }
 })
 
-test('chat 1\'s core review: a thread that gives no build in time is ended, its old raw never built; the read anew is built in the loop', { timeout: 60_000 }, async t => {
+test('chat 1\'s check: a thread that hangs past its limit is ended, its old raw never built; the read anew is built in the loop; a hang never turns the thread off', { timeout: 60_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'state-thread-'))
   t.after(() => rm(dir, { recursive: true, force: true }))
   const hangs = await threadFile(dir, 'hangs.mjs', 'import { parentPort } from \'node:worker_threads\'\nparentPort.on(\'message\', () => {})\n')
@@ -147,9 +147,12 @@ test('chat 1\'s core review: a thread that gives no build in time is ended, its 
   assert.deepEqual([looped, builder.off(), said], [[], null, ['failed']])
   assert.deepEqual(await builder.build({ fresh: true }, {}), { built: 'in the loop', raw: { fresh: true } })
   assert.equal(starts, 1)
-  // The build after it tries a new thread.
-  await assert.rejects(builder.build({ again: true }, {}), error => error.code === LATE)
-  assert.equal(starts, 2)
+  // The build after it tries a new thread; hangs in a row never turn the thread off (only failures of the thread itself do).
+  for (let n = 2; n <= MOST_FAILURES + 1; n += 1) {
+    await assert.rejects(builder.build({ again: n }, {}), error => error.code === LATE)
+    assert.deepEqual(await builder.build({ fresh: n }, {}), { built: 'in the loop', raw: { fresh: n } })
+  }
+  assert.deepEqual([starts, builder.off(), said], [MOST_FAILURES + 1, null, ['failed']])
 })
 
 test('chat 1\'s core review: while the folder holds a newer server, no new thread starts; one that runs builds on', { timeout: 60_000 }, async t => {
@@ -213,6 +216,7 @@ test('lens 1: an answer that waits when the build\'s time runs out (a PC that wo
   })
   t.after(() => builder.close())
   const built = builder.build({}, {})
+  await new Promise(done => setImmediate(done))
   // The time runs out; the thread's answer is read first.
   timers[0]()
   assert.deepEqual(await built, { built: 'in the thread' })
@@ -231,6 +235,7 @@ test('the verifier and chat 1: a build whose timer fires far past its time (the 
   })
   t.after(() => builder.close())
   const built = builder.build({}, {})
+  await new Promise(done => setImmediate(done))
   // An hour's sleep: the timer fires at the wake, long past its time; it is set again. A second sleep in the same build: again.
   wall = 3_600_000
   timers[0]()
@@ -242,6 +247,7 @@ test('the verifier and chat 1: a build whose timer fires far past its time (the 
   assert.deepEqual([builder.off(), said], [null, []])
   // A build that hangs with the PC awake is ended at its time: it fails LATE (its old raw is never built), and is said.
   const hung = builder.build({}, {})
+  await new Promise(done => setImmediate(done))
   wall += 120_000
   timers[3]()
   await assert.rejects(hung, error => error.code === LATE)

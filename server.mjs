@@ -109,7 +109,7 @@ import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
 import { recapRoundDue } from './src/recapCard.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
-import { holdBuild, LATE, stateThread } from './src/stateThread.mjs'
+import { holdBuild, stateThread } from './src/stateThread.mjs'
 import { minuteKeeper, stabilityKeeper } from './src/stability.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
@@ -2625,8 +2625,8 @@ async function main(args) {
     // Chat 1's core review: off for good is said on a line of its own.
     offForGood: error => loops.failed('state-thread-off', error),
     // Chat 1's core review: a new thread loads src/ from the folder; while the folder holds a newer server than this one (a landing or
-    // a self-update before its restart, src/version.mjs), the builds are made in the loop instead.
-    mayStart: () => versionNow.last()?.isServerNewer !== true,
+    // a self-update before its restart, src/version.mjs, read fresh before a start), the builds are made in the loop instead.
+    mayStart: async () => (await readVersion(gitRunner(), HERE, running).catch(() => null))?.isServerNewer !== true,
   })
   // F42: an answer built before a PC sleep is read again (src/afterSleep.mjs).
   const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
@@ -2682,20 +2682,10 @@ async function main(args) {
     }))().finally(() => {
       buildJob.as(builder.lastWay() === 'loop' ? 'state build (loop)' : 'state build (thread)')
       buildJob()
-    }).catch(error => {
-      if (error?.code !== LATE) throw error
-      return LATE
     })
-    // Chat 1's core review: a build the thread did not give within its limit (stateThread.mjs LATE) is never made from its old raw:
-    // whoever waited is answered from the kept state, not kept as fresh (a reset during this read), and a read anew starts at once
-    // (fresh raw and options, built in the loop), after this one. With no kept state yet this read fails, and the next one reads anew.
-    if (state === LATE) {
-      const kept = readState.last()
-      readState.reset()
-      if (kept === undefined) throw new Error('the state thread gave no build in time; the next read builds in the loop')
-      void readState().catch(failure => loops.failed('state-read-again', failure))
-      return kept
-    }
+    // Chat 1's check of the core review fixes: a slow build is awaited here, never answered with the kept state (a caller that may take
+    // the kept state never waits for this read: keptState.mjs). A hang (stateThread.mjs LATE) fails this read, and the next is built
+    // in the loop.
     planSeen = state.planSeen ?? {}
     noWorkSeen = state.noWorkSeen ?? null
     // Only the board that runs the loops writes; a copy beside it reads what that one kept.

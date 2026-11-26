@@ -8058,13 +8058,16 @@ stalls of 19:50; besides, the app's 566 chat files (37 MB of JSON) were read and
   a new thread. Three failures in a row, a thread that cannot start or a state that cannot be copied turn the thread off: every build
   in the loop until the board starts anew ("state-thread-off" in the loops line). A spell of failures is said once ("state-thread"),
   and cleared once a new thread builds (review lens 1).
-- **A stuck build** (chat 1's core review): the thread's limit is 30 s, well under the kept state's 60 s, so no call waits on a stuck
-  build for long. A build over it is never made from its old raw (old `now`, options that moved on): the read fails with LATE,
-  `readOrKept` answers whoever waited from the kept state (not kept as fresh: a reset during the read) and starts a read anew at once,
-  built in the loop. A timer that fires far past its time slept with the PC: it is set again, at every sleep, and an answer that waits
-  at the wake is taken first.
+- **A slow build is never cut short; a hang is** (chat 1's core review and its check): a slow but live build finishes in its thread;
+  whoever may take the kept state takes it meanwhile (keptState.mjs, never through this read), and the rest (a decide, a dirty or old
+  read, the take check) wait for that build, so none is answered with a state from before its own write, and no kept state is ever
+  stamped as read now (F42's after-sleep guard stands). Only a thread that gives no build within 5 minutes (a hang) is ended: its
+  build is never made from its old raw, the read fails with LATE, the next read is built in the loop, and a hang never counts toward
+  off for good. A timer that fires far past its time slept with the PC: it is set again, at every sleep, and an answer that waits at
+  the wake is taken first.
 - **No new thread from newer code**: a new thread loads src/ from the folder; while the folder holds a newer server than the running
-  one (a landing or a self-update before its restart, `versionNow`), the builds are made in the loop; a thread that runs builds on.
+  one (a landing or a self-update before its restart; the version read fresh before each start), the builds are made in the loop; a
+  thread that runs builds on.
 - **revalidate after a running read** (folders.mjs, chat 1's core review): with a read under way most of the time, a revalidate asked
   while an older read runs starts its read once that one lands (one, however often asked); B1502's own cases are unchanged.
 - An error of the build itself is the read's error, as it was. The stall log's job is "state build (thread)" or "state build (loop)",
