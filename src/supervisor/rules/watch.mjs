@@ -1567,7 +1567,8 @@ export const START_UNTAKEN_MS = 10 * MIN
  * that may send did not take it (refused, or none claims) and that chat's model is never given it. The reconciler renews the start word in
  * every 10-minute window and the sweep drops the old one (chat 1's review 3: no single word waits 10 minutes), so the age is the chain's:
  * from the oldest start word of the chat since its last one that was taken or delivered, and since its sleep began. One finding per chain,
- * keyed by its first word; the paused board says nothing.
+ * keyed by its first word; the paused board says nothing. B1277 (chat 1's review of B1271): only running time counts (from the end of the
+ * person's last pause, less the board's off time), and an open courier carry word of one of the chain's start words silences it.
  */
 function startUntaken(view) {
   if (isPaused(view)) return []
@@ -1582,10 +1583,17 @@ function startUntaken(view) {
     const chain = own.slice(lastTaken + 1)
     const word = chain.findLast(one => one.state === 'waiting')
     const to = laneOf(word?.to)
-    if (word === undefined || chain.length === 0 || view.now - chain[0].at < START_UNTAKEN_MS || to?.isRunning !== true || to.report?.state !== 'idle') return []
+    if (word === undefined || chain.length === 0 || to?.isRunning !== true || to.report?.state !== 'idle') return []
+    // B1277: running time only, as the other rules count it (afterPause, boardOffMs): the person's pause and a PC sleep are no one's wait.
+    const from = afterPause(view, chain[0].at)
+    const counted = view.now - from - boardOffMs(view, from)
+    if (counted < START_UNTAKEN_MS) return []
+    // B1277: a carry word of one of the chain's start words (`of`) that is open (a free chat's model turn or the courier is on it) carries the start.
+    const ids = new Set(chain.map(one => one.id))
+    if ((view.outbox ?? []).some(one => one?.command === 'wake-carry' && ids.has(one.of) && ['waiting', 'taken'].includes(one.state))) return []
     return [{
       rule: 'start-untaken', key: `start-untaken ${about} ${chain[0].id}`, subject: about, since: chain[0].at,
-      text: `the start of ${about} waits untaken for ${minutes(view.now - chain[0].at)} min while ${word.to} is idle`,
+      text: `the start of ${about} waits untaken for ${minutes(counted)} min while ${word.to} is idle`,
       evidence: `${chain.length} start word${chain.length === 1 ? '' : 's'} for ${about} since ${clockOf(chain[0].at)} (${chain[0].id} first, ${word.id} waiting now, to ${word.to}); none taken; ${word.to} reports idle; ${about} ${target?.isRunning === false ? 'does not run' : 'is not known to be off'}`,
     }]
   })
@@ -1724,7 +1732,7 @@ export const WATCH_RULES = [
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },
   { id: 'clear-owed-repeat', kind: 'watch', says: 'a worker whose clear did not run at its last three hand-overs in a row (its line went each time; a refusal in the person\'s pause not counted)', check: clearOwedRepeat },
   { id: 'wake-failed', kind: 'watch', says: 'a chat the board could not wake: the app did not start it on a launch, and no message reached it; or (B986) the chat its reports name is not in the app list', check: wakeFailed },
-  { id: 'start-untaken', kind: 'watch', says: 'a start word the idle chat it waits with has not taken for 10 minutes: no hand that may send took it', check: startUntaken },
+  { id: 'start-untaken', kind: 'watch', says: 'a start word the idle chat it waits with has not taken for 10 running minutes (the pause and the board off time left out), with no carry word carrying it: no hand that may send took it', check: startUntaken },
   { id: 'nobody-answers-wakes', kind: 'watch', says: 'nobody answers the board\'s wake-ups: every chat with work could not be woken, and the launch when nobody ran failed', check: nobodyAnswersWakes },
   { id: 'check-unreachable', kind: 'watch', says: 'chats the start-up check could not reach, one incident per cause (the other Claude account, a restart of the app to do, no chat in the app) naming the chats; the per-chat wake rules stand down for them', check: checkUnreachable },
   { id: 'old-limit-reading', kind: 'watch', says: 'a limit near a stop (5-hour 80%, weekly 90%) still last read over 60 min ago, not counting a pause, while a worker works and the supervisor has looked it up', check: oldLimitReading, skips: SKIPS_ON_PAUSE },
