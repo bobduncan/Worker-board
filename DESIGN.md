@@ -2898,21 +2898,32 @@ The person, 2026-10-18, yes to: "Should the Workers mod file them by itself from
 board always shows them with an answer box?" Chats sometimes ended an answer with a "For you" block without `work
 ask`; the board then showed only the warning "<chat> wrote questions in its chat but filed no ask" (B301).
 
-- **The mod reads the block** (`hooks/foryou.ts`, `forYouItems`): at `turn.complete` of the chat's own turn (reason
-  answer, never a subagent's), from the turn's final answer (`e.answer`), when its last part is a "For you" block (the
-  board's rule, `handover.mjs` `asksAtEnd`: followed by nothing but a rule and the closing block; a title or an item
-  written a little off still counts). Each numbered item is an ask: **Answer:** a decide, or a look when it has a
-  picture or play link and no options; **Do:** a do; a numbered item with neither word a decide. Options from lines
-  under it (`- **A:** red`) or from its words when clear ("A thin, B thick or C none", "A ... or B ...; ...", the
-  letters alone "A, B or C"), else none; the advice from "I advise ..." (to the first comma or full stop); pictures
-  from `#picture=` paths, play from `#play=` (`<branch>&<settings>`), each checked as `handover.mjs` checks them; the
-  ask's id when the item is one the work tool wrote ("(Q4, decide, blocks B1)"). Nine items at most, and no more than
-  fit 12,000 characters of the board's call (it takes 16 KB).
-- **One call at the turn's end**: the items go with `turn-ended` as `forYou`, so the turn's end stays one call held
-  1.5 s at most, the free worker's pull included.
+- **The board reads the block, with one grammar** (B417, robustness page place 6; `src/forYouGrammar.mjs`): the title
+  (`For you`, `For you:`, `Needs your attention`, quoted with `>`), the numbered items (`**Answer:**`, `**Answer**:`,
+  `Answer:`, `1)`, a plain numbered item), the choices under an item, the links, the advice and the options a question
+  names. Every reader goes through it: `handover.mjs` (`asksAtEnd`, `parseHandover`, so `state.mjs` `blockAsksOpen`) and
+  `api.mjs` `askForYou`. Before it, three readers (the mod's `foryou.ts`, `asksAtEnd` and `parseHandover`) read the block
+  three ways: an item written `**Answer**:` was a question to one and no item to another, and the board warned "filed no
+  ask" for an ask that was open. The block counts when it is the answer's last part (followed by nothing but a rule and
+  the closing block; a block quoted earlier is another's). Each numbered item is an ask: **Answer:** a decide, or a look
+  when it has a picture or play link and no options; **Do:** a do; a numbered item with neither word a decide. Options
+  from lines under it (`- **A:** red`) or from its words when clear ("A thin, B thick or C none", "A ... or B ...; ...",
+  the letters alone "A, B or C"), else none; the advice from "I advise ..." (to the first comma or full stop); pictures
+  from `#picture=` paths, play from `#play=` (`<branch>&<settings>`), each checked as before; the ask's id when the item
+  is one the work tool wrote ("(Q4, decide, blocks B1)"). Nine items at most, and no more than fit 12,000 characters of
+  the call; the items past those count as unfiled.
+- **The mod only sends the tail** (`hooks/foryou.ts`, `forYouTail`, Workers mod 0.37.0): at `turn.complete` of the chat's
+  own turn (reason answer, never a subagent's), when the answer names a "For you" block at all (a loose word test), the
+  mod sends the answer from its last title on (at most 7,000 characters; a longer block is never cleared, `isForYouCut`) as `forYouText` with `turn-ended`, so the turn's end stays one call held
+  1.5 s at most, the free worker's pull included. The board's answer says how many questions it read (`asks`) and could
+  not file (`unfiled`); the mod's decision to clear a worker goes by those (`unfiledAsk`), never by a reading of its own
+  (`asksPerson` is only the careful test for a board that did not answer). A mod from before sends the items it read
+  itself (`forYou`), which the board still takes as they are.
 - **The board files the missing ones** (`api.mjs`, `askForYou`): an item is left out when it names an ask of the
   store, or asks what an ask of the chat filed since the turn began, or one still open, asks already (the words
-  compared without markdown, links or the id note; equal, or one the start of the other). B362: also when its words
+  compared without markdown, links, the id note or the advice after the question; equal, or one the start of the other
+  when their lengths are within 20%, B417: an open "Look at the menu" is not a new, longer item that starts the same way,
+  which `forYouRepeat` then compares by its words). B362: also when its words
   name an open ask of the chat's own by its id anywhere, as a word of its own ("(Q128, under B356)", "Q128: ...", "see
   Q128"), as a chat that filed its ask with `work ask` and then wrote its own block in its own words does (Q112, Q131
   to Q133 were filed twice so). Another chat's ask named for context holds nothing back (the review); a new question
@@ -2935,8 +2946,9 @@ ask`; the board then showed only the warning "<chat> wrote questions in its chat
   the person answered within 2 minutes, at seven in ten alike, naming it. What was left out goes back in the answer
   (`left`), and the mod 0.13.18 names it beside the chat's next prompt, once, so a new question that only looked alike
   is filed with `work ask`. `tools/replay-asks.mjs` replays a period of the store through these checks.
-- Tests: `test/work/forYouAsks.test.mjs`, `test/work/askedTwice.test.mjs`; in the mod, `hooks/foryou.test.ts` and
-  `hooks/chatlist.test.ts` (B317, B480).
+- Tests: `test/forYouGrammar.test.mjs` (the one grammar, every form), `test/work/askWords.test.mjs` (`sameAsk`),
+  `test/work/forYouAsks.test.mjs`, `test/warningsSeeAsks.test.mjs`, `test/work/askedTwice.test.mjs`; in the mod,
+  `hooks/foryou.test.ts`, `hooks/chats.test.ts` and `hooks/chatlist.test.ts` (B317, B480, B417).
 
 ## Install with one command (B321)
 
@@ -6530,7 +6542,9 @@ idle Main waited untaken (X203, three times by 20:40). Now:
 - The rule `start-untaken` (src/supervisor/rules/watch.mjs): a chat's start untaken 10 minutes while the chat its word waits with runs
   idle. The reconciler renews the start word every 10 minutes and the sweep drops the old one, so the age is the chain's (from the
   oldest start word of the chat since its last taken or delivered one, within its sleep), one finding per chain, keyed by its first
-  word (chat 1's review 3: the live chain 20:35-21:40). `wake-failed` names the refused hand in what was tried ("20:29 by Worker 3:
+  word (chat 1's review 3: the live chain 20:35-21:40). B1277: the age is running time (from the end of the person's last pause, less the
+  board's off time, as `afterPause` and `boardOffMs` do for the other rules), and an open (waiting or taken) `wake-carry` word whose `of` is
+  one of the chain's start words silences it until it closes. `wake-failed` names the refused hand in what was tried ("20:29 by Worker 3:
   the app no longer lets the board's code send to a chat").
 Test: `test/wakeRefusedHand.test.mjs` (X203's record as it was, the per-hand mark, the message again by Main's hands, the launch only
 without a hand that may send, the carry word when every claiming hand is refused, the probe per hand, the file, the rule).

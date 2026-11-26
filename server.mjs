@@ -2066,7 +2066,7 @@ async function main(args) {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
     // Focus 4: a board that only shows reads the main chat's notes without marking them read.
-    const ctx = await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null, action: body?.action ?? null, of: typeof body?.of === 'string' ? body.of : null, forYou: Array.isArray(body?.forYou) && body.forYou.length > 0, trace })
+    const ctx = await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null, action: body?.action ?? null, of: typeof body?.of === 'string' ? body.of : null, forYou: (Array.isArray(body?.forYou) && body.forYou.length > 0) || (typeof body?.forYouText === 'string' && body.forYouText !== ''), trace })
     // B1139: the call's context is there (a kept state, or the rebuild it waited for).
     trace?.mark('ctx')
     const done = await workApi(body, { ...ctx, ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
