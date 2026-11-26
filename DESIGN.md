@@ -3319,7 +3319,29 @@ the screen to show the steps associated to the selected goal and to show the 'mi
    the dash, nothing the backlog's line reads as more; its activity the one most of the goal's steps are in), links it
    into the goal's Steps line and takes the line out, found by its words; a line the store refuses is named and Add all
    goes on. Dismiss (`missing-dismiss`, `removeGoalMissing`) takes the line out, undoable as any change of the map.
-4. Not in it: the left and middle of the page (a step of its own afterwards, as the person said).
+4. Not in it: the left and middle of the page (done afterwards in B384, below).
+
+## The Goals page: roadmap, calmer head, ticks, chats (B384)
+
+The second half of the person's Design-tab idea of 2026-10-19 ("I do like the left side of the screen, but lets focus on the
+right side first ... create another backlog item for the left afterwards"). Six named changes, no more; the picture is
+`art-inbox/goals-b384/before-after.png`, the built page `art-inbox/B384/`.
+
+1. **Roadmap** (`nav#goals-roadmap`, `goalRoadmap`, `drawGoalRoadmap`): every top goal and the milestones (M1, M2 ...) inside
+   it, each with a ring (steps done of steps; a done goal is full) and "N of M complete" (a goal with milestones counts them);
+   a click zooms to it; the row that holds the shown goal is lit. A third grid column on 1180 px and more.
+2. **Calmer head**: the title with one state badge and one progress bar (steps complete, goals inside, missing) instead of the
+   count line. Three buttons stay (Ask the Advisor, Brainstorm this, + Sub-goal); every other tool is behind a "..." menu
+   (`goalsUi.headMenu`; a choice closes it, "Click again to delete" keeps it open).
+3. **Done when as ticks** (`goalDoneParts`, `goalIsTicked`): split at ";", one part a line with a box; all ticked when the goal is
+   done or its last re-check passed, never part by part (ticking after the re-check is not this page's).
+4. **Diagram** unchanged but for its boxes: a status badge (`goalBadgeOf`: Complete, In progress, Plan incomplete, Open) and a
+   dashed outline for a goal with no Done when yet.
+5. **Chats on this goal** (`section#goals-chats`, `goalChatsView`): the chats working on the open steps of the shown goal, each
+   with its status and Open chat (the app link) or Open window.
+6. **Details**: Why, Note, Enables and the lines fold behind one "Details: ..." line; the Done when is not said twice.
+
+Colour: in progress is blue, never amber (amber is attention); "Plan incomplete" is amber because it asks for a Done when.
 
 ## Partner answers: detail questions go to the partner first (2026-10-19)
 
