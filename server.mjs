@@ -2505,21 +2505,35 @@ async function main(args) {
     && !resolve(HERE).toLowerCase().startsWith(resolve(tmpdir()).toLowerCase())
     && (config.bigSuite ?? (firstBoard !== null && resolve(firstBoard).toLowerCase() === resolve(HERE).toLowerCase()))
   if (runsBigSuite) {
+    // Core review: git gets a minute at most, so a pass never hangs on it.
     const gitOf = args => new Promise(done => {
       const child = spawn('git', args, { cwd: HERE, windowsHide: true })
       let out = ''
+      const timer = setTimeout(() => {
+        child.kill()
+        done({ code: 1, out })
+      }, 60_000)
+      timer.unref()
       child.stdout.on('data', chunk => { out += chunk })
-      child.on('error', () => done({ code: 1, out }))
-      child.on('close', code => done({ code, out }))
+      child.on('error', () => {
+        clearTimeout(timer)
+        done({ code: 1, out })
+      })
+      child.on('close', code => {
+        clearTimeout(timer)
+        done({ code, out })
+      })
     })
-    const lookAtBigSuite = () => loops.run('big-suite', async () => {
+    // One pass at a time (core review: a slow store or git must never let two passes file the same step).
+    const lookAtBigSuite = () => loops.single('big-suite', async () => {
       if (!(await ownsLoops())) return
       const heavy = await import('./tools/one-at-a-time.mjs')
       const lock = heavy.lockPath()
       await bigSuitePass({
         lock, tool: heavy, landings: join(HERE, 'data', 'landings.jsonl'), filed: join(HERE, 'data', 'big-suite-filed.json'),
+        say: line => console.error(line),
         mainHead: async () => {
-          const head = await gitOf(['rev-parse', 'main'])
+          const head = await gitOf(['rev-parse', 'refs/heads/main'])
           return head.code === 0 ? head.out.trim() : null
         },
         commitsBetween: async (from, to) => {
@@ -2528,7 +2542,9 @@ async function main(args) {
         },
         start: () => {
           const log = openSync(bigSuiteFiles(lock).log, 'a')
-          spawn(process.execPath, [join(HERE, 'tools', 'big-suite.mjs'), '--run', HERE], { detached: true, stdio: ['ignore', log, log], windowsHide: true, cwd: HERE }).unref()
+          const child = spawn(process.execPath, [join(HERE, 'tools', 'big-suite.mjs'), '--run', HERE], { detached: true, stdio: ['ignore', log, log], windowsHide: true, cwd: HERE })
+          child.on('error', error => console.error(`big suite: the runner could not start: ${error.message}`))
+          child.unref()
           closeSync(log)
         },
         make: call => workAction(call, 'person'), read: () => readStore(workDir),

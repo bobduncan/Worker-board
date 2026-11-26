@@ -8,6 +8,8 @@ import path from 'node:path'
 
 /** The list of slow test files with their globs, beside the tests. */
 export const SLOW_FILES = 'test/slow-files.json'
+/** The light check's own files: a change to one of them runs every slow file (a branch never judges itself by a list it changed). */
+export const LIGHT_CHECK_FILES = [SLOW_FILES, 'src/lightCheck.mjs', 'tools/test.mjs']
 /** A file on probation leaves it after this many green big runs in a row (chat 1, 2026-11-25: "until 2 green big runs in a row"). */
 export const PROBATION_GREENS = 2
 
@@ -47,9 +49,15 @@ export function guardsOf(spec, file) {
  */
 export function slowFilesToRun({ spec, changed, probation = {} }) {
   const runs = []
+  // Core review: a change to the light check itself (its list, its choice, the test runner) runs every slow file.
+  const itself = changed === null ? undefined : changed.map(asRepoPath).find(one => LIGHT_CHECK_FILES.some(own => own.toLowerCase() === one.toLowerCase()))
   for (const file of Object.keys(spec.files ?? {})) {
     if (changed === null) {
       runs.push({ file, why: 'the change could not be read' })
+      continue
+    }
+    if (itself !== undefined) {
+      runs.push({ file, why: `the light check itself changed: ${itself}` })
       continue
     }
     const guards = guardsOf(spec, file).map(globToRegExp)
@@ -99,12 +107,13 @@ export function readSlowFiles(root) {
 }
 
 /**
- * The files a light check's change touches: what the branch changed since it left main (`git diff --name-only <base>...HEAD`, the
- * base main's head, else origin/main). null when git cannot tell, and then every slow file runs. `git` runs git in `root`.
+ * The files a light check's change touches: what the branch changed since it left main (`git diff --name-only --no-renames <base>...HEAD`,
+ * the base main's head, else origin/main; a renamed file names its old path and its new one). null when git cannot tell, and then every
+ * slow file runs. `git` runs git in `root`.
  */
-export function changedFiles(git, bases = ['main', 'origin/main']) {
+export function changedFiles(git, bases = ['refs/heads/main', 'origin/main']) {
   for (const base of bases) {
-    const out = git(['diff', '--name-only', `${base}...HEAD`])
+    const out = git(['diff', '--name-only', '--no-renames', `${base}...HEAD`])
     if (out !== null) return out.split('\n').map(line => line.trim()).filter(Boolean)
   }
   return null

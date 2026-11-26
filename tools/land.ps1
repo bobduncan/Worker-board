@@ -886,7 +886,7 @@ function Invoke-Gate {
     # S9: the big suite's word at the gate's start (a red run, the files on probation), from the main checkout's tools.
     $bigTool = Join-Path $mainDir 'tools\big-suite.mjs'
     if (Test-Path -LiteralPath $bigTool) {
-      $big = Invoke-Native 'node' @($bigTool, '--status', '--quiet') '' 60
+      $big = Invoke-Native $node @($bigTool, '--status', '--quiet') '' 60
       foreach ($bigLine in ($big.out -split "`r?`n")) {
         if ($bigLine.Trim() -ne '') {
           Say $bigLine

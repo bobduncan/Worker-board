@@ -2,13 +2,13 @@
 // --gate) leaves the slowest test files out, except a slow file whose area the change touches or that a red big run put on probation.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { globToRegExp, guardsOf, lightFiles, readSlowFiles, slowFilesToRun, testFiles } from '../src/lightCheck.mjs'
+import { LIGHT_CHECK_FILES, changedFiles, globToRegExp, guardsOf, lightFiles, readSlowFiles, slowFilesToRun, testFiles } from '../src/lightCheck.mjs'
 import { gateFiles } from '../tools/test.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -129,4 +129,36 @@ test('S9, the real case: node tools/test.mjs --gate in a branch leaves a slow fi
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+// The second core review (2026-11-26).
+test('S9, core review: a change to the light check itself (its list, its choice, the test runner) runs every slow file', () => {
+  assert.deepEqual(LIGHT_CHECK_FILES, ['test/slow-files.json', 'src/lightCheck.mjs', 'tools/test.mjs'])
+  for (const own of LIGHT_CHECK_FILES) {
+    const runs = slowFilesToRun({ spec: SPEC, changed: ['DESIGN.md', own] })
+    assert.deepEqual(runs.map(one => one.file), ['test/slowBoard.test.mjs', 'test/slowTool.test.mjs'], own)
+    assert.match(runs[0].why, /^the light check itself changed: /)
+  }
+})
+
+test('S9, core review: the change is read against refs/heads/main with --no-renames (a renamed file names its old path too), else origin/main', () => {
+  const asked = []
+  const git = args => { asked.push(args.join(' ')); return asked.length === 1 ? null : 'src/old.mjs\nsrc/new.mjs\n' }
+  assert.deepEqual(changedFiles(git), ['src/old.mjs', 'src/new.mjs'])
+  assert.deepEqual(asked, ['diff --name-only --no-renames refs/heads/main...HEAD', 'diff --name-only --no-renames origin/main...HEAD'])
+  assert.equal(changedFiles(() => null), null)
+})
+
+test('S9, core review: every repository file a slow test file imports directly is in its area', () => {
+  const spec = readSlowFiles(ROOT)
+  const missing = []
+  for (const file of Object.keys(spec.files)) {
+    const text = readFileSync(join(ROOT, file), 'utf8')
+    const guards = guardsOf(spec, file).map(globToRegExp)
+    for (const match of text.matchAll(/(?:from|import)\s*\(?\s*'(\.\.?\/[^']+)'/g)) {
+      const target = join(dirname(file), match[1]).replace(/\\/g, '/')
+      if (!guards.some(re => re.test(target))) missing.push(`${file}: ${target}`)
+    }
+  }
+  assert.deepEqual(missing, [])
 })

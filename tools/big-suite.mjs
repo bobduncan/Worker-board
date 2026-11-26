@@ -9,13 +9,13 @@
 // recursive delete through it); then `git worktree remove` without force, and only while the main checkout's node_modules still
 // holds its marker package.
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, readdirSync } from 'node:fs'
+import { appendFileSync, existsSync, readdirSync, renameSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  IDLE_LABEL, ORDINARY_LABEL, RUN_FOLDER, bigRunQueued, giveBackRunner, labelFor, readJson, recordRun, stateFiles, statusLines, takeRunner, touchRunner, writeJson,
+  IDLE_LABEL, ORDINARY_LABEL, RERUN_LABEL, RUN_FOLDER, bigRunQueued, giveBackRunner, labelFor, readJson, recordRun, stateFiles, statusLines, takeRunner, touchRunner, writeJson,
 } from '../src/bigSuite.mjs'
 import { asRepoPath } from '../src/lightCheck.mjs'
 import { failingFiles, gatePassed } from '../src/landing.mjs'
@@ -25,10 +25,22 @@ import * as tool from './one-at-a-time.mjs'
 export const STOPPED = 124
 const NODE_MODULES_MARKER = 'happy-dom'
 const UPGRADE_LOOK_MS = 60 * 1000
+/** Core review: at most this many failing files run again alone (a broken shared module fails dozens; the rest stay red). */
+export const RERUNS_MAX = 10
+/** Core review: the log beside the lock goes to `.old` past this size, so it never grows for good. */
+const LOG_MAX_BYTES = 5 * 1024 * 1024
+
+/** The log goes to `<log>.old` once it is past LOG_MAX_BYTES. */
+export function rotateLog(log, maxBytes = LOG_MAX_BYTES) {
+  try {
+    if (statSync(log).size > maxBytes) renameSync(log, `${log}.old`)
+  } catch {
+    // no log yet, or held: it grows a little more
+  }
+}
 /** one-at-a-time's line when a run takes its slot (F14): until then an idle run only waits, and may be started anew as ordinary. */
 export const RUNS_NOW = /one-at-a-time: .+ runs now/
-/** The label of the rerun alone of a file that failed in a big run (short: an ordinary run). */
-export const RERUN_LABEL = 'big-suite-rerun'
+export { RERUN_LABEL }
 
 export const git = (args, cwd) => spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true })
 
@@ -74,7 +86,7 @@ export function bigSuiteSteps(repo, env = process.env) {
   const files = stateFiles(lock)
   return {
     mainHead: () => {
-      const out = git(['rev-parse', 'main'], repo)
+      const out = git(['rev-parse', 'refs/heads/main'], repo)
       return out.status === 0 ? out.stdout.trim() : null
     },
     prepare(folder, commit) {
@@ -85,36 +97,52 @@ export function bigSuiteSteps(repo, env = process.env) {
       const link = spawnSync('cmd.exe', ['/c', 'mklink', '/J', path.join(folder, 'node_modules'), path.join(repo, 'node_modules')], { encoding: 'utf8', windowsHide: true })
       if (link.status !== 0) throw new Error(`mklink failed: ${(link.stderr || link.stdout).trim()}`)
     },
-    /** Runs the suite in `folder` with `label`; resolves to `{ code, output }`. `upgrade()` true stops an idle run that still waits. */
-    run(folder, label, { upgrade, files = [] }) {
+    /**
+     * Runs the suite in `folder` with `label` (`only` the test files, none for every file); resolves to `{ code, output, ranAt }`, `ranAt`
+     * when it took its slot. `upgrade()` true stops an idle run that still waits in the idle room (and only then: core review).
+     */
+    run(folder, label, { upgrade, only = [] }) {
       return new Promise((resolve) => {
+        rotateLog(files.log)
         appendFileSync(files.log, `\n===== big suite ${label} in ${folder} at ${new Date().toISOString()} =====\n`)
-        const child = spawn(process.execPath, [path.join(folder, 'tools', 'one-at-a-time.mjs'), label, '--', 'node', 'tools/test.mjs', ...files], { cwd: folder, env, windowsHide: true })
+        const child = spawn(process.execPath, [path.join(folder, 'tools', 'one-at-a-time.mjs'), label, '--', 'node', 'tools/test.mjs', ...only], { cwd: folder, env, windowsHide: true })
         let output = ''
-        let running = false
+        let ranAt = null
         const take = (chunk) => {
           const text = String(chunk)
           output += text
-          if (RUNS_NOW.test(text)) running = true
+          if (ranAt === null && RUNS_NOW.test(text)) ranAt = Date.now()
           appendFileSync(files.log, text)
         }
         child.stdout.on('data', take)
         child.stderr.on('data', take)
+        // Its ticket in the idle room: the run has not taken a slot yet (its "runs now" line may be on its way: never kill on that alone).
+        const waitsInRoom = () => {
+          try {
+            const room = tool.idleRoomOf(lock)
+            return readdirSync(room).some(name => {
+              const ticket = readJson(path.join(room, name), null)
+              return ticket?.label === label && path.resolve(String(ticket.cwd ?? '')).toLowerCase() === path.resolve(folder).toLowerCase()
+            })
+          } catch {
+            return false
+          }
+        }
         const look = setInterval(() => {
-          if (!running && upgrade()) {
+          if (ranAt === null && upgrade() && waitsInRoom()) {
             clearInterval(look)
             spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
-            resolve({ code: null, output, upgraded: true })
+            resolve({ code: null, output, upgraded: true, ranAt })
           }
         }, UPGRADE_LOOK_MS)
         look.unref()
         child.on('error', () => {
           clearInterval(look)
-          resolve({ code: 127, output })
+          resolve({ code: 127, output, ranAt })
         })
         child.on('close', (code) => {
           clearInterval(look)
-          resolve({ code: code ?? 1, output })
+          resolve({ code: code ?? 1, output, ranAt })
         })
       })
     },
@@ -170,6 +198,7 @@ export async function playOnce({ files, steps, now = Date.now }) {
     return null
   }
   const started = now()
+  let began = started
   let verdict = { outcome: 'could not run', failed: [], why: null }
   let { label, idleUntil } = labelFor({ results: readJson(files.results), now: started })
   try {
@@ -181,13 +210,19 @@ export async function playOnce({ files, steps, now = Date.now }) {
       if (!touchRunner(files.runner)) return lost()
       ran = await steps.run(folder, label, { upgrade: () => false })
     }
+    // Core review: a run counts from when it took its slot (an idle run that waited from 23:00 and ran at 01:10 is the night run).
+    if (Number.isFinite(ran.ranAt)) began = ran.ranAt
     verdict = verdictOf(ran.output, ran.code, folder)
     if (verdict.outcome === 'failed' && !verdict.stalled && verdict.failed.length > 0) {
       const again = []
       const flaky = []
-      for (const file of verdict.failed) {
+      for (const [index, file] of verdict.failed.entries()) {
+        if (index >= RERUNS_MAX) {
+          again.push(file)
+          continue
+        }
         if (!touchRunner(files.runner)) return lost()
-        const alone = await steps.run(folder, RERUN_LABEL, { upgrade: () => false, files: [file] })
+        const alone = await steps.run(folder, RERUN_LABEL, { upgrade: () => false, only: [file] })
         if (verdictOf(alone.output, alone.code, folder).outcome === 'passed') flaky.push(file)
         else again.push(file)
       }
@@ -200,7 +235,7 @@ export async function playOnce({ files, steps, now = Date.now }) {
   }
   if (!touchRunner(files.runner)) return lost()
   const { stalled: _stalled, ...kept } = verdict
-  const run = { commit, ...kept, label, at: new Date(started).toISOString(), seconds: Math.round((now() - started) / 1000) }
+  const run = { commit, ...kept, label, at: new Date(began).toISOString(), seconds: Math.round((now() - began) / 1000) }
   writeJson(files.results, recordRun(readJson(files.results), run))
   // The result is in: the folder is this runner's (its fresh file keeps any other out, and nobody plays a commit just run).
   try {
@@ -220,6 +255,8 @@ export async function runner(repo, env = process.env, steps = bigSuiteSteps(repo
   } catch {
     // not allowed here: normal priority
   }
+  // Core review: never beside a big run of the queue, also one whose runner died (its one-at-a-time child may still run).
+  if (bigRunQueued(lock, tool)) return null
   if (!takeRunner(files.runner, Date.now(), undefined, () => bigRunQueued(lock, tool))) return null
   try {
     // Core review: what a killed runner left goes first (only this runner lives now).

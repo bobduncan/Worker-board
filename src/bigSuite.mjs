@@ -19,6 +19,10 @@ export const RUNNER_MAX_MS = 3 * 60 * 60 * 1000
 /** The queue labels of a big run: idle (waits for an idle PC) or ordinary (an overdue one). */
 export const IDLE_LABEL = 'idle:big-suite'
 export const ORDINARY_LABEL = 'big-suite'
+/** The label of the rerun alone of a file that failed in a big run (short: an ordinary run). */
+export const RERUN_LABEL = 'big-suite-rerun'
+/** Core review: after main moved, a big run waits at least this long after the last start (no run after every landing). */
+export const SETTLE_MS = 60 * 60 * 1000
 /** The folder name of a big run's worktree in the temporary folder. */
 export const RUN_FOLDER = 'board-big-suite-'
 
@@ -52,8 +56,9 @@ export function nightStart(now, hour = NIGHT_FROM_HOUR) {
 
 /**
  * Whether a big run is due now, and why (the person's words: when the PC is idle, at least every 4 hours and once each night): no run
- * yet; the night run (from 01:00, none started since); or 4 hours since the last start while main moved past the last run, or that run
- * was not green (core review: a run after every landing cost more than the gates it saved). null when none is. PURE.
+ * yet; the night run (from 01:00, none started since); or main moved past the last run (or that run was not green) and an hour has
+ * gone since the last start (core review: a run after every landing cost more than the gates it saved). Such a run waits for an idle
+ * PC until 4 hours after the last start (labelFor). null when none is. PURE.
  */
 export function dueNow({ results, mainHead, now }) {
   const lastStart = ms(results.lastStart)
@@ -61,20 +66,18 @@ export function dueNow({ results, mainHead, now }) {
   const night = nightStart(now)
   if (now >= night && !(lastStart >= night)) return 'the night run'
   const changed = (mainHead && results.last?.commit !== mainHead) || results.last?.outcome !== 'passed'
-  if (now - lastStart >= EVERY_MS && changed) return 'every 4 hours'
+  if (changed && now - lastStart >= SETTLE_MS) return now - lastStart >= EVERY_MS ? 'every 4 hours' : 'main moved'
   return null
 }
 
 /**
- * The run's queue label and how long it may wait for an idle PC (`idleUntil`, ms): ordinary at once when the last finished run is 4
- * hours old or more, or from 05:00 while the night run has not run; else idle until whichever of those comes first. PURE.
+ * The run's queue label and how long it may wait for an idle PC (`idleUntil`, ms): idle (it goes when nobody waits, S3) until 4 hours
+ * after the last start, and the night run until 05:00; ordinary at once past that, and with no run yet. PURE.
  */
 export function labelFor({ results, now }) {
-  const lastAt = ms(results.last?.at)
   const lastStart = ms(results.lastStart)
-  const until = []
-  if (Number.isFinite(lastAt)) until.push(lastAt + EVERY_MS)
-  else until.push(now)
+  if (!Number.isFinite(lastStart)) return { label: ORDINARY_LABEL, idleUntil: now }
+  const until = [lastStart + EVERY_MS]
   const night = nightStart(now)
   if (now >= night && !(lastStart >= night)) until.push(nightStart(now, NIGHT_ORDINARY_HOUR))
   const idleUntil = Math.min(...until)
@@ -90,7 +93,8 @@ export function labelFor({ results, now }) {
 export function recordRun(results, run) {
   const entry = { commit: run.commit, outcome: run.outcome, at: run.at, seconds: run.seconds, failed: run.failed ?? [], flaky: run.flaky ?? [], why: run.why ?? null, label: run.label ?? null }
   const lastStart = run.at
-  if (run.outcome === 'could not run') return { ...results, lastStart, lastTry: entry, couldNotRun: entry }
+  // Core review: the could-not-runs in a row (a suite that never finishes never turns red: the board files a step after 3).
+  if (run.outcome === 'could not run') return { ...results, lastStart, lastTry: entry, couldNotRun: entry, notRunInRow: (results.notRunInRow ?? 0) + 1, notRunSince: results.notRunSince ?? run.at }
   const probation = { ...(results.probation ?? {}) }
   if (run.outcome === 'failed') {
     for (const [file, held] of Object.entries(probation)) probation[file] = { ...held, greens: 0 }
@@ -103,7 +107,7 @@ export function recordRun(results, run) {
     }
   }
   return {
-    ...results, lastStart, lastTry: entry, last: entry, couldNotRun: null, probation,
+    ...results, lastStart, lastTry: entry, last: entry, couldNotRun: null, notRunInRow: 0, notRunSince: null, probation,
     lastGreen: run.outcome === 'passed' ? run.commit : results.lastGreen ?? null,
     lastGreenAt: run.outcome === 'passed' ? run.at : results.lastGreenAt ?? null,
     redSince: run.outcome === 'failed' ? results.redSince ?? run.commit : null,
@@ -199,7 +203,7 @@ export function bigRunQueued(lock, tool, alive = pidRuns) {
   const isBig = (file) => {
     const run = readJson(file, null)
     const folder = path.basename(String(run?.cwd ?? '').replace(/\\/g, '/'))
-    return (run?.label === IDLE_LABEL || run?.label === ORDINARY_LABEL) && folder.startsWith(RUN_FOLDER) && alive(run.pid)
+    return [IDLE_LABEL, ORDINARY_LABEL, RERUN_LABEL].includes(run?.label) && folder.startsWith(RUN_FOLDER) && alive(run.pid)
   }
   for (const folder of [...(typeof tool.idleRoomOf === 'function' ? [tool.idleRoomOf(lock)] : []), `${lock}.queue`]) {
     let names = []

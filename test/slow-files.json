@@ -104,7 +104,9 @@
       "@board",
       "src/work/autopilot.mjs",
       "src/work/handOut.mjs",
-      "src/boardSelf.mjs"
+      "src/boardSelf.mjs",
+      "src/work/migrate.mjs",
+      "src/work/store.mjs"
     ],
     "test/boardDeafLive.test.mjs": [
       "@board",
@@ -123,7 +125,9 @@
       "src/work/holderTimers.mjs",
       "src/work/outboxSweep.mjs",
       "src/work/refineWait.mjs",
-      "src/work/workLines.mjs"
+      "src/work/workLines.mjs",
+      "src/work/migrate.mjs",
+      "src/work/store.mjs"
     ],
     "test/reportedBackgroundBoard.test.mjs": [
       "@board",
@@ -133,14 +137,18 @@
       "src/work/pause.mjs",
       "fixtures/stoppedBackground.mjs",
       "src/say.mjs",
-      "src/bridge.mjs"
+      "src/bridge.mjs",
+      "src/work/migrate.mjs",
+      "src/work/store.mjs"
     ],
     "test/oneLoopProcess.test.mjs": [
       "@board",
       "src/loops.mjs",
       "src/store.mjs",
       "src/keeper.mjs",
-      "src/shutdown.mjs"
+      "src/shutdown.mjs",
+      "src/work/migrate.mjs",
+      "src/work/store.mjs"
     ],
     "test/listNotRunning.test.mjs": [
       "@board",
@@ -148,7 +156,8 @@
       "src/work/list*.mjs",
       "src/work/pause.mjs",
       "src/work/migrate.mjs",
-      "src/chatCards.mjs"
+      "src/chatCards.mjs",
+      "src/work/store.mjs"
     ],
     "test/clearAfterStepBoard.test.mjs": [
       "@board",

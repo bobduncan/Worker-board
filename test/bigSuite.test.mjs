@@ -10,11 +10,11 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import {
-  EVERY_MS, GO_LIVES_NAMED, IDLE_LABEL, ORDINARY_LABEL, STALE_MS, bigRunQueued, dueNow, fixStepOf, giveBackRunner, goLivesIn, labelFor, nightStart,
+  EVERY_MS, GO_LIVES_NAMED, IDLE_LABEL, ORDINARY_LABEL, SETTLE_MS, STALE_MS, bigRunQueued, dueNow, fixStepOf, giveBackRunner, goLivesIn, labelFor, nightStart,
   readJson, recordRun, stateFiles, statusLines, touchRunner,
 } from '../src/bigSuite.mjs'
-import { bigSuitePass } from '../src/bigSuitePass.mjs'
-import { RERUN_LABEL, RUNS_NOW, STOPPED, bigSuiteSteps, playOnce, repoTestPath, runner, stalledFiles, verdictOf } from '../tools/big-suite.mjs'
+import { NOT_RUN_STEP_AFTER, bigSuitePass, filingKey } from '../src/bigSuitePass.mjs'
+import { RERUNS_MAX, RERUN_LABEL, RUNS_NOW, STOPPED, bigSuiteSteps, playOnce, repoTestPath, runner, stalledFiles, verdictOf } from '../tools/big-suite.mjs'
 import * as tool from '../tools/one-at-a-time.mjs'
 
 const HOUR = 60 * 60 * 1000
@@ -22,27 +22,31 @@ const local = (day, hours, minutes = 0) => new Date(2026, 10, day, hours, minute
 const iso = ms => new Date(ms).toISOString()
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 
-test('S9: a big run is due with no run yet, at the night run (from 01:00, none started since), and every 4 hours while main moved or the last run was not green', () => {
+test('S9: a big run is due with no run yet, at the night run (from 01:00, none started since), and an hour after the last start while main moved or the last run was not green', () => {
   const now = local(26, 1, 30)
   assert.equal(nightStart(now), local(26, 1, 0))
   assert.equal(dueNow({ results: { lastStart: iso(local(25, 23)), last: { commit: 'a', outcome: 'passed' } }, mainHead: 'a', now }), 'the night run')
   const day = local(26, 14)
   const green = { commit: 'a', outcome: 'passed' }
-  assert.equal(dueNow({ results: { lastStart: iso(day - 3 * HOUR), last: green }, mainHead: 'b', now: day }), null, 'main moved, but not 4 hours yet (no run after every landing)')
+  assert.equal(dueNow({ results: { lastStart: iso(day - 30 * 60000), last: green }, mainHead: 'b', now: day }), null, 'main moved half an hour after the last start: not yet (no run after every landing)')
+  assert.equal(dueNow({ results: { lastStart: iso(day - HOUR), last: green }, mainHead: 'b', now: day }), 'main moved')
   assert.equal(dueNow({ results: { lastStart: iso(day - 4 * HOUR), last: green }, mainHead: 'b', now: day }), 'every 4 hours')
   assert.equal(dueNow({ results: { lastStart: iso(day - 5 * HOUR), last: green }, mainHead: 'a', now: day }), null, 'nothing new and green: no run')
-  assert.equal(dueNow({ results: { lastStart: iso(day - 5 * HOUR), last: { commit: 'a', outcome: 'failed' } }, mainHead: 'a', now: day }), 'every 4 hours')
+  assert.equal(dueNow({ results: { lastStart: iso(day - 2 * HOUR), last: { commit: 'a', outcome: 'failed' } }, mainHead: 'a', now: day }), 'main moved', 'a red last run is run again')
   assert.equal(dueNow({ results: {}, mainHead: 'a', now: day }), 'no run yet')
+  assert.equal(SETTLE_MS, HOUR)
 })
 
-test('S9: a run waits for an idle PC until 4 hours after the last one, or 05:00 for the night run; past that it is an ordinary run', () => {
+test('S9: a run waits for an idle PC until 4 hours after the last start (the night run until 05:00); past that, and with no run yet, it is ordinary', () => {
   const day = local(26, 14)
-  assert.deepEqual(labelFor({ results: { last: { at: iso(day - HOUR) }, lastStart: iso(day - HOUR) }, now: day }), { label: IDLE_LABEL, idleUntil: day + 3 * HOUR })
-  assert.equal(labelFor({ results: { last: { at: iso(day - 5 * HOUR) }, lastStart: iso(day - 5 * HOUR) }, now: day }).label, ORDINARY_LABEL)
+  assert.deepEqual(labelFor({ results: { lastStart: iso(day - HOUR) }, now: day }), { label: IDLE_LABEL, idleUntil: day + 3 * HOUR }, 'a daytime run waits for an idle PC (core review)')
+  assert.equal(labelFor({ results: { lastStart: iso(day - 5 * HOUR) }, now: day }).label, ORDINARY_LABEL)
   assert.equal(labelFor({ results: {}, now: day }).label, ORDINARY_LABEL, 'no run yet: no waiting')
   const night = local(26, 2)
-  assert.deepEqual(labelFor({ results: { last: { at: iso(night - HOUR) }, lastStart: iso(local(25, 22)) }, now: night }), { label: IDLE_LABEL, idleUntil: local(26, 5) })
-  assert.equal(labelFor({ results: { last: { at: iso(local(26, 4, 30)) }, lastStart: iso(local(25, 22)) }, now: local(26, 5, 30) }).label, ORDINARY_LABEL)
+  assert.deepEqual(labelFor({ results: { lastStart: iso(local(25, 22)) }, now: night }), { label: ORDINARY_LABEL, idleUntil: local(26, 2) }, 'the 4 hours since 22:00 ended at 02:00, before 05:00')
+  assert.deepEqual(labelFor({ results: { lastStart: iso(local(26, 0, 30)) }, now: local(26, 1, 30) }), { label: IDLE_LABEL, idleUntil: local(26, 4, 30) })
+  assert.deepEqual(labelFor({ results: { lastStart: iso(local(25, 23, 30)) }, now: local(26, 1, 30) }), { label: IDLE_LABEL, idleUntil: local(26, 3, 30) })
+  assert.equal(labelFor({ results: { lastStart: iso(local(25, 23)) }, now: local(26, 5, 30) }).label, ORDINARY_LABEL)
   assert.equal(EVERY_MS, 4 * HOUR)
 })
 
@@ -144,7 +148,7 @@ const red = (...files) => `✖ failing tests:\n${files.map(file => `test at ${fi
 const fakeSteps = (calls, over = {}) => ({
   mainHead: () => 'c1abcdef0000',
   prepare: (folder, commit) => calls.push(`prepare ${commit}`),
-  run: async (folder, label, { files = [] } = {}) => { calls.push(`run ${label}${files.length > 0 ? ` ${files.join(' ')}` : ''}`); return { code: 0, output: GREEN } },
+  run: async (folder, label, { only = [] } = {}) => { calls.push(`run ${label}${only.length > 0 ? ` ${only.join(' ')}` : ''}`); return { code: 0, output: GREEN } },
   cleanUp: () => calls.push('cleanUp'),
   ...over,
 })
@@ -189,7 +193,7 @@ test('S9, core review: each failing file runs again alone once; one that passes 
     ours(files)
     const calls = []
     const steps = fakeSteps(calls, {
-      run: async (folder, label, { files: only = [] } = {}) => {
+      run: async (folder, label, { only = [] } = {}) => {
         calls.push(`run ${label}${only.length > 0 ? ` ${only.join(' ')}` : ''}`)
         if (only.length === 0) return { code: 1, output: red('test\\flaky.test.mjs', 'test/broken.test.mjs') }
         return only[0] === 'test/flaky.test.mjs' ? { code: 0, output: GREEN } : { code: 1, output: red('test/broken.test.mjs') }
@@ -200,7 +204,7 @@ test('S9, core review: each failing file runs again alone once; one that passes 
     assert.deepEqual([run.outcome, run.failed, run.flaky], ['failed', ['test/broken.test.mjs'], ['test/flaky.test.mjs']])
     assert.deepEqual(Object.keys(readJson(files.results).probation), ['test/broken.test.mjs'])
     // all of them pass alone: green, with the flaky ones said
-    const calm = await playOnce({ files, steps: fakeSteps([], { run: async (folder, label, { files: only = [] } = {}) => (only.length === 0 ? { code: 1, output: red('test/a.test.mjs') } : { code: 0, output: GREEN }) }) })
+    const calm = await playOnce({ files, steps: fakeSteps([], { run: async (folder, label, { only = [] } = {}) => (only.length === 0 ? { code: 1, output: red('test/a.test.mjs') } : { code: 0, output: GREEN }) }) })
     assert.deepEqual([calm.outcome, calm.flaky], ['passed', ['test/a.test.mjs']])
     assert.match(calm.why, /1 file\(s\) failed in the full run and passed alone/)
   } finally {
@@ -216,7 +220,7 @@ test('S9: a runner whose file another took over keeps its hands off: at every ph
     ['during prepare', { prepare: (folder, commit, calls) => { calls.push('prepare'); take() } }, ['prepare']],
     ['during the run', { run: async (folder, label, opts, calls) => { calls.push('run'); take(); return { code: 0, output: GREEN } } }, ['prepare', 'run']],
     ['during the rerun alone', {
-      run: async (folder, label, { files: only = [] } = {}, calls) => {
+      run: async (folder, label, { only = [] } = {}, calls) => {
         calls.push(only.length === 0 ? 'run' : 'rerun')
         if (only.length === 0) return { code: 1, output: red('test/a.test.mjs', 'test/b.test.mjs') }
         take()
@@ -338,7 +342,7 @@ test('S9, the real case (Windows): a big run\'s worktree gets the node_modules j
   }
 })
 
-test('S9: the board\'s pass files a red run\'s fix step once, as a board fix with its go-lives, and starts a run only when one is due and no runner lives', async () => {
+test('S9: the board\'s pass files a red streak\'s fix step once, as a board fix with its go-lives; filing and starting are apart; a run starts only when due, main is known and no big run lives', async () => {
   const { dir, lock, files } = world()
   try {
     const landings = join(dir, 'landings.jsonl')
@@ -346,30 +350,79 @@ test('S9: the board\'s pass files a red run\'s fix step once, as a board fix wit
     const filed = join(dir, 'filed.json')
     // a fixed afternoon, so the night run never comes in (core review: a real clock between 01:00 and 06:00 made this red)
     const now = local(26, 14)
-    writeFileSync(files.results, JSON.stringify(recordRun({ lastGreen: 'c1' }, { commit: 'c2', outcome: 'failed', at: iso(now - HOUR), seconds: 9, failed: ['test/a.test.mjs'] })))
+    writeFileSync(files.results, JSON.stringify(recordRun({ lastGreen: 'c1' }, { commit: 'c2', outcome: 'failed', at: iso(now - 30 * 60000), seconds: 9, failed: ['test/a.test.mjs'] })))
     const made = []
     const started = []
+    let make = async call => { made.push(call); return { ok: true, result: { id: `B90${made.length}` } } }
+    let read = async () => ({ items: new Map(), activities: [{ name: 'Board' }] })
+    let head = 'c2'
     const pass = (at = now) => bigSuitePass({
-      lock, tool, landings, filed, now: at, mainHead: async () => 'c2', commitsBetween: async (from, to) => new Set(from === 'c1' && to === 'c2' ? ['c2'] : []),
-      start: () => started.push(1), make: async call => { made.push(call); return { ok: true, result: { id: 'B900' } } },
-      read: async () => ({ items: new Map(), activities: [{ name: 'Board' }] }),
+      lock, tool, landings, filed, now: at, mainHead: async () => head, commitsBetween: async (from) => new Set(from === 'c1' ? ['c2', 'c3'] : []),
+      start: () => started.push(1), make: call => make(call), read: () => read(),
     })
     const first = await pass()
-    assert.equal(first.filed, 'B900')
-    assert.equal(made.length, 1)
+    assert.equal(first.filed, 'B901')
     assert.equal(made[0].priority, 'fix')
     assert.equal(made[0].activity, 'Board')
     assert.match(made[0].text.join('\n'), /b9-x \(Worker 9, c2\)/)
     assert.match(made[0].text.join('\n'), /Filed by the board itself/)
-    assert.equal(readJson(filed).c2.id, 'B900')
-    assert.equal(first.started, null, 'ran an hour ago: nothing due')
+    assert.equal(readJson(filed)['red c2 test/a.test.mjs'].id, 'B901')
+    assert.equal(first.started, null, 'ran half an hour ago: nothing due')
     await pass()
     assert.equal(made.length, 1, 'filed once')
-    // 4 hours after a red run a run is due: started, unless a runner lives
-    assert.equal((await pass(now + 4 * HOUR)).started, 'every 4 hours')
+    // the same red streak on the next commit, the same file: no second step (core review: one step per red streak)
+    writeFileSync(files.results, JSON.stringify(recordRun(readJson(files.results), { commit: 'c3', outcome: 'failed', at: iso(now - 20 * 60000), failed: ['test/a.test.mjs'] })))
+    await pass()
+    assert.equal(made.length, 1, 'one step per streak')
+    // another file fails in the streak: a new step is owed; a store that cannot be read files nothing, and a due run still starts
+    writeFileSync(files.results, JSON.stringify(recordRun(readJson(files.results), { commit: 'c3', outcome: 'failed', at: iso(now - 10 * 60000), failed: ['test/a.test.mjs', 'test/b.test.mjs'] })))
+    read = async () => { throw new Error('the store is held') }
+    const held = await pass(now + 2 * HOUR)
+    assert.equal(held.filed, null)
+    assert.equal(held.started, 'main moved', 'filing and starting are apart')
+    assert.deepEqual(Object.keys(readJson(filed)), ['red c2 test/a.test.mjs'], 'no pending mark left behind')
+    read = async () => ({ items: new Map(), activities: [{ name: 'Board' }] })
+    // a make that throws takes its mark away, and the next pass files it
+    make = async () => { throw new Error('the work API is down') }
+    await pass()
+    assert.deepEqual(Object.keys(readJson(filed)), ['red c2 test/a.test.mjs'])
+    make = async call => { made.push(call); return { ok: true, result: { id: `B90${made.length}` } } }
+    assert.equal((await pass()).filed, 'B902')
+    // a runner alive or no main known: nothing starts
     writeFileSync(files.runner, JSON.stringify({ pid: process.pid, startedAt: iso(now + 4 * HOUR) }))
     assert.equal((await pass(now + 4 * HOUR)).started, null)
-    assert.equal(started.length, 1)
+    rmSync(files.runner)
+    head = null
+    assert.equal((await pass(now + 4 * HOUR)).started, null, 'no main known: no runner that would only stop')
+    head = 'c3'
+    assert.equal((await pass(now + 4 * HOUR)).started, 'every 4 hours')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('S9, core review: a big suite that could not run three times in a row gets one fix step', async () => {
+  const { dir, lock, files } = world()
+  try {
+    const filed = join(dir, 'filed.json')
+    let results = recordRun({}, { commit: 'g', outcome: 'passed', at: iso(local(26, 8)) })
+    for (const hour of [9, 10]) results = recordRun(results, { commit: 'x', outcome: 'could not run', at: iso(local(26, hour)), why: 'stopped' })
+    writeFileSync(files.results, JSON.stringify(results))
+    const made = []
+    const pass = () => bigSuitePass({
+      lock, tool, landings: join(dir, 'none.jsonl'), filed, now: local(26, 12), mainHead: async () => 'x', commitsBetween: async () => new Set(),
+      start: () => {}, make: async call => { made.push(call); return { ok: true, result: { id: 'B7' } } }, read: async () => ({ items: new Map(), activities: [{ name: 'Board' }] }),
+    })
+    await pass()
+    assert.equal(made.length, 0, 'two in a row: no step yet')
+    writeFileSync(files.results, JSON.stringify(recordRun(results, { commit: 'x', outcome: 'could not run', at: iso(local(26, 11)), why: 'stopped' })))
+    await pass()
+    await pass()
+    assert.equal(made.length, 1)
+    assert.equal(made[0].title, 'Big suite could not run 3 times in a row')
+    assert.equal(made[0].priority, 'fix')
+    assert.equal(filingKey(readJson(files.results)), `not run since ${iso(local(26, 9))}`)
+    assert.equal(NOT_RUN_STEP_AFTER, 3)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -381,5 +434,72 @@ test('S9: the board starts the big suite only on the PC\'s first board, never a 
   assert.match(server, /setInterval\(lookAtBigSuite, BIG_SUITE_LOOK_MS\)/)
   const land = readFileSync(new URL('../tools/land.ps1', import.meta.url), 'utf8')
   assert.match(land, /\$bigTool = Join-Path \$mainDir 'tools\\big-suite\.mjs'/)
-  assert.match(land, /Invoke-Native 'node' @\(\$bigTool, '--status', '--quiet'\)/)
+  assert.match(land, /Invoke-Native \$node @\(\$bigTool, '--status', '--quiet'\)/)
+})
+
+// The second core review (2026-11-26).
+test('S9, core review, the real case: steps.run starts one-at-a-time with test.mjs and the files asked, writes the log, and says when it took its slot', { timeout: 60_000 }, async () => {
+  const { dir, lock, files } = world()
+  try {
+    const folder = join(dir, 'board-big-suite-real')
+    mkdirSync(join(folder, 'tools'), { recursive: true })
+    writeFileSync(join(folder, 'tools', 'one-at-a-time.mjs'), readFileSync(HELPER, 'utf8'))
+    writeFileSync(join(folder, 'tools', 'test.mjs'), "console.log('files: ' + process.argv.slice(2).join(' '))\nconsole.log('ℹ tests 1')\nconsole.log('ℹ fail 0')\n")
+    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, ...plain } = process.env
+    const steps = bigSuiteSteps(dir, { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50' })
+    const before = Date.now()
+    const ran = await steps.run(folder, RERUN_LABEL, { upgrade: () => false, only: ['test/x.test.mjs'] })
+    assert.equal(ran.code, 0, ran.output)
+    assert.match(ran.output, /^files: test\/x\.test\.mjs$/m)
+    assert.equal(verdictOf(ran.output, ran.code, folder).outcome, 'passed')
+    assert.ok(ran.ranAt >= before, 'the moment it took its slot')
+    assert.match(readFileSync(files.log, 'utf8'), new RegExp(`===== big suite ${RERUN_LABEL} in .*board-big-suite-real at `))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('S9, core review: at most RERUNS_MAX failing files run again alone (the rest stay red), and a run counts from when it took its slot', async () => {
+  const { dir, files } = world()
+  try {
+    ours(files)
+    const failing = Array.from({ length: RERUNS_MAX + 2 }, (_, i) => `test/f${i}.test.mjs`)
+    const calls = []
+    const ranAt = Date.now() - 2 * HOUR
+    const run = await playOnce({
+      files,
+      steps: fakeSteps(calls, {
+        run: async (folder, label, { only = [] } = {}) => {
+          calls.push(only.length === 0 ? 'run' : 'rerun')
+          return only.length === 0 ? { code: 1, output: red(...failing), ranAt } : { code: 0, output: GREEN, ranAt: Date.now() }
+        },
+      }),
+    })
+    assert.equal(calls.filter(one => one === 'rerun').length, RERUNS_MAX)
+    assert.deepEqual(run.failed, failing.slice(RERUNS_MAX))
+    assert.equal(run.flaky.length, RERUNS_MAX)
+    assert.equal(run.at, iso(ranAt), 'the run counts from its slot, not from the runner\'s start')
+    assert.equal(RERUNS_MAX, 10)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('S9, core review: a rerun alone counts as a queued big run, and no runner starts beside a queued big run, also one whose runner died', async () => {
+  const { dir, lock, files } = world()
+  const sleeper = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore', windowsHide: true })
+  const was = os.getPriority(0)
+  try {
+    writeFileSync(lock, JSON.stringify({ pid: sleeper.pid, label: RERUN_LABEL, cwd: join(os.tmpdir(), 'board-big-suite-c1'), startedAt: iso(Date.now()) }))
+    assert.equal(bigRunQueued(lock, tool), true)
+    // no runner file at all (its runner died): this one does not start, and sweeps nothing
+    const calls = []
+    assert.equal(await runner('C:/not-a-repo', { ...process.env, HEAVY_RUN_LOCK: lock }, fakeSteps(calls, { sweep: () => calls.push('sweep') })), null)
+    assert.deepEqual(calls, [])
+    assert.equal(existsSync(files.runner), false)
+  } finally {
+    try { os.setPriority(0, was) } catch { /* keeps it */ }
+    sleeper.kill()
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
