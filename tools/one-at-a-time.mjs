@@ -55,7 +55,7 @@
 //   its lock has stayed the same for two beats of the waiter's own clock. A holder is stopped after 120 minutes (HEAVY_RUN_MAX_MS:
 //   its command ends with code 124), and its lock is stale past that with a margin. Waiters beat their ticket at every look; a ticket
 //   with an old beat, or an old copy's ticket older than 3 hours, is dropped.
-import { spawn, spawnSync } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -432,6 +432,98 @@ function stopTree(child, name) {
   }
 }
 
+/**
+ * S5 of the PC plan (chat 1, 2026-11-26; the person, 2026-11-25: "2 performance cores kept free"): the fence. Before it
+ * spawns, the run that holds the slot puts itself on the work cores the board's mode file names (`<lock>.mode.json`,
+ * written by the board: src/cpuTopology.mjs) with one awaited PowerShell call on its own pid, and starts the command at
+ * the level's priority (below normal in Full, idle in Low). Windows hands both to every process the command starts in
+ * turn (the shell, node, git, vitest's workers, a browser and its renderers), so they are born fenced, with no race. A
+ * run under another (HEAVY_RUN_HELD) is inside its fence already and never fences again. No mode file, another PC, a
+ * failed call: the run goes as before, unfenced, and says why. The command gets HEAVY_RUN_MASK (hex) and HEAVY_RUN_CORES.
+ * Efficiency mode (EcoQoS) is a process's own and not handed on, so it is left to the board's re-apply pass (S8).
+ * The same lines in both repositories' copies of this helper.
+ */
+export const FENCE_PRIORITY = { full: 'BelowNormal', low: 'Idle' }
+
+/** The mode file beside the lock: `{ level, mask, cores }` for the level, or `{ why }` when there is none to go by. */
+export function readMode(env = process.env) {
+  let mode
+  try {
+    mode = JSON.parse(readFileSync(`${lockPath(env)}.mode.json`, 'utf8'))
+  } catch (error) {
+    return { why: error?.code === 'ENOENT' ? 'no mode file' : 'the mode file cannot be read' }
+  }
+  const level = mode?.level === 'low' ? 'low' : mode?.level === 'full' ? 'full' : null
+  const hex = level === null ? null : mode?.masks?.[level === 'low' ? 'low' : 'work']
+  const cores = level === null ? null : mode?.threads?.[level === 'low' ? 'low' : 'work']
+  if (level === null || typeof hex !== 'string' || !/^0x[0-9a-f]{1,16}$/i.test(hex) || BigInt(hex) === 0n || !Number.isInteger(cores) || cores < 1) {
+    return { why: 'the mode file names no level and mask' }
+  }
+  return { level, mask: BigInt(hex), cores }
+}
+
+/** The PowerShell that sets a process's cores and answers the cores it then has (a decimal number). */
+export function fenceScript(pid, mask) {
+  return `$p = Get-Process -Id ${Number(pid)} -ErrorAction Stop; $p.ProcessorAffinity = [IntPtr][long]${BigInt.asIntN(64, mask)}; $p.Refresh(); [Console]::Out.WriteLine($p.ProcessorAffinity.ToInt64())`
+}
+
+function powershellOut(script) {
+  return new Promise((resolve, reject) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true, timeout: 30_000 }, (error, stdout, stderr) => {
+      if (error) reject(new Error(String(stderr || error.message).trim().split('\n')[0]))
+      else resolve(stdout)
+    })
+  })
+}
+
+/**
+ * Fences this process before its command starts: `{ fenced: true, level, mask, cores, priority }`, or `{ fenced: false, why }`.
+ * `run` (a script to its output) and `platform` are given otherwise only by tests.
+ */
+export async function fenceSelf({ env = process.env, platform = process.platform, pid = process.pid, run = powershellOut } = {}) {
+  if (env.HEAVY_RUN_HELD === '1') return { fenced: false, why: 'inside its run\'s fence' }
+  if (platform !== 'win32') return { fenced: false, why: 'not Windows' }
+  const mode = readMode(env)
+  if (mode.why) return { fenced: false, why: mode.why }
+  let said
+  try {
+    said = String(await run(fenceScript(pid, mode.mask))).trim()
+  } catch (error) {
+    return { fenced: false, why: `the fence call failed (${error instanceof Error ? error.message : 'unknown'})` }
+  }
+  if (!/^-?\d+$/.test(said) || BigInt.asUintN(64, BigInt(said)) !== mode.mask) return { fenced: false, why: `the cores did not take (${said || 'no answer'})` }
+  return { fenced: true, level: mode.level, mask: mode.mask, cores: mode.cores, priority: FENCE_PRIORITY[mode.level] }
+}
+
+
+/**
+ * Runs `start` (which spawns a process) with this process at `priority` (BelowNormal or Idle), then puts this process's
+ * own priority back (also when `start` throws): on Windows a new process starts in the class of the one that makes it
+ * when that is below normal, and so does everything it starts in turn. It only ever lowers: a process already at that
+ * priority or below (a run inside an idle fence) starts its command as it is. Elsewhere, with no priority, or when the
+ * system refuses, it only runs `start`. `system` and `platform` are given otherwise only by tests.
+ */
+export function startAt(priority, start, { system = os, platform = process.platform } = {}) {
+  const wanted = priority === null || priority === undefined ? null : system.constants.priority[priority === 'Idle' ? 'PRIORITY_LOW' : 'PRIORITY_BELOW_NORMAL']
+  if (platform !== 'win32' || wanted === null || wanted === undefined) return start()
+  let was = null
+  try {
+    was = system.getPriority(0)
+    // Node's numbers grow as the priority falls (below normal 10, idle 19).
+    if (was >= wanted) was = null
+    else system.setPriority(0, wanted)
+  } catch {
+    was = null // not allowed here: the command starts at this process's own priority
+  }
+  try {
+    return start()
+  } finally {
+    if (was !== null) {
+      try { system.setPriority(0, was) } catch { /* keeps the low class */ }
+    }
+  }
+}
+
 const signalExit = (name) => 128 + (os.constants.signals[name] ?? 0)
 
 /**
@@ -455,6 +547,7 @@ export async function runOneAtATime({
   const came = Date.now()
   let began = null
   let code = null
+  let fenceSaid = null
 
   const onSignal = (name) => {
     const again = signalled !== null
@@ -480,12 +573,19 @@ export async function runOneAtATime({
       }
       began = Date.now()
     }
+    // S5: the fence, once the slot is ours and before the command starts (a run under another is inside its fence already).
+    const fence = await fenceSelf({ env })
+    if (env.HEAVY_RUN_HELD !== '1' && !fence.fenced) say(`one-at-a-time: ${label} runs unfenced: ${fence.why}`)
+    const fenceEnv = fence.fenced ? { HEAVY_RUN_MASK: `0x${fence.mask.toString(16).toUpperCase()}`, HEAVY_RUN_CORES: String(fence.cores) } : {}
+    fenceSaid = fence.fenced ? `${fence.level} ${fenceEnv.HEAVY_RUN_MASK} ${fence.priority}` : `unfenced: ${fence.why}`
     // The run that holds the slot, for a log under it (tools/vitest-run-log.mjs leaves its own slot out of the PC's other runs).
     const ownerPid = env.HEAVY_RUN_HELD === '1' && env.HEAVY_RUN_PID ? env.HEAVY_RUN_PID : String(process.pid)
     const exited = new Promise((resolve) => {
       forceExit = () => resolve(signalExit(signalled))
       const { HEAVY_RUN_FIRST: _first, ...plain } = env
-      child = spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, HEAVY_RUN_HELD: '1', HEAVY_RUN_PID: ownerPid } })
+      // S5: the fence's priority; a run under another keeps the one it was born with (an idle fence is never lifted).
+      const priority = env.HEAVY_RUN_HELD === '1' ? null : fence.fenced ? fence.priority : null
+      child = startAt(priority, () => spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, ...fenceEnv, HEAVY_RUN_HELD: '1', HEAVY_RUN_PID: ownerPid } }))
       child.on('error', (error) => {
         say(`one-at-a-time: could not start the command: ${error.message}`)
         resolve(127)
@@ -513,7 +613,7 @@ export async function runOneAtATime({
       logRun(env, {
         at: new Date(came).toISOString(), label, cwd, first: env.HEAVY_RUN_FIRST === '1', slots: slotsOf(env),
         waitedS: Math.round(waited / 1000), ranS: began === null ? 0 : Math.round((now - began) / 1000),
-        exit: code, stopped: began === null ? `before its turn${signalled ? ` (${signalled})` : ''}` : signalled,
+        exit: code, fence: fenceSaid, stopped: began === null ? `before its turn${signalled ? ` (${signalled})` : ''}` : signalled,
       })
     }
     giveLockBack?.()
