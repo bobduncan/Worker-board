@@ -2626,7 +2626,10 @@ async function main(args) {
     offForGood: error => loops.failed('state-thread-off', error),
     // Chat 1's core review: a new thread loads src/ from the folder; while the folder holds a newer server than this one (a landing or
     // a self-update before its restart, src/version.mjs, read fresh before a start), the builds are made in the loop instead.
-    mayStart: async () => (await readVersion(gitRunner(), HERE, running).catch(() => null))?.isServerNewer !== true,
+    mayStart: async () => (await readVersion(gitRunner(), HERE, running).catch(error => {
+      loops.failed('state-thread-version', error)
+      return null
+    }))?.isServerNewer !== true,
   })
   // F42: an answer built before a PC sleep is read again (src/afterSleep.mjs).
   const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
