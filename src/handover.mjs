@@ -15,49 +15,12 @@
 // is trusted beyond its shape. A picture's path is only named here; the board decides on its own whether it may
 // show it. A branch and the game's settings are kept to plain characters.
 
-const LINK = /\[([^\]\n]{1,200})\]\((?:https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d{2,5})?\/?)?#(picture|play)=([^)\s]{1,600})\)/g
-const ITEM = /^(\d{1,2})\.\s+\*\*(Answer|Do):\*\*\s*(.*)$/
-// B169: an option under an item, "- **A:** ...", and the options a question names in its words, "A, B or C?".
-const OPTION = /^[-*]\s+\*\*([A-H])[:.)]?\*\*[:.)]?\s*(.*)$/
-const NAMED = /\b((?:[A-H],\s*)*[A-H]),?\s+or\s+([A-H])\b/
-const PLAIN_PATH = /^[\w-][\w.@ -]*(\/[\w.@ -]+)+$/
-const BRANCH = /^[\w][\w./-]{0,120}$/
-const SETTINGS = /^[\w.,=&%-]{0,400}$/
+import { ITEMS, asksAtEnd, blockOf, inlineOptions, itemHead, linksIn, oneLine, optionOf, withoutClosing } from './forYouGrammar.mjs'
+
+// B417: the "For you" block is read by one grammar (forYouGrammar.mjs): its title, items, options and links.
+export { asksAtEnd, withoutClosing }
+
 const TEXT_CHARS = 1000
-const ITEMS = 9
-
-const oneLine = (text, most = TEXT_CHARS) => text.replace(/\s+/g, ' ').trim().slice(0, most)
-
-function decoded(value) {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return null
-  }
-}
-
-/** A link of the form above: `{ kind: 'picture', label, path }` or `{ kind: 'play', label, branch, settings }`, or null. */
-function linkOf(label, kind, target) {
-  if (kind === 'picture') {
-    const path = decoded(target)
-    return path !== null && PLAIN_PATH.test(path) && !path.split('/').includes('..') ? { kind, label: oneLine(label, 200), path } : null
-  }
-  const [first, ...rest] = target.split('&')
-  const branch = decoded(first)
-  const settings = rest.join('&')
-  return branch !== null && BRANCH.test(branch) && !branch.includes('..') && SETTINGS.test(settings) ? { kind, label: oneLine(label, 200), branch, settings } : null
-}
-
-/** The links of a text, and the text with each link replaced by its label. */
-function linksIn(text) {
-  const links = []
-  const words = text.replace(LINK, (whole, label, kind, target) => {
-    const link = linkOf(label, kind, target)
-    if (link !== null) links.push(link)
-    return link === null ? whole : ''
-  })
-  return { links, words }
-}
 
 /** The closing block's three lines: `{ prompt, who, done, isDone }` (`isDone` true for "+", false for "-"), or null. */
 export function closingOf(text) {
@@ -72,39 +35,6 @@ export function closingOf(text) {
     if (key === 'done') closing.isDone = found[1] === '+' ? true : found[1] === '-' ? false : null
   }
   return closing.prompt === null && closing.who === null && closing.done === null ? null : closing
-}
-
-/** B169: the options a question names in its words ("A, B or C?"), in order from A, or none. */
-function namedOptions(ask) {
-  const found = ask.match(NAMED)
-  if (found === null) return []
-  const keys = [...found[1].split(',').map(key => key.trim()), found[2]]
-  return keys.every((key, index) => key === String.fromCharCode(65 + index)) ? keys.map(key => ({ key, text: null })) : []
-}
-
-/** The answer without its closing block, and without the rule that stands above it. */
-export function withoutClosing(text) {
-  return text.replace(/\n?(?:-{3,}\s*\n+)?```diff[^\n]*\n[\s\S]*?```\s*$/, '').trimEnd()
-}
-
-/** B290: the title of a "For you" block, also written a little off ("**For you:**", "For you"), or under the board's name. */
-const FOR_YOU_TITLE = /^>\s*\*{0,2}\s*(?:for you|needs your attention)\s*:?\s*\*{0,2}\s*:?\s*$/i
-
-/**
- * B290: whether an answer ends by asking the person something: its last "For you" block is followed by nothing but
- * blank lines, a rule and the closing block. A block quoted earlier in the answer (a worker's, already answered) asks
- * nothing of its own; a block whose title or items are written a little off still asks. B301: no chat waits for the
- * person by this; a chat whose answer asks so without an ask of the work store is a warning (state.mjs, `unfiledAsk`).
- */
-export function asksAtEnd(text) {
-  if (typeof text !== 'string') return false
-  const lines = text.replace(/\r/g, '').split('\n')
-  const start = lines.findLastIndex(line => FOR_YOU_TITLE.test(line.trim()))
-  if (start < 0) return false
-  let after = start + 1
-  while (after < lines.length && lines[after].trim().startsWith('>')) after += 1
-  const rest = withoutClosing(lines.slice(after).join('\n')).trim()
-  return rest === '' || /^(?:-{3,}|\*{3,}|_{3,})$/.test(rest)
 }
 
 /** A line of the form "**Task:** ..." and the lines that follow it up to an empty line. */
@@ -135,33 +65,29 @@ export function parseHandover(text) {
   const did = labelled(lines, 'What I did')
 
   // The "For you" block: the quoted lines from its title on (B169: also under the board's name for it). B290: the
-  // last one, as a block quoted earlier in the answer is someone else's.
+  // last one, as a block quoted earlier in the answer is someone else's. B417: read by the one grammar.
   const items = []
-  const start = lines.findLastIndex(line => /^>\s*\*\*(?:For you|Needs your attention)\*\*\s*$/.test(line.trim()))
-  let end = start
-  if (start >= 0) {
-    for (const line of lines.slice(start + 1)) {
-      if (!line.trim().startsWith('>')) break
-      end += 1
-      const inner = line.trim().replace(/^>\s?/, '')
-      const head = inner.trim().match(ITEM)
-      if (head !== null && items.length < ITEMS) {
-        const { links, words } = linksIn(head[3])
-        items.push({ n: Number(head[1]), kind: head[2].toLowerCase(), text: oneLine(words), links, ask: oneLine(words), options: [], note: '' })
-        continue
-      }
-      const item = items.at(-1)
-      if (item === undefined || inner.trim() === '') continue
-      const { links, words } = linksIn(inner)
-      item.links.push(...links)
-      if (words.trim() === '') continue
-      item.text = oneLine(`${item.text} ${words}`)
-      const option = words.trim().match(OPTION)
-      if (option !== null && item.options.length < ITEMS) item.options.push({ key: option[1], text: oneLine(option[2], 400) })
-      else item.note = oneLine(`${item.note} ${words}`)
+  const block = blockOf(text)
+  const start = block?.start ?? -1
+  const end = block === null ? -1 : block.after - 1
+  for (const inner of block?.inner ?? []) {
+    const head = itemHead(inner)
+    if (head !== null && items.length < ITEMS) {
+      const { links, words } = linksIn(head.words)
+      items.push({ n: head.n, kind: head.word === 'do' ? 'do' : 'answer', text: oneLine(words), links, ask: oneLine(words), options: [], note: '' })
+      continue
     }
+    const item = items.at(-1)
+    if (item === undefined || inner.trim() === '') continue
+    const { links, words } = linksIn(inner)
+    item.links.push(...links)
+    if (words.trim() === '') continue
+    item.text = oneLine(`${item.text} ${words}`)
+    const option = optionOf(words)
+    if (option !== null && item.options.length < ITEMS) item.options.push(option)
+    else item.note = oneLine(`${item.note} ${words}`)
   }
-  for (const item of items) if (item.options.length === 0 && item.kind === 'answer') item.options = namedOptions(item.ask)
+  for (const item of items) if (item.options.length === 0 && item.kind === 'answer') item.options = inlineOptions(item.ask)
 
   const closing = closingOf(text)
   if (task === null && did === null && items.length === 0 && closing === null) return null

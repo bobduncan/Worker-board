@@ -167,3 +167,88 @@ test('the board\'s warning "filed no ask" goes once the turn\'s end filed the bl
     await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
+
+// B417: the mod sends the answer's tail (`forYouText`) and the board reads the block with the one grammar.
+const TEXT = (...block) => ['Filed.', '', ...block, '', '---', '', '```diff', '  Prompt: x', '+ Done:   yes', '```'].join('\n')
+
+test('B417: the tail of the answer is read by the board: the items are filed, the questions it read are counted', async () => {
+  const { dir, board } = await fresh()
+  try {
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
+    const text = TEXT('> **For you**', '> 1. **Answer**: Which strip, A thin or B thick? I advise B.', '> 2. **Do:** Restart the app.')
+    const ended = await board({ action: 'turn-ended', since: NOW + 2 * MIN, forYouText: text })
+    assert.equal(ended.ok, true, ended.why)
+    assert.deepEqual(ended.result.asked, ['Q1', 'Q2'])
+    assert.equal(ended.result.asks, 1)
+    assert.equal(ended.result.unfiled, undefined)
+    assert.deepEqual(head(await item(dir, 'Q1'), ['Asks', 'Options', 'Advice']), ['decide', 'A thin | B thick', 'B'])
+    assert.equal(valueOf(await item(dir, 'Q2'), 'Asks'), 'do')
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('B417: a block the answer does not end with, or a tail with no block, files nothing; more than nine are unfiled', async () => {
+  const { dir, board } = await fresh()
+  try {
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
+    const quoted = await board({ action: 'turn-ended', since: NOW + 2 * MIN, forYouText: 'Digger asked:\n\n> **For you**\n> 1. **Answer:** Bed A or B?\n\nYou answered A.' })
+    assert.equal(quoted.ok, true, quoted.why)
+    assert.deepEqual([quoted.result.asked, quoted.result.asks], [[], 0])
+    const questions = ['Plant the hedge in yew?', 'Lay gravel along the northern path?', 'Build the pergola over the terrace?', 'Dig the compost heap behind the shed?', 'Move the orchard onto the slope?',
+      'Glaze the greenhouse with polycarbonate?', 'Train roses over the trellis?', 'Run the fountain all night?', 'Raise the gazebo beside the pond?', 'Sow the meadow with clover?', 'Paint the doors green?', 'Keep bees near the lavender?']
+    const many = questions.map((words, i) => `> ${i + 1}. **Answer:** ${words}`)
+    const twelve = await board({ action: 'turn-ended', since: NOW + 3 * MIN, forYouText: TEXT('> **For you**', ...many) }, NOW + 11 * MIN)
+    assert.equal(twelve.result.asked.length, 9)
+    assert.equal(twelve.result.unfiled, 3)
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('B417: an open "Look at the menu" is not the new, longer item that starts the same way: that one is filed', async () => {
+  const { dir, board } = await fresh()
+  try {
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
+    const first = await board({ action: 'ask', of: 'B1', kind: 'look', text: 'Look at the menu' }, NOW + 3 * MIN)
+    assert.equal(first.ok, true, first.why)
+    const same = await board({ action: 'turn-ended', since: NOW + 2 * MIN, forYouText: TEXT('> **For you**', '> 1. **Answer:** Look at the menu') }, NOW + 4 * MIN)
+    assert.deepEqual(same.result.asked, [])
+    const longer = await board({ action: 'turn-ended', since: NOW + 5 * MIN, forYouText: TEXT('> **For you**', '> 1. **Answer:** Look at the menu on a phone and check its spacing?') }, NOW + 6 * MIN)
+    assert.deepEqual(longer.result.asked, ['Q2'])
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+// B417, chat 1's question: a Workers mod 0.36 sends the items it read (`forYou`), 0.37 the tail (`forYouText`); the board takes both.
+test('B417: an old mod\'s items (forYou) are filed in full as before, with the board\'s extra answer fields; a 0.37 tail files the same asks', async () => {
+  const old = await fresh()
+  const next = await fresh()
+  try {
+    await old.board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
+    await next.board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
+    const fromItems = await old.board({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [LOOK, DECIDE] })
+    const tail = TEXT('> **For you**', `> 1. **Answer:** ${LOOK.text[0]}`, `>    [See the picture: strip](http://127.0.0.1:4310/#picture=${LOOK.pictures[0]})`, `>    [Play it: shop](http://127.0.0.1:4310/#play=${LOOK.play})`, `> 2. **Answer:** ${DECIDE.text[0]}`)
+    const fromTail = await next.board({ action: 'turn-ended', since: NOW + 2 * MIN, forYouText: tail })
+    assert.deepEqual([fromItems.result.asked, fromTail.result.asked], [['Q1', 'Q2'], ['Q1', 'Q2']])
+    for (const id of ['Q1', 'Q2']) {
+      const [a, b] = [await item(old.dir, id), await item(next.dir, id)]
+      assert.deepEqual(head(a, ['Asks', 'Options', 'Advice', 'Pictures']), head(b, ['Asks', 'Options', 'Advice', 'Pictures']))
+    }
+    assert.equal(fromItems.result.unfiled, undefined)
+  } finally {
+    for (const one of [old, next]) await rm(one.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('B417: both fields in one call (never sent so, but safe): the tail wins, nothing is filed twice', async () => {
+  const { dir, board } = await fresh()
+  try {
+    await board({ action: 'take', minutes: 30, id: 'B1' }, NOW + MIN)
+    const ended = await board({ action: 'turn-ended', since: NOW + 2 * MIN, forYou: [LOOK, DECIDE], forYouText: TEXT('> **For you**', `> 1. **Answer:** ${DECIDE.text[0]}`) })
+    assert.deepEqual(ended.result.asked, ['Q1'])
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
