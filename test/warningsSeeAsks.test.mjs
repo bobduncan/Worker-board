@@ -193,3 +193,28 @@ test('an open ask under a step the worker holds, another chat\'s too, keeps the 
   // Another chat's ask under another step: not this chat's.
   assert.deepEqual(warnings(night([asked('Q162', 'Advisor', 'B9', 'decide', '00:05')])), ['Worker 2 holds B356 but is not working and asked you nothing: it may wait for you'])
 })
+
+// B417 (robustness page, place 6): one grammar for the block. An item written **Answer**: (colon outside the bold) was a
+// question to the warning's first reader and no item to the second, so an open ask it repeated did not keep the warning
+// away; and a new, longer item that began like an open ask counted as the same ask.
+test('B417: the block written **Answer**: is read as questions: the warning stands, and an open ask keeps it away', () => {
+  const offForm = lines => lines.map(one => one.replace('**Answer:**', '**Answer**:'))
+  const words = offForm(WORKER_4_NIGHT).map(one => one.replace(' (Q154, look on B333)', ''))
+  // No ask filed: the chat wrote questions and the board says so (the strict reader had seen no item at all).
+  assert.deepEqual(warnings(worker4([], offForm(WORKER_4_NIGHT))), ['Worker 4 wrote questions in its chat but filed no ask'])
+  // The ask is open, in the item's own words: no warning (the first reader said "questions", the second "none", so it warned).
+  const earlier = parseItem(['Id: Q154', 'Kind: ask', 'Title: Every fight of a new run now draws one of your five maps', 'State: open', 'Owner: Worker 4', 'Since: 2026-10-18 23:50',
+    'Asks: look', 'Blocking: no', 'Of: B333', '', '## Text', 'Every fight of a new run now draws one of your five maps. Start a run,', '',
+    '## History', '- 2026-10-18 23:50 Worker 4: asked (look)', ''].join('\n'))
+  assert.deepEqual(warnings(worker4([earlier], words)), [])
+  // The ask is named by its id, in either form.
+  assert.deepEqual(warnings(worker4([earlier], offForm(WORKER_4_NIGHT))), [])
+})
+
+test('B417: an open "Look at the menu" does not keep the warning away for a new, longer item that starts the same way', () => {
+  const open = parseItem(['Id: Q150', 'Kind: ask', 'Title: Look at the menu', 'State: open', 'Owner: Worker 4', 'Since: 2026-10-18 23:50', 'Asks: look', 'Blocking: no', '',
+    '## Text', 'Look at the menu', '', '## History', '- 2026-10-18 23:50 Worker 4: asked (look)', ''].join('\n'))
+  const said = text => WORKER_4_NIGHT.map(one => one.replace(/Every fight of a new run now draws one of your five maps\. Start a run, \(Q154, look on B333\)/, text))
+  assert.deepEqual(warnings(worker4([open], said('Look at the menu'))), [])
+  assert.deepEqual(warnings(worker4([open], said('Look at the menu on a phone and check its spacing?'))), ['Worker 4 wrote questions in its chat but filed no ask'])
+})

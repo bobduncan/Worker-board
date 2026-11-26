@@ -23,6 +23,7 @@ import { blockersOpen, CLEARED, overlapsIn, touchesOf, waitIds, waitWords } from
 import { ASK_KINDS, HEAD_KEYS, askFiledMs, fixFirst, isFix, serializeItem, sinceMs, validateHead, valueOf } from './item.mjs'
 import { isAlike, joinTarget, stepOfAsk } from './askPlace.mjs'
 import { askStepOf } from './askStep.mjs'
+import { forYouAsks } from '../forYouGrammar.mjs'
 import { askIdsIn, askKey, askTitleOf, askWordsOf, refineQuestionProblem, refineTitleOf, sameAsk, titleProblem } from './askWords.mjs'
 import { ASKED_AGAIN, JUST_ANSWERED_MS, STILL_OPEN, askTextOf, closedMsOf, forYouRepeat, isWithdrawn, openRepeat, repeatFactsOf } from './askRepeat.mjs'
 import { isLookForm, lookFormOf, lookFormRefusal } from './lookForm.mjs'
@@ -4168,7 +4169,10 @@ async function turnEnded(body, w) {
   const open = openOf(chat, w, fresh)
   // B317: the items of the "For you" block the chat's answer ended with, that it filed no ask for: filed now.
   // The review: the supervisor's chat asks the person nothing: a "For you" block of its answer is not filed.
-  const fromBlock = body.forYou === undefined || w.role === 'person' || w.role === 'server' || w.role === 'supervisor' ? undefined : await askForYou(body.forYou, since, w)
+  // B417: the mod sends the answer's tail (`forYouText`) and the board reads the block, with the one grammar
+  // (forYouGrammar.mjs); a mod from before sends the items it read itself (`forYou`), taken as they are.
+  const block = typeof body.forYouText === 'string' ? forYouAsks(body.forYouText) : Array.isArray(body.forYou) ? { items: body.forYou.slice(0, 9), total: body.forYou.length } : null
+  const fromBlock = block === null || w.role === 'person' || w.role === 'server' || w.role === 'supervisor' ? undefined : await askForYou(block, since, w)
   const asked = fromBlock?.asked
   const filedLine = asked === undefined || asked.length === 0 ? '' : ` Filed from your "For you" block: ${asked.join(', ')}; close one the person answers in the chat with work answered-in-chat.`
   // B474, the review: an item left out as asked already is named, so a chat whose new question looked alike can file it.
@@ -4183,7 +4187,7 @@ async function turnEnded(body, w) {
   // Clear after each step: the chat's role as the board knows it (the Workers mod clears a worker only, and compacts the
   // main chat and the partners at rest), and how many items of its "For you" block the board could not file.
   const role = w.roleOf?.(chat) ?? null
-  return { ok: true, result: { text, missed, ...(closed.length === 0 ? {} : { closed }), open, changed: missed.length > 0 || closed.length > 0 || (asked?.length ?? 0) > 0 || (fromBlock?.kept.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...((fromBlock?.left.length ?? 0) === 0 ? {} : { left: fromBlock.left }), ...((fromBlock?.unfiled ?? 0) === 0 ? {} : { unfiled: fromBlock.unfiled }), ...((fromBlock?.kept.length ?? 0) === 0 ? {} : { kept: fromBlock.kept }), ...(pulled === undefined ? {} : { pull: pulled }), pause, ...(role === null ? {} : { role }) } }
+  return { ok: true, result: { text, missed, ...(closed.length === 0 ? {} : { closed }), open, changed: missed.length > 0 || closed.length > 0 || (asked?.length ?? 0) > 0 || (fromBlock?.kept.length ?? 0) > 0, ...(asked === undefined ? {} : { asked }), ...((fromBlock?.left.length ?? 0) === 0 ? {} : { left: fromBlock.left }), ...((fromBlock?.unfiled ?? 0) === 0 ? {} : { unfiled: fromBlock.unfiled }), ...(fromBlock === undefined ? {} : { asks: fromBlock.asks }), ...((fromBlock?.kept.length ?? 0) === 0 ? {} : { kept: fromBlock.kept }), ...(pulled === undefined ? {} : { pull: pulled }), pause, ...(role === null ? {} : { role }) } }
 }
 
 const ASK_REF = /^Q\d+$/
@@ -4204,9 +4208,8 @@ const namesOpenAsk = (text, w) => text.some(words => askIdsIn(words).some(id => 
  * filed since the turn began (`since`), or one still open, asks already. B474: `{ asked, left }`, the ids filed in
  * order and the items left out as asked already in other words (`forYouRepeat`), each its start and why.
  */
-async function askForYou(value, since, w) {
-  const given = (Array.isArray(value) ? value : []).filter(one => one !== null && typeof one === 'object' && !Array.isArray(one))
-  const items = given.slice(0, 9)
+async function askForYou({ items: read, total }, since, w) {
+  const items = read.filter(one => one !== null && typeof one === 'object' && !Array.isArray(one)).slice(0, 9)
   const all = [...w.store.items.values()]
   // Warnings (2026-10-19): an ask's time to the millisecond (`Filed`; an older one at the end of its minute).
   // B480: an ask withdrawn unanswered asked nothing, also in the same words.
@@ -4225,7 +4228,7 @@ async function askForYou(value, since, w) {
   const left = []
   const kept = []
   // Clear after each step: items past the nine the board files stay the chat's questions only: they count as unfiled.
-  let unfiled = given.length - items.length
+  let unfiled = Math.max(0, total - items.length)
   for (const one of items) {
     if (typeof one.ref === 'string' && ASK_REF.test(one.ref) && w.store.items.has(one.ref)) continue
     const kind = one.kind ?? 'decide'
@@ -4282,7 +4285,7 @@ async function askForYou(value, since, w) {
     // The review: two items of one block are one question only when as alike as an open ask.
     repeats.own.push({ id: made.result.id, words: text.join(' '), of })
   }
-  return { asked, left, unfiled, kept }
+  return { asked, left, unfiled, kept, asks: items.filter(one => one.kind !== 'do').length }
 }
 
 /**

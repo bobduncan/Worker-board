@@ -129,7 +129,8 @@ test('B301: an ask filed in the turn that wrote the block leaves no warning; one
 test('review: the turn\'s start is found in the longer look back; when it cannot be found the board warns and says so', async () => {
   const garden1 = await garden()
   try {
-    await garden1.digger({ action: 'ask', kind: 'decide', text: 'Box or yew?' }, NOW - 90 * MIN)
+    // B417: another question than the block's: an open ask the block asks too ("Box or yew? I advise yew." is "Box or yew?" with advice) keeps the warning away.
+    await garden1.digger({ action: 'ask', kind: 'decide', text: 'Which soil for the hedge?' }, NOW - 90 * MIN)
     // The turn began two hours ago, before the tail: the longer look back holds its opening.
     const long = { text: answer(NOW - 20 * MIN, ASKS), isCut: false, modifiedAt: NOW - 20 * MIN, earlier: typed(NOW - 120 * MIN, 'Plant it') }
     assert.equal((await garden1.build(ASKS, [], long)).forYou.filter(one => one.kind === 'unfiled').length, 0, 'the ask was filed in that turn')
