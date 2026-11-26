@@ -154,3 +154,35 @@ test('rule start-untaken: the live chain (a new start word every 10 minutes, the
   assert.equal(rule.check(taken, ctx()).length, 0, 'the chain after a taken word is 2 minutes old')
   assert.equal(rule.check(viewAt(at(21, 42), { lanes: [main, { ...worker4, wake: { spell: at(21, 35) } }] }), ctx()).length, 0)
 })
+
+test('rule start-untaken (B1277): only running time counts, and an open carry word of the start silences it', () => {
+  const rule = WATCH_RULES.find(one => one.id === 'start-untaken')
+  const chain = [
+    ['a2714cbdf10a7a5b', at(20, 35, 21), at(20, 45, 30)], ['3d5821365980c3a5', at(20, 45, 28), at(20, 50, 5)], ['cdb4ff1a00000000', at(20, 50, 3), at(21, 0, 8)],
+    ['406a1bf100000000', at(21, 0, 6), at(21, 10, 6)], ['418ce82b00000000', at(21, 10, 3), at(21, 20, 6)], ['13f9f5cc00000000', at(21, 20, 4), at(21, 30, 12)],
+    ['747d666d00000000', at(21, 30, 10), at(21, 40, 6)], ['8e4fe52100000000', at(21, 40, 4), null],
+  ]
+  const outboxAt = now => chain.filter(([, made]) => made <= now).map(([id, made, dropped]) => ({ id, command: 'start', to: 'Main', about: 'Worker 4', at: made, state: dropped !== null && dropped <= now ? 'dropped' : 'waiting' }))
+  const main = { name: 'Main', isMain: true, isLeftover: false, isRunning: true, state: 'free', report: { state: 'idle', at: at(21, 38) } }
+  const worker4 = { name: 'Worker 4', isMain: false, isLeftover: false, isRunning: false, wake: { spell: SPELL } }
+  const viewAt = (now, more = {}) => ({ now, lanes: [main, worker4], outbox: outboxAt(now), pause: null, items: new Map(), ...more })
+  const ctx = () => ({ observed: [], seen: new Map() })
+  // The person paused 20:50-21:20 (running again since 21:20): the chain counts from 21:20.
+  const resumed = { state: 'running', since: at(21, 20) }
+  assert.equal(rule.check(viewAt(at(21, 25), { pause: resumed }), ctx()).length, 0, '5 counted minutes')
+  const found = rule.check(viewAt(at(21, 30), { pause: resumed }), ctx())
+  assert.equal(found.length, 1)
+  assert.match(found[0].text, /waits untaken for 10 min while Main is idle/)
+  assert.equal(found[0].key, 'start-untaken Worker 4 a2714cbdf10a7a5b', 'the same key as without the pause')
+  // The board's own off time (a PC sleep, 20:36-21:35) is left out: 7 counted minutes at 21:42, 66 on the wall.
+  assert.equal(rule.check(viewAt(at(21, 42), { gaps: [{ from: at(20, 36), to: at(21, 35) }] }), ctx()).length, 0)
+  assert.match(rule.check(viewAt(at(21, 42), { gaps: [{ from: at(20, 50), to: at(21, 10) }] }), ctx())[0].text, /waits untaken for 46 min/)
+  // A carry word of a start word of the chain, open (waiting or taken): nothing; closed, or a wake need's (no `of`): the finding.
+  const carry = (state, of) => ({ id: 'c1', command: 'wake-carry', to: 'Main', about: 'Worker 4', state, at: at(21, 41), ...(of === undefined ? {} : { of }) })
+  const withCarry = word => viewAt(at(21, 42), { outbox: [...outboxAt(at(21, 42)), word] })
+  assert.equal(rule.check(withCarry(carry('waiting', '8e4fe52100000000')), ctx()).length, 0)
+  assert.equal(rule.check(withCarry(carry('taken', 'a2714cbdf10a7a5b')), ctx()).length, 0, 'of an earlier word of the chain')
+  assert.equal(rule.check(withCarry(carry('dropped', '8e4fe52100000000')), ctx()).length, 1, 'once it closes the finding comes')
+  assert.equal(rule.check(withCarry(carry('waiting')), ctx()).length, 1, 'a wake need\'s carry word carries no start')
+  assert.equal(rule.check(withCarry(carry('waiting', 'someone-elses')), ctx()).length, 1)
+})
