@@ -9250,6 +9250,55 @@ clock stands still while the PC sleeps (both ended with 124, late). Plan: .claud
   - `playRequests` takes its steps as a seam, so the takeover is tested.
 - The game's copy (lava-tactics/tools/one-at-a-time.mjs) has the same change and lands right after this one.
 
+## S9: a light check with every go-live, the big suite on a schedule (2026-11-26, chat 2, the person's choice of 2026-11-25 21:2x)
+
+The person: the light check leaves out the slowest tests, except where a change touches their area. The big suite runs everything
+when the PC is idle, at least every 4 hours and once each night. A red big run names the go-lives since the last green run, files a
+fix step itself, and that slow test runs in the light check for a while. Plan: .claude/plans/pc-lag-test-speed-plan.md, S9.
+
+- **The slow list** (`test/slow-files.json`): every test file over 60 s on average in the three gates of 11-25, board-starting ones
+  too, 25 files. Each file has honest globs (chat 1, 2026-11-25): the files that could make it fail.
+  - Its own path always counts.
+  - `@board` stands for the board's own files (`board`: server.mjs, start-board.mjs, run-game.mjs, package.json, src/state.mjs,
+    src/tick.mjs, fixtures/lines.mjs).
+  - Then come the modules it is about, from its imports, the scripts it spawns and the files it reads.
+  - A test checks that every listed file is a test file and that every glob matches a file of the repository.
+- **The light check** (tools/test.mjs `--gate`, src/lightCheck.mjs). land.ps1's gate is `npm test -- --gate`. It runs every test file
+  but the slow ones, except a slow file that either:
+  - has an area the branch changed (`git diff --name-only main...HEAD`, or origin/main; when git cannot tell, every slow file runs);
+  - or is on probation.
+  Its first lines say how many files run, and which slow files and why ("light check: runs test/x.test.mjs (area: src/y.mjs)").
+  Without the list, every file runs.
+- **The big suite** (tools/big-suite.mjs, src/bigSuite.mjs). Every test file of main's head, in its own worktree in the temporary
+  folder.
+  - It is a worktree like land.ps1's gate: the main checkout's node_modules as a junction. At the end the junction goes first (rmdir,
+    never a recursive delete), then the marker package is checked, then `git worktree remove` without force.
+  - It runs through the queue as `idle:big-suite` (S3: it waits for an idle PC), or as an ordinary `big-suite` run once it is overdue.
+    Overdue means 4 hours after the last run, or from 05:00 while the night run has not run. An idle run still waiting at that moment
+    is stopped and started again as an ordinary one.
+  - Its state lies beside the PC's test lock (`<lock>.board-big-suite.json`), so every gate worktree reads the same probation.
+  - A run the queue stopped at its hold cap (124) is "could not run", never red. A stall is red, with the files it left open.
+- **When it runs** (`dueNow`): no run yet; the night run (from 01:00, none started since); 4 hours since the last start; or main moved
+  past the last run's commit (the PC runs it when idle). A commit that could not run is not tried again at every look.
+- **Red** (`recordRun`, `goLivesIn`, `fixStepOf`):
+  - A red run puts its failing files on probation, and they leave after two green big runs in a row (chat 1).
+  - The board's pass (src/bigSuitePass.mjs, every 10 minutes, only on the PC's first board; config `bigSuite`) files one fix step
+    for each red commit. It is filed as a board fix (`priority: 'fix'`, in the place the board's fixes go), with the failing files
+    and the go-lives since the last green run: the landed records of data/landings.jsonl whose new main is in
+    `git rev-list <last green>..<red>`.
+  - What it filed is kept in the board's own data (data/big-suite-filed.json), never in the runner's file.
+  - Gates say the red and the probation at their start (land.ps1 runs `big-suite.mjs --status --quiet` from the main checkout).
+- **The runner's rules are the game slow tier's** (S3):
+  - it counts as alive past 3 hours while its run waits in the idle room or holds a slot (a run in a `board-big-suite-` folder);
+  - it renews its file before each phase, and stops when another runner took the file over;
+  - it gives the file back only while the file is its own.
+- **What it saves** (the model of the last 10 landings, with each file's time from the quiet gates of 11-25):
+  - The full gate is about 14.6 min. The light check is about 2.7 min when no slow area changes.
+  - Over the last 10 landings, a light check would have taken 2.7 to 14 min, about 8 min on average. A change to server.mjs or
+    src/state.mjs still runs the board-starting slow files.
+  - The long poles stay: landScript (about 13 min, when land.ps1 or the landing code changes) and wakeNoHandsBoard (about 11 min, on a
+    server change). S10 shortens those.
+
 ## F46: a build of the state walks the store once (2026-11-23, chat 4)
 
 Since the laptop import (about 1,450 steps, 4,850 items, 21,000 words) a build took about 2 s, and the live board a full core. Each

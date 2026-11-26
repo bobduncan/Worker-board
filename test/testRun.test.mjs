@@ -267,9 +267,11 @@ test('F68: the full run says below normal; a priority that cannot be read says t
 })
 
 test('F68: the command line takes --priority=normal or below-normal beside the files; below normal and all files when not named', () => {
-  assert.deepEqual(cliOf(['--priority=normal', 'test\\carryGit.test.mjs']), { priority: NORMAL, files: ['test\\carryGit.test.mjs'] })
-  assert.deepEqual(cliOf(['test/a.test.mjs', '--priority=below-normal']), { priority: LOW, files: ['test/a.test.mjs'] })
-  assert.deepEqual(cliOf([]), { priority: LOW, files: ['test/**/*.test.mjs'] })
+  assert.deepEqual(cliOf(['--priority=normal', 'test\\carryGit.test.mjs']), { priority: NORMAL, gate: false, files: ['test\\carryGit.test.mjs'] })
+  assert.deepEqual(cliOf(['test/a.test.mjs', '--priority=below-normal']), { priority: LOW, gate: false, files: ['test/a.test.mjs'] })
+  assert.deepEqual(cliOf([]), { priority: LOW, gate: false, files: ['test/**/*.test.mjs'] })
+  // S9: --gate asks for the light check (land.ps1's gate: npm test -- --gate)
+  assert.deepEqual(cliOf(['--gate']), { priority: LOW, gate: true, files: ['test/**/*.test.mjs'] })
   assert.throws(() => cliOf(['--priority=high', 'x']), /unknown priority "high"/)
 })
 
