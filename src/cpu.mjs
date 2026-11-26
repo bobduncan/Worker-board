@@ -62,10 +62,20 @@ export async function readLevelAt(file) {
   }
 }
 
-/** Keeps the level in data/cpu.json, so it survives a restart. */
-export async function saveLevel(file, level, now) {
+/** S4: who set the level saved in data/cpu.json (the board page, a chat, a script), or null. */
+export async function readLevelWho(file) {
+  try {
+    const who = JSON.parse(await readFile(file, 'utf8')).who
+    return typeof who === 'string' && who !== '' ? who : null
+  } catch {
+    return null
+  }
+}
+
+/** Keeps the level in data/cpu.json, so it survives a restart; S4: with who set it, when known. */
+export async function saveLevel(file, level, now, who = null) {
   await mkdir(dirname(file), { recursive: true })
-  await writeAtomic(file, `${JSON.stringify({ level, at: now })}\n`)
+  await writeAtomic(file, `${JSON.stringify({ level, at: now, ...(who ? { who } : {}) })}\n`)
 }
 
 /**
@@ -367,7 +377,7 @@ export const MASK_SCRIPT = [
 ].join('; ')
 
 /** Runs a PowerShell script, with `input` on its standard input; answers its output. */
-function powershell(script, input = '', timeoutMs = 20_000) {
+export function powershell(script, input = '', timeoutMs = 20_000) {
   return new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true })
     // A board at Low runs at Idle and its child starts at Idle too, starved on a busy PC before the script lowers itself:
@@ -442,14 +452,19 @@ export const windowsProcesses = {
  * chat that started the board handed its Idle priority on) gives it Normal and all cores; under Full the first pass
  * does the same (2026-10-19).
  */
-export function cpuLimiter({ file, fallback = 'full', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [], log = () => {} }) {
+export function cpuLimiter({ file, fallback = 'full', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [], log = () => {}, onLevel = async () => {} }) {
   const available = platform === 'win32'
   let level = null
+  // S4: the level, since when and by whom, to the board (which writes the heavy-run queue's mode file); the caller records its failure.
+  const heard = () => onLevel({ level, since, who })
   let restore = 0
   let applied = new Map()
   // F44: since when Low is on (ms), kept through Full's passes, and the processes outside any tree the board limited or gave back
   // (`pid@created`): Low limits them again after a Full.
   let lowSince = null
+  // S4: when the level was set and by whom (the panel shows it: F69's open part). `onLevel` hears every level, at start and on a change.
+  let since = null
+  let who = null
   let loose = new Set()
   let count = 0
   let fault = null
@@ -469,7 +484,10 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
   const load = async () => {
     if (level === null) {
       level = await readLevel(file, fallback)
-      if (level === 'low') lowSince = await readLevelAt(file) ?? now()
+      since = await readLevelAt(file)
+      who = await readLevelWho(file)
+      if (level === 'low') lowSince = since ?? now()
+      await heard()
     }
     return level
   }
@@ -559,24 +577,27 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
     return running
   }
 
-  const view = () => ({ available, level: level ?? 'full', count, fault, cores, lowCores: lowCores(cores) })
+  const view = () => ({ available, level: level ?? 'full', count, fault, cores, lowCores: lowCores(cores), since, who })
 
   return {
     available,
     apply,
     view,
-    async set(value) {
+    async set(value, by = null) {
       const next = parseLevel(value)
       if (next === null) return { ok: false, status: 400, why: 'The level is full or low.' }
       if (!available) return { ok: false, status: 409, why: 'Not available here: the board sets the CPU on Windows only.' }
       const before = await load()
       level = next
-      if (next === 'low' && before !== 'low') lowSince = now()
+      since = now()
+      who = typeof by === 'string' && by !== '' ? by : null
+      if (next === 'low' && before !== 'low') lowSince = since
       if (next === 'full' && before !== 'full') {
         restore = RESTORE_PASSES
         isFreed = false
       }
-      await saveLevel(file, next, now())
+      await saveLevel(file, next, since, who)
+      await heard()
       await apply()
       return { ok: true, result: view() }
     },
@@ -584,4 +605,22 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
       await load()
     },
   }
+}
+
+/** S4: a chat's name or session as a call may carry it: printable, short. */
+const CALLER = /^[\w .:()-]{1,80}$/
+
+/**
+ * S4 (F69's open part: who switched the level): the caller of a level change, from the call's headers and body. A chat's
+ * name or session when the call carries one (the body's `chat` or `session`, or the X-Board-Chat or X-Board-Session
+ * header), else "the board page" for a browser, else "a script" with its User-Agent.
+ */
+export function levelWho(headers = {}, body = {}) {
+  const said = [body?.chat, headers['x-board-chat']].find(value => typeof value === 'string' && CALLER.test(value.trim()))
+  if (said) return `chat ${said.trim()}`
+  const session = [body?.session, headers['x-board-session']].find(value => typeof value === 'string' && SESSION.test(value.trim()))
+  if (session) return `chat session ${session.trim()}`
+  const agent = typeof headers['user-agent'] === 'string' ? headers['user-agent'].trim() : ''
+  if (/^Mozilla\//.test(agent)) return 'the board page'
+  return `a script (${agent === '' ? 'no User-Agent' : agent.slice(0, 40)})`
 }

@@ -42,7 +42,8 @@ import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
-import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
+import { cpuLimiter, levelWho, logicalCores, powershell, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
+import { masksOf, modeFileOf, TOPOLOGY_SCRIPT, topologyOf, writeMode } from './src/cpuTopology.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
 import { fixHomeFile, homeFilesNow } from './src/homeFiles.mjs'
@@ -546,7 +547,8 @@ export function createBoard({
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/cpu') {
-        const done = await cpu(parsed)
+        // S4: who switched the level (F69's open part), from the call itself; a body's own `who` is not taken.
+        const done = await cpu({ ...parsed, who: levelWho(req.headers, parsed) })
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/home-file') {
@@ -2749,6 +2751,18 @@ async function main(args) {
     const listed = (await loops.run('chat-list', () => readState()))?.chats ?? []
     return [...new Set([...sessionsOfCards(cards), ...listed.filter(chat => !chat.isLeftover && typeof chat.session === 'string').map(chat => chat.session)])]
   }
+  // S4 (PC plan): the PC's core map, read once at start, and the heavy-run queue's mode file (level, masks, since, who), written
+  // at start and on every level change. Only the person's board writes it: never a trial copy, a test board or the demo. No map
+  // (not Windows, a failed read) removes the file, so the queue keeps today's behaviour.
+  const writesMode = process.platform === 'win32' && !isDemo && !isShowOnly && historyFrom === undefined && config.project !== '' && process.env.HEAVY_RUN_HELD !== '1'
+  const masksNow = writesMode
+    ? loops.run('cpu-topology', () => topologyOf({ file: join(HERE, 'data', 'cpu-topology.json'), logical: logicalCores(), read: () => powershell(TOPOLOGY_SCRIPT, '', 60_000) })).then(topology => (topology ? masksOf(topology) : null))
+    : Promise.resolve(null)
+  const heardLevel = async ({ level, since, who }) => {
+    if (!writesMode) return
+    const masks = await masksNow
+    await loops.run('cpu-mode', () => writeMode(modeFileOf(), { level, masks, since, who }))
+  }
   const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
     file: join(HERE, 'data', 'cpu.json'),
     fallback: isShowOnly ? 'full' : config.cpuLimit,
@@ -2759,6 +2773,7 @@ async function main(args) {
     // B440: the parent is the keeper only when there is one (it talks to the board); otherwise it may be a chat.
     spare: typeof process.send === 'function' ? [process.pid, process.ppid] : [process.pid],
     log: line => console.log(line),
+    onLevel: heardLevel,
   })
   if (cpu !== null && cpu.available) {
     const applyCpu = () => loops.run('cpu', () => cpu.apply())
@@ -3557,7 +3572,7 @@ async function main(args) {
       if (isDemo || isShowOnly) return { ok: false, status: 409, why: 'This board keeps no setup.' }
       return setupAction(setupFile, body, { config, checks: providerChecks, now: clock() })
     }),
-    cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
+    cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level, body?.who ?? null)),
     // T5.2 A6b: the person's click on a home file's line; the board never writes these by itself.
     homeFile: async body => {
       if (isDemo || isShowOnly || dataOf(config) === null) return { ok: false, status: 409, why: 'This board keeps no home files: its data is in the project folder.' }
