@@ -133,7 +133,7 @@ test('S9, the real case: node tools/test.mjs --gate in a branch leaves a slow fi
 
 // The second core review (2026-11-26).
 test('S9, core review: a change to the light check itself (its list, its choice, the test runner) runs every slow file', () => {
-  assert.deepEqual(LIGHT_CHECK_FILES, ['test/slow-files.json', 'src/lightCheck.mjs', 'tools/test.mjs'])
+  assert.deepEqual(LIGHT_CHECK_FILES, ['test/slow-files.json', 'src/lightCheck.mjs', 'tools/test.mjs', 'src/bigSuite.mjs', 'tools/one-at-a-time.mjs'])
   for (const own of LIGHT_CHECK_FILES) {
     const runs = slowFilesToRun({ spec: SPEC, changed: ['DESIGN.md', own] })
     assert.deepEqual(runs.map(one => one.file), ['test/slowBoard.test.mjs', 'test/slowTool.test.mjs'], own)

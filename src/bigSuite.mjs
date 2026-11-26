@@ -55,6 +55,12 @@ export function nightStart(now, hour = NIGHT_FROM_HOUR) {
 }
 
 /**
+ * Verifier: a run that started from midnight on is that night's run (one that took its slot at 00:55 made a second night run due right
+ * after it). PURE.
+ */
+export const nightDone = now => nightStart(now, 0)
+
+/**
  * Whether a big run is due now, and why (the person's words: when the PC is idle, at least every 4 hours and once each night): no run
  * yet; the night run (from 01:00, none started since); or main moved past the last run (or that run was not green) and an hour has
  * gone since the last start (core review: a run after every landing cost more than the gates it saved). Such a run waits for an idle
@@ -64,7 +70,7 @@ export function dueNow({ results, mainHead, now }) {
   const lastStart = ms(results.lastStart)
   if (!Number.isFinite(lastStart)) return 'no run yet'
   const night = nightStart(now)
-  if (now >= night && !(lastStart >= night)) return 'the night run'
+  if (now >= night && !(lastStart >= nightDone(now))) return 'the night run'
   const changed = (mainHead && results.last?.commit !== mainHead) || results.last?.outcome !== 'passed'
   if (changed && now - lastStart >= SETTLE_MS) return now - lastStart >= EVERY_MS ? 'every 4 hours' : 'main moved'
   return null
@@ -79,7 +85,7 @@ export function labelFor({ results, now }) {
   if (!Number.isFinite(lastStart)) return { label: ORDINARY_LABEL, idleUntil: now }
   const until = [lastStart + EVERY_MS]
   const night = nightStart(now)
-  if (now >= night && !(lastStart >= night)) until.push(nightStart(now, NIGHT_ORDINARY_HOUR))
+  if (now >= night && !(lastStart >= nightDone(now))) until.push(nightStart(now, NIGHT_ORDINARY_HOUR))
   const idleUntil = Math.min(...until)
   return now >= idleUntil ? { label: ORDINARY_LABEL, idleUntil } : { label: IDLE_LABEL, idleUntil }
 }
@@ -199,10 +205,13 @@ const pidRuns = pid => {
  * slot; only a run in a big run's folder counts. `lock` is the PC's lock file; `tool` the one-at-a-time module (idleRoomOf, slotPath,
  * slotCountOf).
  */
-export function bigRunQueued(lock, tool, alive = pidRuns) {
+export function bigRunQueued(lock, tool, alive = pidRuns, now = Date.now()) {
   const isBig = (file) => {
     const run = readJson(file, null)
     const folder = path.basename(String(run?.cwd ?? '').replace(/\\/g, '/'))
+    // Verifier: a ticket whose beat is old (a killed run's, left by a reboot; its pid may be reused) is no queued run.
+    const beat = Date.parse(run?.beat)
+    if (Number.isFinite(beat) && now - beat > (tool.BEAT_STALE_MS ?? 5 * 60 * 1000)) return false
     return [IDLE_LABEL, ORDINARY_LABEL, RERUN_LABEL].includes(run?.label) && folder.startsWith(RUN_FOLDER) && alive(run.pid)
   }
   for (const folder of [...(typeof tool.idleRoomOf === 'function' ? [tool.idleRoomOf(lock)] : []), `${lock}.queue`]) {

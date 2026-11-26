@@ -50,7 +50,7 @@ import { assetsOf, backlogViewOf, chatFile, chatHomeOf, storedOfChatPath, chatsF
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
 import { stateFiles as bigSuiteFiles } from './src/bigSuite.mjs'
-import { BIG_SUITE_LOOK_MS, bigSuitePass } from './src/bigSuitePass.mjs'
+import { BIG_SUITE_LOOK_MS, BIG_SUITE_STALE_MS, bigSuitePass } from './src/bigSuitePass.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { boardView, exitAt, keptStart, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
 import { START_ANEW, keep, startEnv } from './src/keeper.mjs'
@@ -2549,7 +2549,7 @@ async function main(args) {
         },
         make: call => workAction(call, 'person'), read: () => readStore(workDir),
       })
-    })
+    }, { staleMs: BIG_SUITE_STALE_MS })
     setInterval(lookAtBigSuite, BIG_SUITE_LOOK_MS)
   }
   // T5.2 P2: a stored path's place, through the table (today: `join(project, path)`; P3 moves the pictures and the store with it).

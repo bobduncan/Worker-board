@@ -9272,8 +9272,8 @@ fix step itself, and that slow test runs in the light check for a while. Plan: .
   - has an area the branch changed (`git diff --name-only --no-renames refs/heads/main...HEAD`, or origin/main; a renamed file names
     its old path too; when git cannot tell, every slow file runs);
   - or is on probation.
-  A change to the light check itself (test/slow-files.json, src/lightCheck.mjs, tools/test.mjs) runs every slow file, so a branch is
-  never judged by a list it changed.
+  A change to the light check itself (test/slow-files.json, src/lightCheck.mjs, tools/test.mjs, and src/bigSuite.mjs and
+  tools/one-at-a-time.mjs, through which it reads the probation) runs every slow file, so a branch is never judged by a list it changed.
   Its first lines say how many files run, and which slow files and why ("light check: runs test/x.test.mjs (area: src/y.mjs)").
   Without the list, every file runs. The slow files that run go first, longest first, because node --test starts files in the order
   given, so a long one does not end the run alone (model: 8.2 to 7.0 min on average).
@@ -9283,23 +9283,27 @@ fix step itself, and that slow test runs in the light check for a while. Plan: .
     never a recursive delete), then the marker package is checked, then `git worktree remove` without force.
   - It runs through the queue as `idle:big-suite` (S3: it waits for an idle PC), or as an ordinary `big-suite` run once it is overdue.
     Overdue means 4 hours after the last start, or from 05:00 while the night run has not run. An idle run still waiting in the idle
-    room at that moment (its ticket there, not only no "runs now" line yet: core review) is stopped and started again as an ordinary
-    one. A run counts from when it took its slot, so an idle run that waited from 23:00 and ran at 01:10 is the night run.
+    room at that moment (its ticket there, not only no "runs now" line yet: core review; a room that cannot be read counts as waiting)
+    is stopped and started again as an ordinary one. A run counts from when it took its slot, so an idle run that waited from 23:00
+    and ran at 01:10 is the night run.
   - Its state lies beside the PC's test lock (`<lock>.board-big-suite.json`), so every gate worktree reads the same probation.
   - A run the queue stopped at its hold cap (124) is "could not run", never red. A stall is red, with the files it left open.
   - Core review: each file that failed in the full run runs again alone once (`big-suite-rerun`, as land.ps1 does). One that passes
     alone is flaky: it is recorded, but it is no red and gets no fix step and no probation. Only the files that fail again are red.
     In 8 of the last 9 full gates a file failed that then passed alone. At most 10 files run again alone (a broken shared module fails
-    dozens: the rest stay red).
+    dozens: the rest stay red). A rerun alone that could not run makes the whole big run "could not run", because it proves nothing.
+    Only test files run again alone (a `location:` line in a helper module is no test file).
   - The log beside the lock goes to `.old` past 5 MB.
   - The failing files are repository paths: on Windows node prints `test at test\a.test.mjs`, and a `location:` line gives the whole
     path in the run's worktree. With the backslash the probation key never matched the light check's.
   - A runner killed by a sleep or a reboot leaves its worktree with a live junction. The next runner sweeps every `board-big-suite-*`
     folder first, each the safe way: junction first. No runner starts, and none sweeps, while a big run is in the queue (the idle room,
-    the queue or a slot, its rerun alone too), also one whose runner died while its one-at-a-time child still runs.
+    the queue or a slot, its rerun alone too), also one whose runner died while its one-at-a-time child still runs. A ticket whose beat
+    is older than 5 minutes is no live run (a killed run's, its pid maybe reused). A leftover folder git no longer knows as a worktree
+    goes as a plain folder once its junction is gone, so it never fails every run of its commit.
 - **When it runs** (`dueNow`, the person's words: idle, at least every 4 hours, each night):
   - no run yet;
-  - the night run (from 01:00, none started since);
+  - the night run (from 01:00, none started since midnight: a run that took its slot at 00:55 is that night's run);
   - an hour after the last start, while main moved past the last run or that run was not green. Such a run waits for an idle PC until
     4 hours after the last start, then it goes as an ordinary run.
   Core review: an earlier "main moved" made a big run follow almost every landing, more full-suite load than the gates it saved,
@@ -9310,16 +9314,20 @@ fix step itself, and that slow test runs in the light check for a while. Plan: .
   - A red run puts the files that failed again on probation, and they leave after two green big runs in a row (chat 1). A red run
     of other files starts every count anew, because the two must be in a row.
   - The board's pass (src/bigSuitePass.mjs, every 10 minutes, only on the PC's first board; config `bigSuite`) files one fix step
-    for each red streak and its set of failing files (`filingKey`): a red that lasts across landings with the same files files once,
-    and a new failing file files again. It is filed as a board fix (`priority: 'fix'`, in the place the board's fixes go), with the
+    for each red streak and file (`owedOf`):
+    - a red that lasts across landings files once, and a set that shrinks files nothing;
+    - a file that joins the streak gets a step of its own;
+    - a file an open big-suite step names gets none (also when a flaky pass broke the streak in between). It is filed as a board fix (`priority: 'fix'`, in the place the board's fixes go), with the
     failing files and the go-lives since the last green run: the landed records of data/landings.jsonl whose new main is in
     `git rev-list <last green>..<red>`.
-  - A big suite that could not run 3 times in a row also gets one fix step, because a suite that never finishes never turns red.
+  - A big suite that could not run 3 times in a row also gets one fix step, because a suite that never finishes never turns red. This
+    holds after a red run too.
   - What it filed is kept in the board's own data (data/big-suite-filed.json), never in the runner's file.
-    - A pending mark is written before the step is made, so it is never filed twice. A filing that failed takes its mark away and is
-      tried again; one cut off by a stop is tried again after an hour.
+    - A pending mark is written before the step is made, and the record is read again right before it. A filing that threw takes its
+      mark away and is tried again. One the work API refused is said and tried again after an hour, and so is one cut off by a stop.
     - Filing and starting are apart: a store that cannot be read never keeps the big suite from running.
-    - The pass is `loops.single` (one at a time) and git gets a minute at most. The runner's spawn has an error listener.
+    - The pass is `loops.single` (one at a time; it counts as hung only after 30 minutes, above its 10-minute look) and git gets a
+      minute at most. The runner's spawn has an error listener.
   - Gates say the red and the probation at their start (land.ps1 runs `big-suite.mjs --status --quiet` from the main checkout). They
     also say a run that could not run, and a big suite with no run yet or no green run for 8 hours, because the light checks leave
     the slow files to it.

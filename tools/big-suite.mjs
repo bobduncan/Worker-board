@@ -9,7 +9,7 @@
 // recursive delete through it); then `git worktree remove` without force, and only while the main checkout's node_modules still
 // holds its marker package.
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, readdirSync, renameSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -77,7 +77,24 @@ export function verdictOf(output, code, folder = null) {
   if (passed.ok) return { outcome: 'passed', failed: [], why: null }
   if (passed.stalled) return { outcome: 'failed', failed: stalledFiles(output, folder), why: passed.why, stalled: true }
   if (/no summary line/.test(passed.why) && code !== 0 && !/^ℹ tests \d+/m.test(output)) return { outcome: 'could not run', failed: [], why: passed.why }
-  return { outcome: 'failed', failed: [...new Set(failingFiles(output).map(file => repoTestPath(file, folder)))], why: passed.why }
+  // Only test files (verifier: a `location:` line in a helper module is no file to run again alone).
+  const failed = [...new Set(failingFiles(output).map(file => repoTestPath(file, folder)))].filter(file => file.startsWith('test/'))
+  return { outcome: 'failed', failed, why: passed.why }
+}
+
+/**
+ * Whether a run's ticket waits in the idle room (`room`): only then is an idle run that is overdue stopped and started again as an
+ * ordinary one (it has not taken a slot). A room that cannot be read counts as waiting (verifier: else an overdue run waited for good).
+ */
+export function waitsInRoom(room, label, folder) {
+  try {
+    return readdirSync(room).some(name => {
+      const ticket = readJson(path.join(room, name), null)
+      return ticket?.label === label && path.resolve(String(ticket.cwd ?? '')).toLowerCase() === path.resolve(folder).toLowerCase()
+    })
+  } catch {
+    return true
+  }
 }
 
 /** What the runner does outside its own bookkeeping: the seam the tests give their own. */
@@ -111,25 +128,15 @@ export function bigSuiteSteps(repo, env = process.env) {
         const take = (chunk) => {
           const text = String(chunk)
           output += text
-          if (ranAt === null && RUNS_NOW.test(text)) ranAt = Date.now()
+          // On the whole output, not the chunk: the line may come in two pieces (verifier).
+          if (ranAt === null && RUNS_NOW.test(output)) ranAt = Date.now()
           appendFileSync(files.log, text)
         }
         child.stdout.on('data', take)
         child.stderr.on('data', take)
         // Its ticket in the idle room: the run has not taken a slot yet (its "runs now" line may be on its way: never kill on that alone).
-        const waitsInRoom = () => {
-          try {
-            const room = tool.idleRoomOf(lock)
-            return readdirSync(room).some(name => {
-              const ticket = readJson(path.join(room, name), null)
-              return ticket?.label === label && path.resolve(String(ticket.cwd ?? '')).toLowerCase() === path.resolve(folder).toLowerCase()
-            })
-          } catch {
-            return false
-          }
-        }
         const look = setInterval(() => {
-          if (ranAt === null && upgrade() && waitsInRoom()) {
+          if (ranAt === null && upgrade() && waitsInRoom(tool.idleRoomOf(lock), label, folder)) {
             clearInterval(look)
             spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
             resolve({ code: null, output, upgraded: true, ranAt })
@@ -154,20 +161,27 @@ export function bigSuiteSteps(repo, env = process.env) {
       }
       if (!existsSync(path.join(repo, 'node_modules', NODE_MODULES_MARKER))) throw new Error(`the main checkout's node_modules lost ${NODE_MODULES_MARKER}: the worktree ${folder} was left`)
       const removed = git(['worktree', 'remove', folder], repo)
-      if (removed.status !== 0) throw new Error(`git worktree remove failed: ${(removed.stderr || removed.stdout).trim().split('\n')[0]}`)
+      if (removed.status !== 0) {
+        // Verifier: a folder git does not know as a worktree (its entry pruned, a half-made one) would fail every run of its commit.
+        // Its junction is gone (checked above), so nothing outside it is reached: it goes as a plain folder.
+        const known = git(['worktree', 'list', '--porcelain'], repo).stdout ?? ''
+        const ours = known.split('\n').some(line => line.startsWith('worktree ') && path.resolve(line.slice(9)).toLowerCase() === path.resolve(folder).toLowerCase())
+        if (ours || existsSync(junction)) throw new Error(`git worktree remove failed: ${(removed.stderr || removed.stdout).trim().split('\n')[0]}`)
+        rmSync(folder, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+      }
       git(['worktree', 'prune'], repo)
     },
     /** Core review: the folders of big runs a killed runner left (a sleep, a reboot), each cleaned as a run's own: the junction first. */
-    sweep() {
+    sweep(root = os.tmpdir()) {
       let names = []
       try {
-        names = readdirSync(os.tmpdir()).filter(name => name.startsWith(RUN_FOLDER))
+        names = readdirSync(root).filter(name => name.startsWith(RUN_FOLDER))
       } catch {
         // no temporary folder to read
       }
       for (const name of names) {
         try {
-          this.cleanUp(path.join(os.tmpdir(), name))
+          this.cleanUp(path.join(root, name))
         } catch (error) {
           appendFileSync(files.log, `big suite: could not sweep ${name}: ${error.message}\n`)
         }
@@ -223,7 +237,10 @@ export async function playOnce({ files, steps, now = Date.now }) {
         }
         if (!touchRunner(files.runner)) return lost()
         const alone = await steps.run(folder, RERUN_LABEL, { upgrade: () => false, only: [file] })
-        if (verdictOf(alone.output, alone.code, folder).outcome === 'passed') flaky.push(file)
+        const aloneVerdict = verdictOf(alone.output, alone.code, folder)
+        // Verifier: a rerun that could not run (the cap, a spawn that failed) proves nothing either way: the big run could not run.
+        if (aloneVerdict.outcome === 'could not run') throw new Error(`the rerun alone of ${file} could not run (${aloneVerdict.why})`)
+        if (aloneVerdict.outcome === 'passed') flaky.push(file)
         else again.push(file)
       }
       verdict = again.length > 0

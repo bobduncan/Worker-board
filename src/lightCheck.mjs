@@ -9,7 +9,7 @@ import path from 'node:path'
 /** The list of slow test files with their globs, beside the tests. */
 export const SLOW_FILES = 'test/slow-files.json'
 /** The light check's own files: a change to one of them runs every slow file (a branch never judges itself by a list it changed). */
-export const LIGHT_CHECK_FILES = [SLOW_FILES, 'src/lightCheck.mjs', 'tools/test.mjs']
+export const LIGHT_CHECK_FILES = [SLOW_FILES, 'src/lightCheck.mjs', 'tools/test.mjs', 'src/bigSuite.mjs', 'tools/one-at-a-time.mjs']
 /** A file on probation leaves it after this many green big runs in a row (chat 1, 2026-11-25: "until 2 green big runs in a row"). */
 export const PROBATION_GREENS = 2
 
