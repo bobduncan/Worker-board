@@ -9194,6 +9194,62 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
 - **tools/test.mjs**: the sweep names a folder only on a path boundary, never in a folder that is or holds a board's (boards.json;
   an unreadable list: no sweep), never its own powershell. A run the helper stopped at its cap is refused like a stall. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.
 
+## S3: background runs wait for an idle PC, and the hold cap survives a sleep (2026-11-25, chat 2, the PC plan's queue hygiene)
+
+What happened on 2026-11-24 and 11-25. The slow tier and B1517's measure and draw jobs took the slot in plain first-come order while
+gates and checks waited behind them. Two holds of 535 and 462 minutes went far past the 120-minute cap: the cap was a timer, and a timer's
+clock stands still while the PC sleeps (both ended with 124, late). Plan: .claude/plans/pc-lag-test-speed-plan.md, S3.
+
+- **Idle-only runs** (tools/one-at-a-time.mjs `isIdleRun`). These are runs of work on no step's critical path: the slow tier, a
+  step's measure, draw and trial jobs (`b1517-measure2`: at most a number after the word, so `b1544-drawbridge` is no such job),
+  `perf-` runs, any label with the `idle:` prefix (S9's big suite will use it), and any run with HEAVY_RUN_IDLE=1, which its
+  command does not inherit. A builder's own proof stays an ordinary run: its related tests, mutants and carry runs, because a step
+  waits on them (chat 1, 2026-11-25). A first-class run (a landing's gate) is never idle, whatever its label.
+- **The idle room** (`<lock>.idle`). An idle run waits there with a beating ticket, so a dead waiter drops out, as it does in the
+  queue. It goes only when all three hold: no ticket waits in the queue (a gate, a check, an old copy's run), a slot is free, and
+  it is the oldest in the room. It then puts a ticket in the queue for one look in the queue's own order. It either takes the slot
+  there, or goes back to the room when a run came a moment before (a race of milliseconds no test stages). "A slot is free" means
+  "the PC is idle" only with one slot (HEAVY_RUN_SLOTS=1); S11's lanes must look at this again.
+  - After a sleep (core review): the idle run reads the queue and the room with the holder's grace (`ticketsSeen`). A ticket whose
+    process runs but whose beat is old, or that cannot be read yet, still counts until it has stayed the same for two beats of the
+    idle run's own clock. So at wake an idle run never removes a sleeping gate's ticket and takes the slot before it.
+  - A ticket of its own that Windows would not remove yet (a file just made) is tried again at every look, and every second while
+    it runs; the idle run does not count it as a waiter.
+  - Why a room and not a rank in `queueOrder`: an old copy would still see an earlier idle ticket as ahead of it, and an old run
+    waiting for the idle run while the idle run waits for the old one never ends. With the room, the queue's order, FIRST_LEAD_MS
+    and the old-copy rules are unchanged.
+  - There is no cap on an idle run's wait (chat 1). A measure job may wait for hours on a busy day. S9's big suite, due at least
+    every 4 hours, needs its own fallback (an overdue run goes as an ordinary one). The game's slow-tier runner counts as alive past
+    its 3-hour rule while its run waits in the room or holds a slot (lava-tactics tools/slow-tier-lib.mjs `slowTierQueued`, a run in a
+    `lava-slow-tier-` folder), and it renews its file before each commit it plays (`touchRunner`), so its unqueued folder, worktree
+    and npm ci count from there. A second runner then does not start and remove the first one's folder unless one commit's npm ci
+    takes 3 hours. S9's board slow tier must keep both.
+  - readTestQueue (src/testQueue.mjs) lists the room's runs after every ticket, marked `idle`, with `since` set to when they came.
+    The stale-checkpoint rule excuses a worker whose run waits there as it does for a ticket (up to its usual cap of counted time),
+    and its health line says "waits for an idle PC since 14:02". A folder's running run, then a run waiting its turn, is named
+    before an older idle job of the same folder.
+  - The run log marks idle runs (`idle: true`).
+- **An idle run that took the slot keeps it.** A gate that comes right after it waits until it ends, for up to the idle run's
+  whole time and never past the cap. S9's big suite holds about 25 minutes. Measured in test/oneAtATime.test.mjs: a gate that came
+  with 1537 ms of the idle run left began its command after 1676 ms, so the wait beyond the time left was a poll and a node start.
+- **The cap counts the time awake; a sleep is no hang** (chat 1's review). The holder also reads the wall clock at every beat
+  (HEAVY_RUN_BEAT_MS, 60 s) against when it took the slot, less the time the PC slept. A sleep is a gap between two beats well over
+  the beat (`sleepGapOf`: 3 beats, at least the beat plus 2 minutes), because the holder only waits on its command, so nothing else
+  holds its timers up. Past HEAVY_RUN_MAX_MS (120 minutes awake), it stops its tree and the run ends with code 124. The timer stays
+  as well, and both are stopped on every way out of the run. Idle runs start when the queue is empty, which is when the PC sleeps;
+  before this, a slow-tier run that spanned a night's sleep was stopped at wake and the gates said "slow tier: RED".
+  - The holder's beats write the time it slept into its lock (`slept`), and `whyStale` leaves it out of the 130-minute rule, so no
+    waiter frees a holder that only slept.
+  - A waiter that finds a live holder past that rule still gives it two beats of its own clock (keyed on pid and `since`). That
+    covers the moments after a wake before the holder's first beat. An old copy that writes no `slept` is freed after them as before.
+- **The game's slow tier** (lava-tactics tools/slow-tier-lib.mjs, chat 1's review):
+  - A run the queue stopped with 124 is "could not run" (it tries again on the next request), never a red of main.
+  - The runner renews its file before each phase: the commit, the run, the result and the clean-up. It stops at once when the file
+    is no longer its own, because another runner took over. So it never plays that runner's commit or removes its folder.
+  - It gives the file back only while it is its own.
+  - `playRequests` takes its steps as a seam, so the takeover is tested.
+- The game's copy (lava-tactics/tools/one-at-a-time.mjs) has the same change and lands right after this one.
+
 ## F46: a build of the state walks the store once (2026-11-23, chat 4)
 
 Since the laptop import (about 1,450 steps, 4,850 items, 21,000 words) a build took about 2 s, and the live board a full core. Each
