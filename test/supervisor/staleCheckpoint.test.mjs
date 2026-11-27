@@ -256,3 +256,18 @@ test('B1571: once the last blocker ended, the quiet time counts from then: done 
   assert.deepEqual(check(view(items(unblocked(30)))), [])
   assert.equal(check(view(items(unblocked(130)))).length, 1)
 })
+
+// Chat 1's review of 3f04f410: the skip held a loop of blocks quiet for good. Only a chain that ends at a step blocked by
+// nothing open is a planned wait; a loop (A on B, B on A) is named as before.
+test('B1571 (review): two steps blocked on each other are named; a chain that ends at a free step is quiet; an unknown blocker reads as gone in the summary', () => {
+  const quiet = more => step(more.Id, 'in progress', { Since: stamp(ago(300)), Checkpoint: checkpoint('abc1234', 'Waiting', ago(130)), ...more })
+  const mutual = check(view(items(quiet({ Id: 'B1', 'Blocked by': 'B2' }), quiet({ Id: 'B2', 'Blocked by': 'B1' }))))
+  assert.deepEqual(mutual.map(one => one.subject), ['B1', 'B2'])
+  const ring = check(view(items(quiet({ Id: 'B1', 'Blocked by': 'B2' }), quiet({ Id: 'B2', 'Blocked by': 'B3' }), quiet({ Id: 'B3', 'Blocked by': 'B1' }))))
+  assert.deepEqual(ring.map(one => one.subject), ['B1', 'B2', 'B3'])
+  // B1 on B2 on B3, B3 blocked by nothing: B1 and B2 wait as planned, B3's own quiet checkpoint is named
+  const chain = check(view(items(quiet({ Id: 'B1', 'Blocked by': 'B2' }), quiet({ Id: 'B2', 'Blocked by': 'B3' }), quiet({ Id: 'B3' }))))
+  assert.deepEqual(chain.map(one => one.subject), ['B3'])
+  // an id the store lacks holds nothing: no "waits for B999" beside a stale "!"
+  assert.doesNotMatch(lineOfStep(healthSummary(view(items(quiet({ Id: 'B1', 'Blocked by': 'B999' }))), NOW), 'B1'), /B999/)
+})

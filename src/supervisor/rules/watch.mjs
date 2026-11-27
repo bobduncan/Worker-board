@@ -1026,7 +1026,9 @@ export function checkpointLate(item, view) {
   if (owner?.state !== 'working' || owner.heldBy === 'asset') return null
   // B1571 (X263: B421 blocked by B1535 on purpose, named after 2 h quiet): a step blocked by a step not yet done or dropped
   // waits as planned; the blocker's own rules cover a stuck wait. No cap: such a wait has no Late of its own (that is `Waits on`'s).
-  if (openBlockersOf(item, view.items).length > 0) return null
+  // Chat 1's review: only while every chain of blockers ends at a step that is blocked by nothing open; a loop (A on B, B on A)
+  // has no such end, nobody else's rule names it, so it is named here as before.
+  if (waitsOnFreeStep(item, view.items)) return null
   const stretch = stretchOf(item, view, owner)
   if (stretch === null) return null
   const { began, checkpoint, written, counted } = stretch
@@ -1043,6 +1045,25 @@ export function checkpointLate(item, view) {
   // B1175 (X196): `stopped` is the time its lane stood stopped since the checkpoint (the quiet time already leaves it out).
   const late = { step: view.now - began, checkpoint, quiet, stopped: standingStillMs(view, owner.name, afterPause(view, from)), queueSeen: excused.seenAt !== null && excused.seenAt > (written ?? began) ? excused.seenAt : null }
   return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+}
+
+/** B1571: how deep a chain of open blockers is followed; deeper counts as a loop. */
+const BLOCK_CHAIN_DEPTH = 20
+
+/**
+ * B1571 (chat 1's review of 3f04f410): whether the step is blocked by open steps (`openBlockersOf`) and every chain of them
+ * ends at a step blocked by nothing open, whose own rules watch it. False with no open blocker, or for a loop (the step
+ * itself or a step seen before on the same chain comes back, or the chain runs past BLOCK_CHAIN_DEPTH).
+ */
+function waitsOnFreeStep(item, items) {
+  const first = openBlockersOf(item, items)
+  if (first.length === 0) return false
+  const ends = (id, chain) => {
+    if (chain.has(id) || chain.size > BLOCK_CHAIN_DEPTH) return false
+    const next = openBlockersOf(items.get(id), items)
+    return next.every(one => ends(one, new Set([...chain, id])))
+  }
+  return first.every(id => ends(id, new Set([valueOf(item, 'Id')])))
 }
 
 /** B1571: when the step's last blocker ended (ms): a named one done or dropped (its Since), or its newest "no longer blocked by" line; null for none. */

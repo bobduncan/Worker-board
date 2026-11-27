@@ -10,7 +10,7 @@
 // - anything else (a step in progress while the worker's card names another): named in the health summary and, after an
 //   hour, to the main chat (the repair rule held-elsewhere).
 
-import { sinceMs, valueOf } from './item.mjs'
+import { openBlockersOf, sinceMs, valueOf } from './item.mjs'
 import { isHeld } from './askHold.mjs'
 import { isKeptLook } from './keptLook.mjs'
 
@@ -92,7 +92,7 @@ export function heldReason(item, items) {
   if (parked !== null) return `resumes after ${parked}`
   const open = openAskIds(items, idOf(item))
   if (open.length > 0) return `rests for ${open.join(', ')}`
-  const blockers = (valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []
-  const holding = blockers.filter(id => !['done', 'dropped'].includes(stateOf(items.get(id) ?? { head: new Map() })))
+  // B1571: the one rule openBlockersOf (an id the store lacks no longer holds).
+  const holding = openBlockersOf(item, items)
   return holding.length > 0 ? `blocked by ${holding.join(', ')}` : null
 }

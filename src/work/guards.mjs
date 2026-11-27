@@ -26,7 +26,9 @@ export const waitIds = item => (valueOf(item, 'Waits for') ?? '').match(/\b[BQ]\
 export const waitWords = item => (waitIds(item).length === 0 ? valueOf(item, 'Waits for') : rethinkWords(item))
 /**
  * The ids the step's `Blocked by` and (B306) `Waits for` name that still hold it (one the store does not hold counts
- * as open).
+ * as open). B1571: on purpose not `openBlockersOf` (item.mjs): this is the hand-out gate, which also reads asks (Q<n>,
+ * answered or withdrawn) and errs on holding: a step blocked by an id it cannot find is not handed out until someone
+ * clears it. The watch rules and the summary read an unknown id as gone, since nothing they say depends on it.
  */
 export const blockersOpen = (item, ctx) => [...new Set([...idsIn(valueOf(item, 'Blocked by')), ...waitIds(item)])].filter(id => {
   const other = ctx.store?.items?.get(id)

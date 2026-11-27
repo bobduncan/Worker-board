@@ -3,7 +3,7 @@
 // (the evidence picture, every agreed point pass, fail or ask, the score). It reads only the step's own points and its
 // standard; nothing of the project's work is named here.
 
-import { askFiledMs, sinceMs, valueOf } from './item.mjs'
+import { askFiledMs, openBlockersOf, sinceMs, valueOf } from './item.mjs'
 import { linksOf } from './links.mjs'
 import { standardOf } from './standard.mjs'
 
@@ -357,12 +357,8 @@ function namedStep(id, items) {
   if (title === '') return id
   return `${id} ${title.length <= WAIT_TITLE_CHARS ? title : `${title.slice(0, WAIT_TITLE_CHARS).replace(/\s+\S*$/, '')}…`}`
 }
-/** 2026-10-31 (B689): the open steps a step is blocked by (its `Blocked by` and `Waits for`), each once, itself left out. */
-function openBlockersOf(item, items) {
-  const id = valueOf(item, 'Id')
-  return [...new Set(`${valueOf(item, 'Blocked by') ?? ''} ${valueOf(item, 'Waits for') ?? ''}`.match(/\bB\d+\b/g) ?? [])]
-    .filter(one => one !== id && items?.has(one) && isOpenStep(items.get(one)))
-}
+/** 2026-10-31 (B689): the open steps a step waits for (its `Blocked by` and `Waits for`), itself left out; B1571: through the one rule openBlockersOf (item.mjs). */
+const openWaitStepsOf = (item, items) => openBlockersOf(item, items, ['Blocked by', 'Waits for']).filter(one => one !== valueOf(item, 'Id'))
 /** 2026-10-31 (B689): the open Quality Assurance task that checks the step `id` (its head `Checks`), the oldest of two, or null. */
 function openCheckOf(id, items) {
   const open = [...(items?.values() ?? [])].filter(one => valueOf(one, 'Checks') === id && isOpenStep(one))
@@ -393,7 +389,7 @@ function lastLinkWaitOf(link, items, held, now, recaps = null) {
     if (valueOf(qa, 'State') === 'in progress' && who !== null) return { kind: 'checking', qa: qaId, who, text: `is being checked by ${who}` }
     return { kind: 'qa-queued', qa: qaId, who, text: `waits for its check ${qaId}${who === null ? '' : `, given to ${who}`}` }
   }
-  const blockers = openBlockersOf(link, items)
+  const blockers = openWaitStepsOf(link, items)
   if (blockers.length > 0) return { kind: 'blocked', blockers, text: `waits for ${blockers.map(one => namedStep(one, items)).join(' and ')}` }
   if (state === 'review') {
     if (!gitCheckPassed(link) && reportCheckFailedOf(link) === null) return { kind: 'board', text: 'waits for the board\'s check of its report' }

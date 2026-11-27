@@ -233,14 +233,13 @@ function clearWords(compaction, now) {
  */
 function waitsOf(item, items) {
   const stateOfId = id => valueOf(items.get(id) ?? { head: new Map() }, 'State')
-  const holds = id => !['done', 'dropped'].includes(stateOfId(id))
   const named = id => (stateOfId(id) === 'review' ? `the check of ${id}` : id)
-  const blockers = (valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []
+  // B1571 (chat 1's review): the one rule openBlockersOf: an id the store lacks no longer holds, as the stale-checkpoint rule reads it.
   const words = valueOf(item, 'Waits for')
   const ids = (words ?? '').match(/\bB\d+\b/g) ?? []
   return [
-    blockers.filter(holds).map(named).join(' and '),
-    words !== null && words !== '-' && (ids.length === 0 || ids.some(holds)) ? words : '',
+    openBlockersOf(item, items).map(named).join(' and '),
+    words !== null && words !== '-' && (ids.length === 0 || openBlockersOf(item, items, ['Waits for']).length > 0) ? words : '',
   ].filter(one => one !== '')
 }
 
