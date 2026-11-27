@@ -45,26 +45,37 @@ function collectTestQueue({ tool, env, now, runs, read, list }) {
   }
   // F39: a holder's `startedAt` moves with every beat; `since` keeps when it took the slot.
   for (const info of running) found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'running', since: Date.parse(info.since ?? info.startedAt), ahead: 0 })
-  let names = []
-  try {
-    names = list(`${file}.queue`).filter(name => name.endsWith('.json')).sort()
-  } catch {
-    return found
-  }
   // F39: a ticket whose process is gone, whose beat is older than 5 minutes, or an old copy's (no beat) older than 3 hours is dropped by the
   // runs themselves; here it is only left out, never removed.
   const live = info => {
     const beat = Date.parse(info.beat)
     return runs(info.pid) && (Number.isFinite(beat) ? now - beat <= BEAT_STALE_MS : now - Date.parse(info.startedAt) <= TICKET_MAX_AGE_MS)
   }
-  const tickets = names.map(name => ({ name, info: readRun(path.join(`${file}.queue`, name), read) }))
-    .filter(one => one.info !== null && live(one.info))
+  const ticketsOf = folder => {
+    try {
+      return list(folder).filter(name => name.endsWith('.json')).sort()
+        .map(name => ({ name, info: readRun(path.join(folder, name), read) }))
+        .filter(one => one.info !== null && live(one.info))
+    } catch {
+      return []
+    }
+  }
+  const tickets = ticketsOf(`${file}.queue`)
   const order = queueOrder(tickets.map(one => ({ name: one.name, first: one.info.first === true, fair: one.info.order === ORDER_MARK })))
   // In the order they go (F39's queueOrder), not the order of the file names.
   for (const { name, info } of order.map(one => tickets.find(ticket => ticket.name === one.name))) {
     // A run that already holds a slot has left the queue (its ticket goes when it takes its turn): not counted twice.
     if (running.some(one => one.pid === info.pid)) continue
     found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'waiting', since: Date.parse(info.startedAt), ahead: running.length + order.findIndex(one => one.name === name) })
+  }
+  // S3: the runs that wait for an idle PC (the tool's idle room), after every ticket, oldest first: `idle` marks them, and `since` is
+  // when they came, so the board can say "waiting for an idle PC since 14:02". One that holds a slot or stands in the queue for its
+  // one look is counted there.
+  if (typeof tool.idleRoomOf === 'function') {
+    const idle = ticketsOf(tool.idleRoomOf(file)).filter(one => !running.some(run => run.pid === one.info.pid) && !tickets.some(ticket => ticket.info.pid === one.info.pid))
+    idle.forEach(({ info }, index) => {
+      found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'waiting', idle: true, since: Date.parse(info.startedAt), ahead: running.length + order.length + index })
+    })
   }
   return found
 }

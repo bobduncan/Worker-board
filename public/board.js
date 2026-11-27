@@ -715,8 +715,14 @@ function cpuView(cpu, pending = null) {
   const level = pending ?? cpu.level
   if (cpu.available !== true) return { level: null, disabled: true, label: 'CPU for Claude: not available here', count: '', title: 'The board sets the CPU for Claude on Windows only.', note: null }
   const processes = n => `${n} process${n === 1 ? '' : 'es'}`
-  const count = pending !== null ? '' : level === 'low' ? `${processes(cpu.count)} on ${cpu.lowCores} cores, lowest priority: tests and builds run slower` : 'full power'
-  const title = level === 'full' ? 'Claude runs at full power.' : `Applies to everything the project started, the board included: ${processes(cpu.count)} now.`
+  // S4 (F69's open part): who set the level and when, once the board knows it.
+  const at = Number.isFinite(cpu.since) ? new Date(cpu.since) : null
+  const today = at !== null && at.toDateString() === new Date().toDateString()
+  const day = at === null || today ? '' : `${at.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][at.getMonth()]} `
+  const set = pending === null && at !== null && typeof cpu.who === 'string' && cpu.who !== '' ? ` · set ${day}${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')} by ${cpu.who}` : ''
+  const count = pending !== null ? '' : `${level === 'low' ? `${processes(cpu.count)} on ${cpu.lowCores} cores, lowest priority: tests and builds run slower` : 'full power'}${set}`
+  const map = typeof cpu.coreMap === 'string' && cpu.coreMap !== '' ? ` ${cpu.coreMap}` : ''
+  const title = `${level === 'full' ? 'Claude runs at full power.' : `Applies to everything the project started, the board included: ${processes(cpu.count)} now.`}${map}`
   return { level, disabled: pending !== null, label: 'CPU for Claude', count, title, note: typeof cpu.fault === 'string' ? cpu.fault : null }
 }
 // cpu:end
@@ -12601,6 +12607,65 @@ function goalForYouRows(state, node) {
   }
   return [...rows.values()].sort((a, b) => a.id.localeCompare(b.id, 'en', { numeric: true }))
 }
+/**
+ * B384: the roadmap on the left of the Goals page: the big goals, in order: every top goal, and the milestones (M1, M2 …) inside it.
+ * Each row: its id and title, the state, a ring's share (steps done of steps; a done goal is full), "N of M complete" (a goal with
+ * milestones counts them), and whether it is the goal the page shows (the roadmap row that holds the focus, deepest first).
+ */
+function goalRoadmap(goals, focusId) {
+  if (goals === null || goals === undefined) return []
+  const isMilestone = node => /^M\d+/.test(node.title)
+  const rows = []
+  for (const rootId of goals.roots) {
+    const root = goalById(goals, rootId)
+    if (root === null) continue
+    const milestones = root.children.map(id => goalById(goals, id)).filter(node => node !== null && isMilestone(node))
+    rows.push({ node: root, depth: 0, milestones })
+    for (const milestone of milestones) rows.push({ node: milestone, depth: 1, milestones: [] })
+  }
+  const chain = new Set()
+  for (let at = goalById(goals, focusId), seen = new Set(); at !== null && !seen.has(at.id); at = goalById(goals, at.parent)) { seen.add(at.id); chain.add(at.id) }
+  const held = [...rows].reverse().find(row => chain.has(row.node.id))
+  return rows.map(({ node, depth, milestones }) => {
+    const counts = node.counts ?? null
+    const steps = counts?.steps ?? 0
+    const done = counts?.done ?? 0
+    const share = node.state === 'done' ? 1 : steps > 0 ? done / steps : 0
+    const finished = milestones.filter(one => one.state === 'done').length
+    const line = milestones.length > 0 ? `${finished} of ${milestones.length} milestones complete`
+      : steps > 0 ? `${done} of ${steps} complete`
+        : (counts?.nodes ?? 0) > 0 ? `${counts.nodes} inside` : node.state === 'done' ? 'complete' : 'no steps yet'
+    return { id: node.id, label: goalLabel(node), title: node.title, state: node.state, depth, share: Math.round(share * 100), line, isOn: held !== undefined && held.node.id === node.id }
+  })
+}
+
+/** B384: a Done when sentence as its parts, one per line: split at ";", a leading "and" and a closing "." dropped. One part when it has no ";". */
+function goalDoneParts(text) {
+  return String(text ?? '').split(/\s*;\s*/).map(part => part.replace(/^and\s+/i, '').replace(/\.$/, '').trim()).filter(part => part !== '')
+}
+
+/** B384: whether a goal's Done when parts are ticked: when it is done, or its last re-check passed. Never part by part (ticking after the re-check is not this page's). */
+function goalIsTicked(node) {
+  return node.state === 'done' || (node.rechecks ?? []).at(-1)?.verdict === 'passed'
+}
+
+/** B384: a diagram box's status badge: Complete, In progress, Plan incomplete (no Done when yet, not done), else Open. */
+function goalBadgeOf(node) {
+  if (node.state === 'done') return 'Complete'
+  if (node.state === 'now') return 'In progress'
+  return String(node.doneWhen ?? '').trim() === '' ? 'Plan incomplete' : 'Open'
+}
+
+/** B384: the folded line of a goal's details: its Why, Notes, what it enables and also belongs to, and how many lines are folded. */
+function goalDetailsWords(goals, node) {
+  const title = id => goalById(goals, id)?.title ?? id
+  const words = []
+  if (node.why) words.push('Why')
+  if (node.notes.some(line => line.startsWith('Note'))) words.push('Note')
+  if (node.enables.length > 0) words.push(`Enables ${node.enables.map(title).join(', ')}`)
+  if (node.alsoPartOf.length > 0) words.push(`Also part of ${node.alsoPartOf.map(title).join(', ')}`)
+  return words
+}
 // goals:end
 
 // goalsteps:start
@@ -12702,11 +12767,11 @@ const GOAL_NOTE_MS = 8000
  * done with open goals inside, for five seconds), the line after a refused change (`note`), how many of this page's
  * changes Ctrl+Z can undo, whether a change is on its way, and the goal being dragged.
  */
-const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, undoable: 0, busy: false, drag: null, menu: null, menuInto: false, menuWords: '', justDragged: false }
+const goalsUi = { editing: null, chosen: new Set(), confirm: null, note: null, undoable: 0, busy: false, drag: null, menu: null, menuInto: false, menuWords: '', justDragged: false, headMenu: false }
 
 function goalsData(state) {
   const editing = goalsUi.editing === null ? null : { kind: goalsUi.editing.kind, id: goalsUi.editing.id }
-  return [state.goals ?? null, state.clicksUnsent ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null, goalAskWaitKeys(state), [...goalAskStepUi], goalWordWaitKeys(state)]
+  return [state.goals ?? null, state.clicksUnsent ?? null, state.goalsFile ?? null, state.goalsEdit ?? null, goalsFocus, [...goalsOpened], goalsLinesOpen, editing, [...goalsUi.chosen], goalsUi.confirm, goalsUi.note, goalsUi.undoable, goalsUi.busy, goalsUi.menu, goalsUi.menuInto, goalsUi.headMenu, goalsViews, goalsHideDone, state.advisor?.name ?? null, state.advisor?.isRunning ?? null, state.goalAsksFolder ?? null, goalAskWaitKeys(state), [...goalAskStepUi], goalWordWaitKeys(state)]
 }
 
 const canEditGoals = state => state?.goalsEdit?.canWrite === true
@@ -12762,8 +12827,38 @@ function goalEditorRow(goals, depth) {
   return row
 }
 
+/** B384: the roadmap on the left: the big goals, each with a ring and "N of M complete"; a click zooms to it. */
+function drawGoalRoadmap(state) {
+  const box = $('goals-roadmap')
+  const rows = goalRoadmap(state.goals ?? null, goalsFocus)
+  box.hidden = rows.length === 0
+  if (rows.length === 0) return fill(box, [])
+  const list = el('div', 'goals-roadmap-list')
+  for (const row of rows) {
+    const item = el('button', `goals-roadmap-row is-${row.state}${row.depth > 0 ? ' is-inner' : ''}${row.isOn ? ' is-on' : ''}`)
+    item.type = 'button'
+    item.dataset.roadmapGoal = row.id
+    if (row.isOn) item.setAttribute('aria-current', 'true')
+    const ring = el('span', 'goals-ring')
+    ring.style.setProperty('--share', `${row.share}%`)
+    ring.setAttribute('role', 'img')
+    ring.setAttribute('aria-label', `${row.share}% done`)
+    const words = el('span', 'goals-roadmap-words')
+    words.append(el('b', '', ''), el('small', '', row.line))
+    words.firstChild.append(...goalLabelNodes({ id: row.id, title: row.title }))
+    item.append(ring, words)
+    list.append(item)
+  }
+  fill(box, [el('h3', 'goals-roadmap-head', 'Roadmap'), el('p', 'goals-roadmap-sub muted', 'The big goals, in order.'), list])
+}
+$('goals-roadmap').addEventListener('click', event => {
+  const row = event.target.closest('[data-roadmap-goal]')
+  if (row !== null) zoomGoal(row.dataset.roadmapGoal)
+})
+
 function drawGoals(state) {
   const goals = state.goals ?? null
+  drawGoalRoadmap(state)
   $('goals-find').hidden = goals === null || goals.nodes.length === 0
   const canEdit = canEditGoals(state)
   drawUnlinked(goals)
@@ -12808,7 +12903,8 @@ function drawGoals(state) {
     part.dataset.goal = step.id ?? ''
     return place === 0 ? [part] : [el('span', 'goals-sep', '›'), part]
   })])
-  $('goals-count').textContent = focus === null ? `${goals.roots.length} goal${goals.roots.length === 1 ? '' : 's'}` : goalCounter(focus.counts)
+  // B384: a shown goal has its progress bar in the frame; the count is for the top only.
+  $('goals-count').textContent = focus === null ? `${goals.roots.length} goal${goals.roots.length === 1 ? '' : 's'}` : ''
   $('goals-problems').hidden = goals.problems.length === 0
   $('goals-problems').textContent = goals.problems.length === 0 ? '' : `${state.goalsFile ?? 'The goals file'} has a mistake, drawn as well as it goes: ${goals.problems.join(' · ')}`
 
@@ -12846,21 +12942,52 @@ function drawGoals(state) {
     const head = el('div', 'goals-frame-head')
     const isRenaming = goalsUi.editing?.kind === 'rename' && goalsUi.editing.id === focus.id
     head.append(el('span', `goal-dot is-${focus.state}`), isRenaming ? goalEditorBox(goals) : goalFrameTitle(focus), el('span', `goals-frame-state is-${focus.state}`, GOAL_STATES[focus.state] ?? focus.state))
-    const lines = goalFrameLines(goals, focus)
+    // B384: one progress bar under the title (steps done of steps, goals inside), instead of a row of counts.
+    const counts = focus.counts ?? null
+    const share = focus.state === 'done' ? 100 : counts !== null && counts.steps > 0 ? Math.round((counts.done / counts.steps) * 100) : 0
+    const bar = el('div', 'goals-progress')
+    const track = el('span', 'goals-progress-track')
+    const fillBar = el('i')
+    fillBar.style.width = `${share}%`
+    track.append(fillBar)
+    track.setAttribute('role', 'progressbar')
+    track.setAttribute('aria-valuenow', String(share))
+    track.setAttribute('aria-valuemin', '0')
+    track.setAttribute('aria-valuemax', '100')
+    bar.append(track, el('small', 'muted', [counts !== null && counts.steps > 0 ? `${counts.done} of ${counts.steps} tasks complete` : 'no tasks yet', counts !== null && counts.nodes > 0 ? `${counts.nodes} goal${counts.nodes === 1 ? '' : 's'} inside` : null, counts !== null && counts.missing > 0 ? `${counts.missing} missing` : null].filter(Boolean).join(' · ')))
+    // B384: the Done when as ticks, one part a line, ticked once its re-check passed.
+    const doneBox = el('div', 'goals-done-when')
+    doneBox.append(el('h4', '', 'Done when'))
+    const doneParts = goalDoneParts(focus.doneWhen)
+    if (doneParts.length === 0) doneBox.append(el('p', 'muted', 'No Done when yet.'))
+    else {
+      const ticked = goalIsTicked(focus)
+      const ticks = el('ul', 'goals-ticks')
+      for (const part of doneParts) {
+        const tick = el('li', ticked ? 'is-ticked' : '')
+        tick.append(el('span', 'goals-tick', ticked ? '✓' : ''), el('span', '', part))
+        ticks.append(tick)
+      }
+      doneBox.append(ticks)
+    }
+    // B384: the lines the head no longer shows (the Done when stands as ticks above).
+    const lines = goalFrameLines(goals, focus).filter(line => !line.startsWith('Done when:'))
     // B258: an ask read already folds away with the lines; the others always show, as blocks under the frame's tools.
     const readAsks = focus.asks.filter(ask => goalAskState(ask) === 'read').length
     const summary = el('div', 'goals-frame-line')
     // Unfolded, the lines say it all: the folded line goes.
-    if (!goalsLinesOpen || lines.length === 0) summary.append(el('span', '', goalFrameLine(focus)))
+    const quiet = goalFrameLine({ ...focus, doneWhen: '' })
+    if (!goalsLinesOpen || lines.length === 0) summary.append(el('span', '', quiet))
     if (lines.length > 0 || readAsks > 0) {
-      const folded = [lines.length > 0 ? `${lines.length} line${lines.length === 1 ? '' : 's'}` : null, readAsks > 0 ? `${readAsks} ask${readAsks === 1 ? '' : 's'} read` : null].filter(Boolean).join(' · ')
-      const toggle = el('button', 'goals-lines', goalsLinesOpen ? 'fold ▾' : `${folded} ▸`)
+      // B384: Why, Note, Enables and the lines fold behind one Details line.
+      const folded = [...goalDetailsWords(goals, focus), lines.length > 0 ? `${lines.length} line${lines.length === 1 ? '' : 's'}` : null, readAsks > 0 ? `${readAsks} ask${readAsks === 1 ? '' : 's'} read` : null].filter(Boolean).join(' · ')
+      const toggle = el('button', 'goals-lines', goalsLinesOpen ? 'Details ▾' : `Details: ${folded} ▸`)
       toggle.type = 'button'
       toggle.id = 'goals-lines'
       toggle.setAttribute('aria-expanded', String(goalsLinesOpen))
       summary.append(toggle)
     }
-    const parts = [head, summary, goalsLinesOpen && lines.length > 0 ? fill(el('ul', 'goals-frame-lines'), lines.map(line => el('li', '', line))) : null]
+    const parts = [head, bar, doneBox, summary, goalsLinesOpen && lines.length > 0 ? fill(el('ul', 'goals-frame-lines'), lines.map(line => el('li', '', line))) : null]
     // Rule 15: the person's words said in any chat, one quiet line each, with the chat and the time.
     for (const words of goalWordsRows(focus.yourWords)) parts.push(el('p', 'muted goals-words', words))
     // F61: the goal's open asks that are the person's (their cards' windows) or wait for its recap (the recap panel's buttons), here too,
@@ -12904,6 +13031,15 @@ function drawGoals(state) {
         tools.insertBefore(goalButton('goals-tool is-ask', 'Ask your partner for a Done when', { goalTool: 'done-when' }), tools.children[1] ?? null)
       }
       if (focus.fromPlan) tools.append(el('small', 'muted', 'Its title and Done when are the game plan\'s.'))
+      // B384: three buttons stay in sight (Ask the Advisor, Brainstorm this, + Sub-goal); the others wait behind a "…" menu.
+      const menu = el('div', 'goals-tools-menu')
+      for (const tool of [...tools.children]) if (tool.tagName === 'BUTTON' && !['add', 'ask', 'brainstorm'].includes(tool.dataset.goalTool)) menu.append(tool)
+      const more = goalButton('goals-tool goals-tools-more', '…', { goalsHeadMenu: '' })
+      more.title = 'More for this goal'
+      more.setAttribute('aria-label', 'More for this goal')
+      more.setAttribute('aria-expanded', String(goalsUi.headMenu))
+      tools.classList.toggle('is-menu-open', goalsUi.headMenu)
+      tools.append(menu, more)
       parts.push(tools)
       // P4b: the line of the Mark done (re-check) and Done when words of this goal, where their buttons are.
       const wordLine = wordLineOf(state, focus.id, FOCUS_LINE_COMMANDS.goals)
@@ -12998,7 +13134,7 @@ function redrawGoals() {
 // B383: the right panel "Steps for this goal": what the person chose in it, and its drawing.
 const goalStepsUi = { tab: 'steps', filter: 'all', showDone: false, menu: null, busy: false, goal: null }
 function goalStepsData(state) {
-  return [state.goals ?? null, goalsFocus, state.backlog ?? null, canEditGoals(state), state.goalsEdit?.whyNot ?? null, goalStepsUi.tab, goalStepsUi.filter, goalStepsUi.showDone, goalStepsUi.menu, goalStepsUi.busy, goalsUi.busy]
+  return [state.goals ?? null, goalsFocus, state.backlog ?? null, canEditGoals(state), state.goalsEdit?.whyNot ?? null, goalStepsUi.tab, goalStepsUi.filter, goalStepsUi.showDone, goalStepsUi.menu, goalStepsUi.busy, goalsUi.busy, state.goals ? goalChatsView(state, goalsFocus) : null]
 }
 function redrawGoalSteps() {
   if (board !== null && board !== undefined) once('goalsteps', goalStepsData(board), () => drawGoalSteps(board))
@@ -13006,6 +13142,7 @@ function redrawGoalSteps() {
 
 /** B383: draws the panel from goalStepsView, as the person's design picture has it. */
 function drawGoalSteps(state) {
+  drawGoalChats(state)
   const box = $('goals-steps')
   if (box === null) return
   // The review: another goal opens with its completed steps folded and no menu open.
@@ -13076,6 +13213,49 @@ function drawGoalSteps(state) {
   fill(box, parts)
   if (focusedAt !== null) [...box.querySelectorAll('button')].find(button => button.dataset[focusedAt[0]] === focusedAt[1])?.focus()
 }
+
+/**
+ * B384: "Chats on this goal": the chats working on the open steps of the goal shown (a chat once, with its steps), each with its status and
+ * a way to its chat. Null without a goal; no chat: an empty list and a line saying so.
+ */
+function goalChatsView(state, goalId) {
+  const view = goalStepsView(state.goals ?? null, goalId, state.backlog ?? [], { filter: 'open' })
+  if (view.goal === null) return null
+  const byChat = new Map()
+  for (const row of view.rows) {
+    if (row.chat === '') continue
+    if (!byChat.has(row.chat)) byChat.set(row.chat, [])
+    byChat.get(row.chat).push(row)
+  }
+  return [...byChat].map(([chat, rows]) => {
+    const lane = waitLaneOf(state, chat)
+    return { chat, status: (lane !== null && lane !== undefined ? laneStatus(lane)?.status : null) ?? rows[0].badge, steps: rows.map(row => `${row.id} ${row.title}`), href: chatHrefOf(state, chat) }
+  })
+}
+
+function drawGoalChats(state) {
+  const box = $('goals-chats')
+  if (box === null) return
+  const chats = state.goals ? goalChatsView(state, goalsFocus) : null
+  box.hidden = chats === null || goalsFocus === null
+  if (box.hidden) return fill(box, [])
+  const list = el('ul', 'goals-chats-list')
+  for (const one of chats) {
+    const item = el('li', 'goals-chat')
+    const words = el('span', 'goals-chat-words')
+    words.append(el('b', '', one.chat), el('small', 'muted', one.steps.length === 1 ? one.steps[0] : `${one.steps.length} tasks: ${one.steps.join(' · ')}`))
+    const status = el('span', 'goals-chat-status', one.status)
+    const open = one.href === null ? goalButton('goals-tool', 'Open window', { goalChatWindow: one.chat }) : el('a', 'goals-tool goals-chat-open', 'Open chat')
+    if (one.href !== null) open.href = one.href
+    item.append(words, status, open)
+    list.append(item)
+  }
+  fill(box, [el('h3', 'goals-chats-head', 'Chats on this goal'), chats.length === 0 ? el('p', 'muted', 'No chat is working on a task of this goal.') : list])
+}
+$('goals-chats').addEventListener('click', event => {
+  const hit = event.target.closest('[data-goal-chat-window]')
+  if (hit !== null) openDetails({ lane: hit.dataset.goalChatWindow, task: true })
+})
 
 /** B383: the box of the goal's Missing lines, each with Add step and Dismiss, and "Add all". */
 function goalMissingBox(view) {
@@ -13347,7 +13527,7 @@ function goalBoxGroup(goals, box) {
   if (box.kind === 'ask') return goalAskBox(goals, box)
   const node = goalById(goals, box.id)
   const counts = node.counts
-  const g = svgEl('g', { 'data-goal': box.id, tabindex: 0, role: 'button', 'aria-label': `${goalLabel(node)}: ${GOAL_STATES[node.state]}, ${goalCounter(counts)}` }, `goal-box is-${node.state} is-${box.kind}${goalsUi.chosen.has(box.id) && box.kind === 'child' ? ' is-chosen' : ''}`)
+  const g = svgEl('g', { 'data-goal': box.id, tabindex: 0, role: 'button', 'aria-label': `${goalLabel(node)}: ${GOAL_STATES[node.state]}, ${goalCounter(counts)}` }, `goal-box is-${node.state} is-${box.kind}${box.kind !== 'ref' && goalBadgeOf(node) === 'Plan incomplete' ? ' is-no-plan' : ''}${goalsUi.chosen.has(box.id) && box.kind === 'child' ? ' is-chosen' : ''}`)
   g.append(svgEl('rect', { x: box.x, y: box.y, width: box.w, height: box.h, rx: 8 }, 'goal-box-rect'))
   const title = svgEl('text', { x: box.x + 10, y: box.y + 21 }, 'goal-box-title')
   // B284: its id first, in a colour of its own.
@@ -13366,7 +13546,13 @@ function goalBoxGroup(goals, box) {
   const steps = counts === null || counts === undefined || counts.steps === 0 ? (counts?.nodes > 0 ? `${counts.nodes} inside` : 'no steps yet') : `${counts.steps} step${counts.steps === 1 ? '' : 's'} · ${counts.done} done`
   g.append(svgText(box.x + 10, box.y + 56, steps, 'goal-box-meta'))
   if (counts?.missing > 0) g.append(svgText(box.x + 10, box.y + 70, `${counts.missing} missing`, 'goal-box-meta'))
-  g.append(svgText(box.x + 10, box.y + 84, box.kind === 'ref' ? cut(`home: ${goalById(goals, node.parent)?.title ?? 'the top'}`, 22) : GOAL_STATES[node.state], 'goal-box-state'))
+  if (box.kind === 'ref') g.append(svgText(box.x + 10, box.y + 84, cut(`home: ${goalById(goals, node.parent)?.title ?? 'the top'}`, 22), 'goal-box-state'))
+  else {
+    // B384: the state as a badge: Complete, In progress, Plan incomplete (no Done when yet) or Open.
+    const badge = goalBadgeOf(node)
+    g.append(svgEl('rect', { x: box.x + 8, y: box.y + 72, width: badge.length * 6.2 + 12, height: 16, rx: 4 }, `goal-box-badge is-${badge === 'Complete' ? 'complete' : badge === 'In progress' ? 'progress' : badge === 'Plan incomplete' ? 'plan' : 'open'}`))
+    g.append(svgText(box.x + 14, box.y + 84, badge, 'goal-box-badge-text'))
+  }
   // "+n": goals inside, a click away.
   if (box.kind === 'child' && node.children.length > 0) {
     g.append(svgEl('rect', { x: box.x + box.w - 36, y: box.y + box.h - 24, width: 28, height: 16, rx: 8 }, 'goal-badge'))
@@ -13820,6 +14006,7 @@ function zoomGoal(id) {
   goalsFocus = id
   goalsOpened.clear()
   goalsLinesOpen = false
+  goalsUi.headMenu = false
   goalsUi.editing = null
   if (location.hash !== goalAddress(id)) history.pushState(null, '', goalAddress(id))
   redrawGoals()
@@ -15776,6 +15963,10 @@ $('goals-chosen').addEventListener('click', event => {
   }
 })
 $('goals-frame').addEventListener('click', event => {
+  if (event.target.closest('[data-goals-head-menu]') !== null) {
+    goalsUi.headMenu = !goalsUi.headMenu
+    return redrawGoals()
+  }
   if (event.target.closest('#goals-lines') !== null) {
     goalsLinesOpen = !goalsLinesOpen
     return redrawGoals()
@@ -15790,6 +15981,8 @@ $('goals-frame').addEventListener('click', event => {
   if (askAction !== null && focus !== null) return goalsAskAction(askAction.dataset.askAction, focus, askAction.dataset.askId)
   const tool = event.target.closest('[data-goal-tool]')?.dataset.goalTool
   if (tool === undefined || focus === null) return
+  // B384: a choice in the "…" menu closes it (a click again to dissolve or delete keeps it open: its question stands there).
+  if (goalsUi.headMenu && !['delete', 'dissolve'].includes(tool)) goalsUi.headMenu = false
   if (tool === 'ask') return openGoalAsk(focus)
   // B358: the re-check taken back: the goal stays open.
   if (tool === 'recheck-back') return sendGoals({ command: 'line', id: focus, name: 'Recheck asked', value: '' }).then(done => { if (done !== null) goalsSay(done.unchanged ? 'There was no re-check to take back.' : 'The re-check is taken back: the goal stays open.', 'ok') })

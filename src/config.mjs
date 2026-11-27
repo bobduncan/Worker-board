@@ -522,6 +522,8 @@ export function parseConfig(text, env) {
   config.picturesHome = typeof raw.picturesHome === 'string' ? raw.picturesHome.trim() : ''
   // Leaked headless browsers (2026-11-13): whether this board runs the PC-wide rule `browsers`; left out, the PC's first board does.
   if (typeof raw.browsersRule === 'boolean') config.browsersRule = raw.browsersRule
+  // S4 (PC plan): whether this board writes the heavy-run queue's mode file; setup gives it the PC's first board. Left out, it does not.
+  config.heavyModeWriter = raw.heavyModeWriter === true
   // B354: the kinds that are right, each once.
   if (Array.isArray(raw.kinds)) {
     const seen = new Set()
@@ -589,6 +591,7 @@ export function configProblem(fileText) {
   if (has('cpuLimit') && cpuLevelOf(raw.cpuLimit) === null) return wrong('cpuLimit', '"full" or "low"')
   if (has('appAccount') && !(typeof raw.appAccount === 'string' && (raw.appAccount.trim() === '' || ACCOUNT.test(raw.appAccount.trim())))) return wrong('appAccount', 'the id of a Claude account folder (8-4-4-4-12 letters and digits), or ""')
   if (has('browsersRule') && typeof raw.browsersRule !== 'boolean') return wrong('browsersRule', 'true or false')
+  if (has('heavyModeWriter') && typeof raw.heavyModeWriter !== 'boolean') return wrong('heavyModeWriter', 'true or false')
   if (has('baseBranch') && !(typeof raw.baseBranch === 'string' && BRANCH.test(raw.baseBranch.trim()))) return wrong('baseBranch', 'a branch name such as "main"')
   if (has('usualModel') && !(typeof raw.usualModel === 'string' && MODELS.includes(raw.usualModel.trim().toLowerCase()))) return wrong('usualModel', MODELS.map(one => `"${one}"`).join(' or '))
   if (has('usualEffort') && !(typeof raw.usualEffort === 'string' && EFFORTS.includes(raw.usualEffort.trim().toLowerCase()))) return wrong('usualEffort', `one of ${EFFORTS.map(one => `"${one}"`).join(', ')}`)
@@ -722,7 +725,7 @@ export class BrokenConfig extends Error {}
  * T5.2 P4: the keys that belong to this PC, kept in config.json once the project has a board-settings.json (paths on this PC, its ports, its
  * Codex, its pictures home); every other key is the project's, in settings.json.
  */
-export const PC_KEYS = Object.freeze(['project', 'gameRepo', 'appSessions', 'transcripts', 'usageHistory', 'port', 'gamePort', 'codex', 'soundLibrary', 'chatHome', 'data', 'pc', 'label', 'sync', 'picturesHome', 'appAccount', 'browsersRule'])
+export const PC_KEYS = Object.freeze(['project', 'gameRepo', 'appSessions', 'transcripts', 'usageHistory', 'port', 'gamePort', 'codex', 'soundLibrary', 'chatHome', 'data', 'pc', 'label', 'sync', 'picturesHome', 'appAccount', 'browsersRule', 'heavyModeWriter'])
 
 /** The project's settings file's name in its data folder: beside the carry tool's `settings/` folder there, never the same name. */
 export const SETTINGS_FILE = 'board-settings.json'

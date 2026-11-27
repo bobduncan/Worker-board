@@ -16,11 +16,25 @@
 // to a file of their own). A stalled run is a refusal (src/landing.mjs gatePassed), never rerun file by file: node --test held
 // back the results of the files after the open one. The watchdog also ends what the run started outside its tree that names its
 // folder (on a path boundary; never in a folder that is or holds a board's, nor when the list of boards cannot be read).
+//
+// F68 (chat 1, 2026-11-25): a gate refusal names the priority of each run. The full run stays low; land.ps1's rerun alone of a failed
+// file asks for its priority by name (`--priority=below-normal` for now: the PC plan keeps Full free of lag until the core fence, S5,
+// which may raise it to `--priority=normal`). The run sets itself and node --test to the asked priority (so a run that inherited
+// another from its parent gets the asked one) and writes the priority node --test has as its first line,
+// "test run: priority <word>", which land.ps1 names in its refusal.
+//
+// S9 (the PC plan, 2026-11-25): `--gate` is the light check of land.ps1's gate: every test file but the slowest ones (test/slow-files.json),
+// except a slow file whose area the branch changed or that a red big run put on probation (src/lightCheck.mjs). Its first lines say
+// which slow files run and why; the big suite (tools/big-suite.mjs) runs every file when the PC is idle.
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+
+import { readJson, stateFiles } from '../src/bigSuite.mjs'
+import { changedFiles, lightFiles, lightLines, readSlowFiles, testFiles } from '../src/lightCheck.mjs'
+import { lockPath } from './one-at-a-time.mjs'
 
 /** Half the cores, at least one. */
 export function halfTheCores(cores) {
@@ -28,6 +42,45 @@ export function halfTheCores(cores) {
 }
 
 export const LOW = os.constants.priority.PRIORITY_BELOW_NORMAL
+/** S5: the fence's priority (HEAVY_RUN_PRIORITY) as node's number: the highest a run inside the fence may go. */
+export const FENCE_NICE = Object.freeze({ BelowNormal: os.constants.priority.PRIORITY_BELOW_NORMAL, Idle: os.constants.priority.PRIORITY_LOW })
+/** F68: the priority of land.ps1's rerun alone of a failed file. */
+export const NORMAL = os.constants.priority.PRIORITY_NORMAL
+const { PRIORITY_LOW, PRIORITY_ABOVE_NORMAL, PRIORITY_HIGH, PRIORITY_HIGHEST } = os.constants.priority
+const PRIORITY_WORDS = new Map([[PRIORITY_LOW, 'idle'], [LOW, 'below normal'], [NORMAL, 'normal'], [PRIORITY_ABOVE_NORMAL, 'above normal'], [PRIORITY_HIGH, 'high'], [PRIORITY_HIGHEST, 'realtime']])
+/** F68: a priority in words ("below normal"), as Windows names its classes. PURE. */
+export const priorityWord = value => PRIORITY_WORDS.get(value) ?? `nice ${value}`
+
+/**
+ * F68: the command line's words: `--priority=below-normal` (the default; land.ps1's rerun alone names it) or `--priority=normal`, and the
+ * test files (all of them when none is named). An unknown priority throws. S9: `--gate` asks for the light check (`gate` true). PURE.
+ */
+export function cliOf(argv) {
+  let priority = LOW
+  let gate = false
+  const files = []
+  for (const arg of argv) {
+    const asked = /^--priority=(.*)$/.exec(arg)
+    if (arg === '--gate') gate = true
+    else if (asked === null) files.push(arg)
+    else if (asked[1] === 'normal') priority = NORMAL
+    else if (asked[1] === 'below-normal') priority = LOW
+    else throw new Error(`tools/test.mjs: unknown priority "${asked[1]}" (normal or below-normal)`)
+  }
+  return { priority, gate, files: files.length > 0 ? files : ['test/**/*.test.mjs'] }
+}
+
+/**
+ * S9: the light check's files in `root` (a gate's worktree): `{ files, lines }`, the lines first in the log. Without test/slow-files.json
+ * every file runs. `git` runs git in `root` (stdout, or null when it fails); `probation` the big suite's.
+ */
+export function gateFiles({ root, git, probation = {} }) {
+  const all = testFiles(root)
+  const spec = readSlowFiles(root)
+  if (spec === null) return { files: all, lines: ['light check: no test/slow-files.json here: every test file runs'] }
+  const picked = lightFiles({ all, spec, changed: changedFiles(git), probation })
+  return { files: picked.files, lines: lightLines({ all, picked }) }
+}
 /** F39: a test that runs longer than this fails (node --test's own timeout). */
 export const TEST_TIMEOUT_MS = 10 * 60 * 1000
 /** F39: no output of the run for this long ends it. */
@@ -140,15 +193,21 @@ function stopTree(child) {
 }
 
 /**
- * Runs node --test on `files` at below-normal priority, on half of `cores`; resolves to its exit code. `start` and
- * `setPriority` are child_process.spawn and os.setPriority (the tests give stand-ins). F39: `timeoutMs` is node --test's
- * per-test timeout, `stallMs` how long the run may write nothing before it is ended, `watchMs` how often that is looked at.
+ * Runs node --test on `files` at `priority` (below normal unless asked), on half of `cores`; resolves to its exit code. `start`,
+ * `setPriority` and `getPriority` are child_process.spawn, os.setPriority and os.getPriority (the tests give stand-ins). F39:
+ * `timeoutMs` is node --test's per-test timeout, `stallMs` how long the run may write nothing before it is ended, `watchMs` how
+ * often that is looked at. F68: its first line says the priority node --test has.
  */
 export function runTests({
-  files, cores = os.cpus().length, start = spawn, setPriority = os.setPriority, node = process.execPath,
+  files, priority = LOW, cores = os.cpus().length, start = spawn, setPriority = os.setPriority, getPriority = os.getPriority, node = process.execPath,
   timeoutMs = positive(process.env.TEST_TIMEOUT_MS, TEST_TIMEOUT_MS), stallMs = positive(process.env.TEST_STALL_MS, STALL_MS),
   watchMs = positive(process.env.TEST_WATCH_MS, WATCH_MS), out = process.stdout, err = process.stderr, cwd = process.cwd(), env = process.env,
 }) {
+  // S5 (chat 1's review): inside a heavy run's fence (HEAVY_RUN_PRIORITY, given by tools/one-at-a-time.mjs) the run never goes
+  // above the fence's level: a Low fence's idle stays idle, and F68's normal is below normal in a Full fence. Node's numbers
+  // grow as the priority falls.
+  const fenceCap = FENCE_NICE[env.HEAVY_RUN_PRIORITY] ?? null
+  if (fenceCap !== null && fenceCap > priority) priority = fenceCap
   const lower = (...args) => {
     try {
       setPriority(...args)
@@ -156,7 +215,7 @@ export function runTests({
       // not allowed or gone: the run goes on at the priority it has
     }
   }
-  lower(LOW)
+  lower(priority)
   const began = Date.now()
   const folder = mkdtempSync(join(os.tmpdir(), 'test-run-'))
   const events = join(folder, 'open-files.jsonl')
@@ -168,7 +227,17 @@ export function runTests({
     ...files,
   ]
   const child = start(node, args, { cwd, stdio: ['inherit', 'pipe', 'pipe'], windowsHide: true })
-  if (child.pid) lower(child.pid, LOW)
+  if (child.pid) {
+    lower(child.pid, priority)
+    // F68: the priority node --test has (its test files inherit it), the asked one when it cannot be read.
+    let had = priority
+    try {
+      had = getPriority(child.pid)
+    } catch {
+      // gone already, or not allowed to look
+    }
+    out.write(`test run: priority ${priorityWord(had)}\n`)
+  }
   let lastOutput = Date.now()
   const pass = (to) => (chunk) => {
     lastOutput = Date.now()
@@ -211,6 +280,14 @@ export function runTests({
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const files = process.argv.length > 2 ? process.argv.slice(2) : ['test/**/*.test.mjs']
-  runTests({ files }).then((code) => process.exit(code))
+  const { priority, gate, files } = cliOf(process.argv.slice(2))
+  if (gate) {
+    const git = (args) => {
+      const run = spawnSync('git', args, { cwd: process.cwd(), encoding: 'utf8', windowsHide: true })
+      return run.status === 0 ? run.stdout : null
+    }
+    const picked = gateFiles({ root: process.cwd(), git, probation: readJson(stateFiles(lockPath()).results).probation ?? {} })
+    for (const line of picked.lines) process.stdout.write(`${line}\n`)
+    runTests({ files: picked.files, priority }).then((code) => process.exit(code))
+  } else runTests({ files, priority }).then((code) => process.exit(code))
 }

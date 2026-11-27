@@ -102,14 +102,16 @@ test('a landing of its own branch ends its wait for the go to land and words its
   const line = (branch, result, at) => JSON.stringify({ at: new Date(at).toISOString(), by: 'Board lead', branch, head, before: null, after: head, trial: head, result, why: null, boards: [{ port: 1 }, { port: 2 }], cold: false, gateLog: null, branches: { swept: [], kept: [], landed: { remote: 'removed', local: 'removed' } } })
   await put(join(board, 'data', 'landings.jsonl'), [line('b1236-x202-fix', 'refused', NOW - 25 * MIN), line('b1299-other', 'landed', NOW - 20 * MIN), line('b1236-x202-fix', 'landed', NOW - 15 * MIN)].join(NL) + NL)
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'landed', project, port, gamePort: 7341, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'landed', refreshSeconds: 5, project, port, gamePort: 7341, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
+  // B1554 (gate diet): the delivery pass runs at every refresh (the settings' 5 s here, not the 30 s of every day), so the word comes in about 5 s and the
+  // waits for a second word span more than one pass.
   const env = { WORKER_BOARD_HOME: join(dir, 'pc') }
   const told = async () => (await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8').catch(() => ''))
     .split(NL).filter(Boolean).map(text => JSON.parse(text)).filter(message => message.command === 'work' && message.kind === 'landed')
   const step = () => readFile(join(work, 'B1236.md'), 'utf8')
   const first = await run(started, board, env)
   await until(async () => (await told()).length > 0, 'the landed word to Worker 1 in the outbox')
-  await new Promise(done => setTimeout(done, 3000))
+  await new Promise(done => setTimeout(done, 6000))
   const [word, ...more] = await told()
   assert.deepEqual(more, [])
   assert.equal(word.to, 'Worker 1')

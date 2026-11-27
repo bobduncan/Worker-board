@@ -2898,21 +2898,32 @@ The person, 2026-10-18, yes to: "Should the Workers mod file them by itself from
 board always shows them with an answer box?" Chats sometimes ended an answer with a "For you" block without `work
 ask`; the board then showed only the warning "<chat> wrote questions in its chat but filed no ask" (B301).
 
-- **The mod reads the block** (`hooks/foryou.ts`, `forYouItems`): at `turn.complete` of the chat's own turn (reason
-  answer, never a subagent's), from the turn's final answer (`e.answer`), when its last part is a "For you" block (the
-  board's rule, `handover.mjs` `asksAtEnd`: followed by nothing but a rule and the closing block; a title or an item
-  written a little off still counts). Each numbered item is an ask: **Answer:** a decide, or a look when it has a
-  picture or play link and no options; **Do:** a do; a numbered item with neither word a decide. Options from lines
-  under it (`- **A:** red`) or from its words when clear ("A thin, B thick or C none", "A ... or B ...; ...", the
-  letters alone "A, B or C"), else none; the advice from "I advise ..." (to the first comma or full stop); pictures
-  from `#picture=` paths, play from `#play=` (`<branch>&<settings>`), each checked as `handover.mjs` checks them; the
-  ask's id when the item is one the work tool wrote ("(Q4, decide, blocks B1)"). Nine items at most, and no more than
-  fit 12,000 characters of the board's call (it takes 16 KB).
-- **One call at the turn's end**: the items go with `turn-ended` as `forYou`, so the turn's end stays one call held
-  1.5 s at most, the free worker's pull included.
+- **The board reads the block, with one grammar** (B417, robustness page place 6; `src/forYouGrammar.mjs`): the title
+  (`For you`, `For you:`, `Needs your attention`, quoted with `>`), the numbered items (`**Answer:**`, `**Answer**:`,
+  `Answer:`, `1)`, a plain numbered item), the choices under an item, the links, the advice and the options a question
+  names. Every reader goes through it: `handover.mjs` (`asksAtEnd`, `parseHandover`, so `state.mjs` `blockAsksOpen`) and
+  `api.mjs` `askForYou`. Before it, three readers (the mod's `foryou.ts`, `asksAtEnd` and `parseHandover`) read the block
+  three ways: an item written `**Answer**:` was a question to one and no item to another, and the board warned "filed no
+  ask" for an ask that was open. The block counts when it is the answer's last part (followed by nothing but a rule and
+  the closing block; a block quoted earlier is another's). Each numbered item is an ask: **Answer:** a decide, or a look
+  when it has a picture or play link and no options; **Do:** a do; a numbered item with neither word a decide. Options
+  from lines under it (`- **A:** red`) or from its words when clear ("A thin, B thick or C none", "A ... or B ...; ...",
+  the letters alone "A, B or C"), else none; the advice from "I advise ..." (to the first comma or full stop); pictures
+  from `#picture=` paths, play from `#play=` (`<branch>&<settings>`), each checked as before; the ask's id when the item
+  is one the work tool wrote ("(Q4, decide, blocks B1)"). Nine items at most, and no more than fit 12,000 characters of
+  the call; the items past those count as unfiled.
+- **The mod only sends the tail** (`hooks/foryou.ts`, `forYouTail`, Workers mod 0.37.0): at `turn.complete` of the chat's
+  own turn (reason answer, never a subagent's), when the answer names a "For you" block at all (a loose word test), the
+  mod sends the answer from its last title on (at most 7,000 characters; a longer block is never cleared, `isForYouCut`) as `forYouText` with `turn-ended`, so the turn's end stays one call held
+  1.5 s at most, the free worker's pull included. The board's answer says how many questions it read (`asks`) and could
+  not file (`unfiled`); the mod's decision to clear a worker goes by those (`unfiledAsk`), never by a reading of its own
+  (`asksPerson` is only the careful test for a board that did not answer). A mod from before sends the items it read
+  itself (`forYou`), which the board still takes as they are.
 - **The board files the missing ones** (`api.mjs`, `askForYou`): an item is left out when it names an ask of the
   store, or asks what an ask of the chat filed since the turn began, or one still open, asks already (the words
-  compared without markdown, links or the id note; equal, or one the start of the other). B362: also when its words
+  compared without markdown, links, the id note or the advice after the question; equal, or one the start of the other
+  when their lengths are within 20%, B417: an open "Look at the menu" is not a new, longer item that starts the same way,
+  which `forYouRepeat` then compares by its words). B362: also when its words
   name an open ask of the chat's own by its id anywhere, as a word of its own ("(Q128, under B356)", "Q128: ...", "see
   Q128"), as a chat that filed its ask with `work ask` and then wrote its own block in its own words does (Q112, Q131
   to Q133 were filed twice so). Another chat's ask named for context holds nothing back (the review); a new question
@@ -2935,8 +2946,9 @@ ask`; the board then showed only the warning "<chat> wrote questions in its chat
   the person answered within 2 minutes, at seven in ten alike, naming it. What was left out goes back in the answer
   (`left`), and the mod 0.13.18 names it beside the chat's next prompt, once, so a new question that only looked alike
   is filed with `work ask`. `tools/replay-asks.mjs` replays a period of the store through these checks.
-- Tests: `test/work/forYouAsks.test.mjs`, `test/work/askedTwice.test.mjs`; in the mod, `hooks/foryou.test.ts` and
-  `hooks/chatlist.test.ts` (B317, B480).
+- Tests: `test/forYouGrammar.test.mjs` (the one grammar, every form), `test/work/askWords.test.mjs` (`sameAsk`),
+  `test/work/forYouAsks.test.mjs`, `test/warningsSeeAsks.test.mjs`, `test/work/askedTwice.test.mjs`; in the mod,
+  `hooks/foryou.test.ts`, `hooks/chats.test.ts` and `hooks/chatlist.test.ts` (B317, B480, B417).
 
 ## Install with one command (B321)
 
@@ -3319,7 +3331,29 @@ the screen to show the steps associated to the selected goal and to show the 'mi
    the dash, nothing the backlog's line reads as more; its activity the one most of the goal's steps are in), links it
    into the goal's Steps line and takes the line out, found by its words; a line the store refuses is named and Add all
    goes on. Dismiss (`missing-dismiss`, `removeGoalMissing`) takes the line out, undoable as any change of the map.
-4. Not in it: the left and middle of the page (a step of its own afterwards, as the person said).
+4. Not in it: the left and middle of the page (done afterwards in B384, below).
+
+## The Goals page: roadmap, calmer head, ticks, chats (B384)
+
+The second half of the person's Design-tab idea of 2026-10-19 ("I do like the left side of the screen, but lets focus on the
+right side first ... create another backlog item for the left afterwards"). Six named changes, no more; the picture is
+`art-inbox/goals-b384/before-after.png`, the built page `art-inbox/B384/`.
+
+1. **Roadmap** (`nav#goals-roadmap`, `goalRoadmap`, `drawGoalRoadmap`): every top goal and the milestones (M1, M2 ...) inside
+   it, each with a ring (steps done of steps; a done goal is full) and "N of M complete" (a goal with milestones counts them);
+   a click zooms to it; the row that holds the shown goal is lit. A third grid column on 1180 px and more.
+2. **Calmer head**: the title with one state badge and one progress bar (steps complete, goals inside, missing) instead of the
+   count line. Three buttons stay (Ask the Advisor, Brainstorm this, + Sub-goal); every other tool is behind a "..." menu
+   (`goalsUi.headMenu`; a choice closes it, "Click again to delete" keeps it open).
+3. **Done when as ticks** (`goalDoneParts`, `goalIsTicked`): split at ";", one part a line with a box; all ticked when the goal is
+   done or its last re-check passed, never part by part (ticking after the re-check is not this page's).
+4. **Diagram** unchanged but for its boxes: a status badge (`goalBadgeOf`: Complete, In progress, Plan incomplete, Open) and a
+   dashed outline for a goal with no Done when yet.
+5. **Chats on this goal** (`section#goals-chats`, `goalChatsView`): the chats working on the open steps of the shown goal, each
+   with its status and Open chat (the app link) or Open window.
+6. **Details**: Why, Note, Enables and the lines fold behind one "Details: ..." line; the Done when is not said twice.
+
+Colour: in progress is blue, never amber (amber is attention); "Plan incomplete" is amber because it asks for a Done when.
 
 ## Partner answers: detail questions go to the partner first (2026-10-19)
 
@@ -6508,7 +6542,9 @@ idle Main waited untaken (X203, three times by 20:40). Now:
 - The rule `start-untaken` (src/supervisor/rules/watch.mjs): a chat's start untaken 10 minutes while the chat its word waits with runs
   idle. The reconciler renews the start word every 10 minutes and the sweep drops the old one, so the age is the chain's (from the
   oldest start word of the chat since its last taken or delivered one, within its sleep), one finding per chain, keyed by its first
-  word (chat 1's review 3: the live chain 20:35-21:40). `wake-failed` names the refused hand in what was tried ("20:29 by Worker 3:
+  word (chat 1's review 3: the live chain 20:35-21:40). B1277: the age is running time (from the end of the person's last pause, less the
+  board's off time, as `afterPause` and `boardOffMs` do for the other rules), and an open (waiting or taken) `wake-carry` word whose `of` is
+  one of the chain's start words silences it until it closes. `wake-failed` names the refused hand in what was tried ("20:29 by Worker 3:
   the app no longer lets the board's code send to a chat").
 Test: `test/wakeRefusedHand.test.mjs` (X203's record as it was, the per-hand mark, the message again by Main's hands, the launch only
 without a hand that may send, the carry word when every claiming hand is refused, the probe per hand, the file, the rule).
@@ -8171,7 +8207,11 @@ ten, which cuts the landing in half (no `finally` runs). What a cut one leaves i
   in the gate worktree, setting `gateFile`), its output appended to the log under `===== rerun alone: <file> =====`; the first that
   fails again refuses ("rerun alone: <file> failed again (<why>)"); all passing counts as passed, with the log line "N test
   file(s) failed under load, all passed alone". Never a second full run, and no rerun for a run that names no files (no summary,
-  a crash). Cleaned up always: the junction first
+  a crash). F68 (chat 1, 2026-11-25): the rerun alone goes through the queue first-class, so it never runs beside another heavy run
+  (`node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal <file>`), and a refusal names each run's
+  priority from the run's first line `test run: priority <word>` ("the gate failed on <head> (full run at below normal priority):
+  ...; rerun alone at below normal priority: <file> failed again"). The rerun asks below normal by name for now (the PC plan of
+  2026-11-25: no lag in Full unless gaming); the core fence (S5) may raise it to `--priority=normal`. Cleaned up always: the junction first
   with `cmd /c rmdir` (never a recursive delete through it), then two checks BEFORE `git worktree remove` (without force, then
   prune): the junction is gone, and the main checkout's `node_modules` still holds `happy-dom`. Either failing stops the
   landing (2026-11-07 10:04: `node_modules` was emptied at the end of a landing and nothing said so): the worktree is left
@@ -9163,10 +9203,172 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
 - **The landing lock's phase**: "gate" when taken, "land" once main is about to move (`lock-refresh --phase land`).
   `landingRestarts` (land phase, not stale, its process runs) is what the board watcher, the leaked-browser closer, faults-gone and
   the carry guards read, so a dead board is not left alone through an hour-long gate.
-- **land.ps1**: the rerun alone defaults to `node tools/test.mjs {file}`, after Stop-FolderProcesses. A lock lost during the gate
+- **land.ps1**: the rerun alone defaults to `node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}` (F68: through the queue, at below normal priority asked by name), after Stop-FolderProcesses. A lock lost during the gate
   stops the gate and refuses. The sweep of a cut landing's gate first ends what it left running there.
 - **tools/test.mjs**: the sweep names a folder only on a path boundary, never in a folder that is or holds a board's (boards.json;
   an unreadable list: no sweep), never its own powershell. A run the helper stopped at its cap is refused like a stall. The run counts on `close` when piped (its tail is written first), and the temporary folder's removal is in a try.
+
+## S3: background runs wait for an idle PC, and the hold cap survives a sleep (2026-11-25, chat 2, the PC plan's queue hygiene)
+
+What happened on 2026-11-24 and 11-25. The slow tier and B1517's measure and draw jobs took the slot in plain first-come order while
+gates and checks waited behind them. Two holds of 535 and 462 minutes went far past the 120-minute cap: the cap was a timer, and a timer's
+clock stands still while the PC sleeps (both ended with 124, late). Plan: .claude/plans/pc-lag-test-speed-plan.md, S3.
+
+- **Idle-only runs** (tools/one-at-a-time.mjs `isIdleRun`). These are runs of work on no step's critical path: the slow tier, a
+  step's measure, draw and trial jobs (`b1517-measure2`: at most a number after the word, so `b1544-drawbridge` is no such job),
+  `perf-` runs, any label with the `idle:` prefix (S9's big suite will use it), and any run with HEAVY_RUN_IDLE=1, which its
+  command does not inherit. A builder's own proof stays an ordinary run: its related tests, mutants and carry runs, because a step
+  waits on them (chat 1, 2026-11-25). A first-class run (a landing's gate) is never idle, whatever its label.
+- **The idle room** (`<lock>.idle`). An idle run waits there with a beating ticket, so a dead waiter drops out, as it does in the
+  queue. It goes only when all three hold: no ticket waits in the queue (a gate, a check, an old copy's run), a slot is free, and
+  it is the oldest in the room. It then puts a ticket in the queue for one look in the queue's own order. It either takes the slot
+  there, or goes back to the room when a run came a moment before (a race of milliseconds no test stages). "A slot is free" means
+  "the PC is idle" only with one slot (HEAVY_RUN_SLOTS=1); S11's lanes must look at this again.
+  - After a sleep (core review): the idle run reads the queue and the room with the holder's grace (`ticketsSeen`). A ticket whose
+    process runs but whose beat is old, or that cannot be read yet, still counts until it has stayed the same for two beats of the
+    idle run's own clock. So at wake an idle run never removes a sleeping gate's ticket and takes the slot before it.
+  - A ticket of its own that Windows would not remove yet (a file just made) is tried again at every look, and every second while
+    it runs; the idle run does not count it as a waiter.
+  - Why a room and not a rank in `queueOrder`: an old copy would still see an earlier idle ticket as ahead of it, and an old run
+    waiting for the idle run while the idle run waits for the old one never ends. With the room, the queue's order, FIRST_LEAD_MS
+    and the old-copy rules are unchanged.
+  - There is no cap on an idle run's wait (chat 1). A measure job may wait for hours on a busy day. S9's big suite, due at least
+    every 4 hours, needs its own fallback (an overdue run goes as an ordinary one). The game's slow-tier runner counts as alive past
+    its 3-hour rule while its run waits in the room or holds a slot (lava-tactics tools/slow-tier-lib.mjs `slowTierQueued`, a run in a
+    `lava-slow-tier-` folder), and it renews its file before each commit it plays (`touchRunner`), so its unqueued folder, worktree
+    and npm ci count from there. A second runner then does not start and remove the first one's folder unless one commit's npm ci
+    takes 3 hours. S9's board slow tier must keep both.
+  - readTestQueue (src/testQueue.mjs) lists the room's runs after every ticket, marked `idle`, with `since` set to when they came.
+    The stale-checkpoint rule excuses a worker whose run waits there as it does for a ticket (up to its usual cap of counted time),
+    and its health line says "waits for an idle PC since 14:02". A folder's running run, then a run waiting its turn, is named
+    before an older idle job of the same folder.
+  - The run log marks idle runs (`idle: true`).
+- **An idle run that took the slot keeps it.** A gate that comes right after it waits until it ends, for up to the idle run's
+  whole time and never past the cap. S9's big suite holds about 15 minutes on a quiet PC (more under load). Measured in test/oneAtATime.test.mjs: a gate that came
+  with 1537 ms of the idle run left began its command after 1676 ms, so the wait beyond the time left was a poll and a node start.
+- **The cap counts the time awake; a sleep is no hang** (chat 1's review). The holder also reads the wall clock at every beat
+  (HEAVY_RUN_BEAT_MS, 60 s) against when it took the slot, less the time the PC slept. A sleep is a gap between two beats well over
+  the beat (`sleepGapOf`: 3 beats, at least the beat plus 2 minutes), because the holder only waits on its command, so nothing else
+  holds its timers up. Past HEAVY_RUN_MAX_MS (120 minutes awake), it stops its tree and the run ends with code 124. This watch is the
+  only cap, and it is stopped on every way out of the run. Idle runs start when the queue is empty, which is when the PC sleeps;
+  before this, a slow-tier run that spanned a night's sleep was stopped at wake and the gates said "slow tier: RED".
+  - No timer (chat 1's second check). On this PC libuv's timers count the time asleep: three runs ended with 124 within 0-7 s of a
+    wake (run log 11-23 23:04Z, 11-24 23:30Z, 11-25 22:49Z, against Kernel-Power 42 in the System log), and so did gates that night.
+    The earlier claim here that "a timer stands still while the PC sleeps" was wrong.
+  - After a sleep the holder's beats move its lock's `since` on by the time slept, so `since` says the time awake. Every waiter,
+    old copies too (they judge the hold by `since` alone), then sees a holder that only slept as within the cap.
+  - A waiter that finds a live holder past the 130-minute rule still gives it two beats of its own clock (keyed on pid and
+    `since`). That covers the moments after a wake before the holder's first beat. An old copy as holder, which does not move its
+    `since`, is freed after them as before.
+- **The game's slow tier** (lava-tactics tools/slow-tier-lib.mjs, chat 1's review):
+  - A run the queue stopped with 124 is "could not run" (it tries again on the next request), never a red of main.
+  - The runner renews its file before each phase: the commit, the run and the result. It stops at once when the file is no longer
+    its own, because another runner took over, so it never plays that runner's commit.
+  - Chat 1's second check: a runner that stopped that way removes the folder it made, unless the new runner plays the same commit
+    (whose prepare takes that folder over).
+  - Once its result is in, the folder is its own to remove. Nobody plays a commit whose result is in, and the file it just renewed
+    keeps any other runner out for 3 hours.
+  - It gives the file back only while it is its own.
+  - `playRequests` takes its steps as a seam, so the takeover is tested.
+- The game's copy (lava-tactics/tools/one-at-a-time.mjs) has the same change and lands right after this one.
+
+## S9: a light check with every go-live, the big suite on a schedule (2026-11-26, chat 2, the person's choice of 2026-11-25 21:2x)
+
+The person: the light check leaves out the slowest tests, except where a change touches their area. The big suite runs everything
+when the PC is idle, at least every 4 hours and once each night. A red big run names the go-lives since the last green run, files a
+fix step itself, and that slow test runs in the light check for a while. Plan: .claude/plans/pc-lag-test-speed-plan.md, S9.
+
+- **The slow list** (`test/slow-files.json`): every test file over 60 s on a quiet PC (the two quiet gates of 11-25), board-starting
+  ones too, 15 files, longest first. Core review: the third gate of 11-25 ran under load and made ten fast files look slow. Leaving
+  them out saved about 0.4 min and cost their coverage in every gate. Each file has honest globs (chat 1, 2026-11-25): the files that
+  could make it fail.
+  - Its own path always counts.
+  - `@board` stands for the board's own files (`board`: server.mjs, start-board.mjs, run-game.mjs, package.json, src/state.mjs,
+    src/tick.mjs, fixtures/lines.mjs).
+  - Then come the modules it is about, from its imports, the scripts it spawns and the files it reads.
+  - Tests check that every listed file is a test file, that every glob matches a file of the repository, and (second review) that
+    every repository file a slow test imports directly is in its area. The transitive imports and the copied board folders are not
+    all listed; the big suite catches what the light check leaves.
+- **The light check** (tools/test.mjs `--gate`, src/lightCheck.mjs). land.ps1's gate is `npm test -- --gate`. It runs every test file
+  but the slow ones, except a slow file that either:
+  - has an area the branch changed (`git diff --name-only --no-renames refs/heads/main...HEAD`, or origin/main; a renamed file names
+    its old path too; when git cannot tell, every slow file runs);
+  - or is on probation.
+  A change to the light check itself (test/slow-files.json, src/lightCheck.mjs, tools/test.mjs, and src/bigSuite.mjs and
+  tools/one-at-a-time.mjs, through which it reads the probation) runs every slow file, so a branch is never judged by a list it changed.
+  Its first lines say how many files run, and which slow files and why ("light check: runs test/x.test.mjs (area: src/y.mjs)").
+  Without the list, every file runs. The slow files that run go first, longest first, because node --test starts files in the order
+  given, so a long one does not end the run alone (model: 8.2 to 7.0 min on average).
+- **The big suite** (tools/big-suite.mjs, src/bigSuite.mjs). Every test file of main's head, in its own worktree in the temporary
+  folder.
+  - It is a worktree like land.ps1's gate: the main checkout's node_modules as a junction. At the end the junction goes first (rmdir,
+    never a recursive delete), then the marker package is checked, then `git worktree remove` without force.
+  - It runs through the queue as `idle:big-suite` (S3: it waits for an idle PC), or as an ordinary `big-suite` run once it is overdue.
+    Overdue means 4 hours after the last start, or from 05:00 while the night run has not run. An idle run still waiting in the idle
+    room at that moment (its ticket there, not only no "runs now" line yet: core review; a room that cannot be read counts as waiting)
+    is stopped and started again as an ordinary one. A run counts from when it took its slot, so an idle run that waited from 23:00
+    and ran at 01:10 is the night run.
+  - Its state lies beside the PC's test lock (`<lock>.board-big-suite.json`), so every gate worktree reads the same probation.
+  - A run the queue stopped at its hold cap (124) is "could not run", never red. A stall is red, with the files it left open.
+  - Core review: each file that failed in the full run runs again alone once (`big-suite-rerun`, as land.ps1 does). One that passes
+    alone is flaky: it is recorded, but it is no red and gets no fix step and no probation. Only the files that fail again are red.
+    In 8 of the last 9 full gates a file failed that then passed alone. At most 10 files run again alone (a broken shared module fails
+    dozens: the rest stay red). A rerun alone that could not run makes the whole big run "could not run", because it proves nothing.
+    Only test files run again alone (a `location:` line in a helper module is no test file).
+  - The log beside the lock goes to `.old` past 5 MB.
+  - The failing files are repository paths: on Windows node prints `test at test\a.test.mjs`, and a `location:` line gives the whole
+    path in the run's worktree. With the backslash the probation key never matched the light check's.
+  - A runner killed by a sleep or a reboot leaves its worktree with a live junction. The next runner sweeps every `board-big-suite-*`
+    folder first, each the safe way: junction first. No runner starts, and none sweeps, while a big run is in the queue (the idle room,
+    the queue or a slot, its rerun alone too), also one whose runner died while its one-at-a-time child still runs. A ticket whose beat
+    is older than 5 minutes is no live run (a killed run's, its pid maybe reused). A leftover folder git no longer knows as a worktree
+    goes as a plain folder once its junction is gone, so it never fails every run of its commit.
+- **When it runs** (`dueNow`, the person's words: idle, at least every 4 hours, each night):
+  - no run yet;
+  - the night run (from 01:00, none started since midnight: a run that took its slot at 00:55 is that night's run);
+  - an hour after the last start, while main moved past the last run or that run was not green. Such a run waits for an idle PC until
+    4 hours after the last start, then it goes as an ordinary run.
+  Core review: an earlier "main moved" made a big run follow almost every landing, more full-suite load than the gates it saved,
+  and a gate that came in its 15-45 minutes waited behind it. A second review: without the idle wait in the daytime, every run went
+  ordinary at the 4-hour mark, ahead of the workers' later runs.
+  - With no local main, nothing starts.
+- **Red** (`recordRun`, `goLivesIn`, `fixStepOf`):
+  - A red run puts the files that failed again on probation, and they leave after two green big runs in a row (chat 1). A red run
+    of other files starts every count anew, because the two must be in a row.
+  - The board's pass (src/bigSuitePass.mjs, every 10 minutes, only on the PC's first board; config `bigSuite`) files one fix step
+    for each red streak and file (`owedOf`):
+    - a red that lasts across landings files once, and a set that shrinks files nothing;
+    - a file that joins the streak gets a step of its own;
+    - a file an open big-suite step names gets none (also when a flaky pass broke the streak in between). It is filed as a board fix (`priority: 'fix'`, in the place the board's fixes go), with the
+    failing files and the go-lives since the last green run: the landed records of data/landings.jsonl whose new main is in
+    `git rev-list <last green>..<red>`.
+  - A big suite that could not run 3 times in a row also gets one fix step, because a suite that never finishes never turns red. This
+    holds after a red run too.
+  - What it filed is kept in the board's own data (data/big-suite-filed.json), never in the runner's file.
+    - A pending mark is written before the step is made, and the record is read again right before it. A filing that threw takes its
+      mark away and is tried again. One the work API refused is said and tried again after an hour, and so is one cut off by a stop.
+    - Filing and starting are apart: a store that cannot be read never keeps the big suite from running.
+    - The pass is `loops.single` (one at a time; it counts as hung only after 30 minutes, above its 10-minute look) and git gets a
+      minute at most. The runner's spawn has an error listener.
+  - Gates say the red and the probation at their start (land.ps1 runs `big-suite.mjs --status --quiet` from the main checkout). They
+    also say a run that could not run, and a big suite with no run yet or no green run for 8 hours, because the light checks leave
+    the slow files to it.
+  - At most 20 go-lives are named; a first red with no green run before it says so.
+  - The board's pass never runs on a board in the temporary folder (the tests' copied boards).
+- **The runner's rules are the game slow tier's** (S3):
+  - it counts as alive past 3 hours while its run waits in the idle room or holds a slot (a run in a `board-big-suite-` folder);
+  - it renews its file before each phase, and stops when another runner took the file over;
+  - it gives the file back only while the file is its own.
+- **What it saves** (the model of the last 10 landings, with each file's time from the quiet gates of 11-25, 12 slots):
+  - The full gate is about 14.6 min.
+  - The light check takes about 3-4 min when no slow area changes. It is bound by the total test time over 12 slots plus each file's
+    start, which the model sets at 1 s (2.7 min); at 2-3 s it is 3.5-4.3 min.
+  - Over the last 10 landings, a light check would have taken about 7 min on average with the long files first. A change to
+    server.mjs or src/state.mjs still runs the board-starting slow files.
+  - Left out of that number: a gate that comes while a big run holds the slot waits for it (about 15 min quiet, up to 45 under load).
+    Now that the big suite no longer runs after every landing, that is rare.
+  - The long poles stay: landScript (about 13 min, when land.ps1 or the landing code changes) and wakeNoHandsBoard (about 11 min, on a
+    server change). S10 shortens those.
 
 ## F46: a build of the state walks the store once (2026-11-23, chat 4)
 

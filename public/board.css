@@ -722,7 +722,7 @@ a.focus-chip.is-verdict:hover { background: #2a2414; }
 .goals-unlinked-row:hover, .goals-unlinked-row:focus-visible { background: var(--inset); }
 .goals-unlinked-row .step-id { flex: none; min-width: 3.4em; color: #9db8e8; font-weight: 700; font-variant-numeric: tabular-nums; }
 .goals-problems { margin: 10px 6px 0; padding: 6px 10px; border: 1px solid #6b4a1f; border-radius: 6px; color: var(--waiting); font-size: 13px; }
-.goals-frame { margin: 12px 0 4px; padding: 10px 14px; border: 2px solid var(--waiting); border-radius: 8px; background: var(--inset); }
+.goals-frame { margin: 12px 0 4px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--inset); }
 .goals-frame-head { display: flex; align-items: center; gap: 10px; }
 .goals-frame-title { font-size: 16px; }
 .goals-frame-state { font-size: 12px; color: var(--muted); }
@@ -3530,3 +3530,68 @@ body.is-in-setup { overflow: hidden; }
 .focus-rethink-note { margin: 0; font-size: 13px; }
 .focus-rethink-note.is-error { color: #ff8a8a; }
 .focus-rethink .main-picture-remove { position: absolute; top: -7px; right: -7px; width: 22px; height: 22px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: 15px; line-height: 1; cursor: pointer; }
+
+/* B384: the Goals page's left and middle (the person's design picture): a roadmap of the big goals, a calmer head with one
+   progress bar, the Done when as ticks, status badges on the diagram's boxes and a small "Chats on this goal" card. */
+.goals-roadmap { padding: 12px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); min-width: 0; }
+.goals-roadmap-head { margin: 0; font-size: 14px; }
+.goals-roadmap-sub { margin: 2px 0 10px; font-size: 12px; }
+.goals-roadmap-list { display: grid; gap: 4px; }
+.goals-roadmap-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.goals-roadmap-row:hover { background: var(--inset); }
+.goals-roadmap-row.is-on { border-color: var(--free); background: var(--inset); }
+.goals-roadmap-row.is-inner { margin-left: 10px; width: calc(100% - 10px); }
+.goals-ring { flex: none; width: 26px; height: 26px; border-radius: 50%; background: conic-gradient(var(--working) var(--share, 0%), var(--line) 0); -webkit-mask: radial-gradient(circle, transparent 8px, #000 9px); mask: radial-gradient(circle, transparent 8px, #000 9px); }
+.goals-roadmap-row.is-now .goals-ring { background: conic-gradient(var(--free) var(--share, 0%), var(--line) 0); }
+.goals-roadmap-words { display: grid; min-width: 0; }
+.goals-roadmap-words b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goals-roadmap-words small { color: var(--muted); font-size: 12px; }
+.goals-progress { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.goals-progress-track { flex: 1 1 auto; height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.goals-progress-track i { display: block; height: 100%; border-radius: 999px; background: var(--working); }
+.goals-progress small { flex: none; white-space: nowrap; }
+.goals-done-when { margin-top: 12px; }
+.goals-done-when h4 { margin: 0 0 4px; font-size: 13px; }
+.goals-ticks { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; }
+.goals-ticks li { display: flex; align-items: flex-start; gap: 8px; }
+.goals-tick { flex: none; width: 15px; height: 15px; margin-top: 1px; border: 1.5px solid var(--muted); border-radius: 4px; display: grid; place-items: center; color: var(--ink); font-size: 11px; font-weight: 800; line-height: 1; }
+.goals-ticks li.is-ticked .goals-tick { border-color: var(--working); background: var(--working); }
+.goals-frame-state { padding: 1px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 12px; }
+.goals-frame-state.is-now { border-color: var(--free); color: #cfe0ff; }
+.goals-frame-state.is-done { border-color: var(--working); }
+.goals-tools { position: relative; align-items: center; }
+.goals-tools [data-goal-tool="ask"] { order: 1; }
+.goals-tools [data-goal-tool="brainstorm"] { order: 2; }
+.goals-tools [data-goal-tool="add"] { order: 3; }
+.goals-tools .goals-tools-more { order: 4; padding: 2px 10px; font-weight: 800; }
+.goals-tools-menu { display: none; position: absolute; z-index: 5; top: 100%; right: 0; margin-top: 4px; padding: 8px; flex-direction: column; align-items: stretch; gap: 4px; min-width: 190px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
+.goals-tools.is-menu-open .goals-tools-menu { display: flex; }
+.goals-tools-menu .goals-tool { text-align: left; }
+.goal-box-badge { fill: transparent; stroke: var(--line); stroke-width: 1; }
+.goal-box-badge.is-complete { fill: var(--working); stroke: var(--working); }
+.goal-box-badge.is-progress { fill: rgba(59, 130, 246, 0.2); stroke: var(--free); }
+.goal-box-badge.is-plan { fill: rgba(240, 166, 40, 0.15); stroke: var(--waiting); }
+.goal-box-badge-text { font-size: 10.5px; font-weight: 700; fill: var(--text); }
+.goal-box-badge.is-complete + .goal-box-badge-text { fill: var(--ink); }
+.goal-box.is-no-plan .goal-box-rect { stroke-dasharray: 5 4; }
+.goals-chats { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.goals-chats-head { margin: 0 0 8px; font-size: 14px; }
+.goals-chats-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.goals-chat { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-top: 1px solid var(--line); }
+.goals-chat:first-child { border-top: 0; }
+.goals-chat-words { display: grid; flex: 1 1 auto; min-width: 0; }
+.goals-chat-words b { white-space: nowrap; }
+.goals-chat-words small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goals-chat-status { flex: none; font-size: 12.5px; color: var(--muted); }
+.goals-chat-open { text-decoration: none; }
+@media (min-width: 1180px) {
+  #view-advice[data-pane="goals"] > .advisor-goals { max-width: 1900px; grid-template-columns: minmax(210px, 250px) minmax(0, 1fr) minmax(340px, 440px); }
+  .advisor-goals > :not(.goals-steps):not(.goals-roadmap) { grid-column: 2; }
+  .advisor-goals > .goals-roadmap { grid-column: 1; grid-row: 1 / span 30; position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+  .advisor-goals > .goals-steps { grid-column: 3; }
+}
+@media (max-width: 1179px) {
+  .goals-roadmap { margin-bottom: 12px; }
+  .goals-roadmap-list { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+}
+.goals-tools small { order: 5; }

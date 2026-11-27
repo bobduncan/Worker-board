@@ -3,13 +3,14 @@
 // run at low priority (below normal), on half of all the PC's cores, one run at a time (test/oneAtATime.test.mjs).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { failingFiles, gateVerdict } from '../src/landing.mjs'
-import { LOW, STALL_MS, TEST_TIMEOUT_MS, boardFolders, halfTheCores, holdsBoard, insidePattern, openFiles, runTests, stallLines, stopInside } from '../tools/test.mjs'
+import { LOW, NORMAL, STALL_MS, TEST_TIMEOUT_MS, boardFolders, cliOf, halfTheCores, holdsBoard, insidePattern, openFiles, priorityWord, runTests, stallLines, stopInside } from '../tools/test.mjs'
 
 test('B351: npm test runs the tests through tools/test.mjs, on half the cores, at least one', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
@@ -240,4 +241,86 @@ test('F39, the re-check: the list of boards fails closed: a broken boards.json g
   assert.equal(boardFolders({ WORKER_BOARD_HOME: home }), null, 'no list of boards in it: unreadable too')
   writeFileSync(join(home, 'boards.json'), JSON.stringify({ boards: [{ folder: 'D:\\boards\\x\\worker-board' }] }))
   assert.deepEqual(boardFolders({ WORKER_BOARD_HOME: home }), ['D:\\boards\\x\\worker-board'])
+})
+
+// F68 (chat 1, 2026-11-25): land.ps1's rerun alone of a failed file goes through the one-at-a-time queue and asks its priority by
+// name (below normal until the PC plan's core fence, S5, may raise it to normal); every run's first line says its priority.
+test('F68: a run asked for normal priority sets itself and node --test to normal, and its first line says the priority node --test has', async () => {
+  const { start } = standIn(0)
+  const set = []
+  const { seen, stream } = sink()
+  const code = await runTests({ files: ['test/a.test.mjs'], priority: NORMAL, cores: 4, start, setPriority: (...args) => set.push(args), getPriority: pid => (pid === 4242 ? NORMAL : LOW), out: stream, err: stream })
+  assert.equal(code, 0)
+  assert.equal(NORMAL, os.constants.priority.PRIORITY_NORMAL)
+  assert.deepEqual(set, [[NORMAL], [4242, NORMAL]])
+  assert.equal(seen.text, 'test run: priority normal\n')
+})
+
+test('S5: inside a heavy run\'s fence the run never goes above the fence\'s priority: idle stays idle, F68\'s normal is below normal', async () => {
+  for (const [fence, asked, want] of [['Idle', LOW, os.constants.priority.PRIORITY_LOW], ['Idle', NORMAL, os.constants.priority.PRIORITY_LOW], ['BelowNormal', NORMAL, LOW], [undefined, NORMAL, NORMAL]]) {
+    const set = []
+    const { stream } = sink()
+    await runTests({ files: ['x'], priority: asked, cores: 4, start: standIn(0).start, setPriority: (...args) => set.push(args), getPriority: () => want, out: stream, err: stream, env: fence ? { HEAVY_RUN_PRIORITY: fence } : {} })
+    assert.deepEqual(set, [[want], [4242, want]], `${fence} fence, asked ${asked}`)
+  }
+})
+
+test('F68: the full run says below normal; a priority that cannot be read says the asked one', async () => {
+  const low = sink()
+  await runTests({ files: ['x'], cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => LOW, out: low.stream, err: low.stream })
+  assert.equal(low.seen.text, 'test run: priority below normal\n')
+  const unread = sink()
+  await runTests({ files: ['x'], priority: NORMAL, cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => { throw new Error('ESRCH') }, out: unread.stream, err: unread.stream })
+  assert.equal(unread.seen.text, 'test run: priority normal\n')
+  assert.deepEqual([LOW, NORMAL, os.constants.priority.PRIORITY_LOW, 3].map(priorityWord), ['below normal', 'normal', 'idle', 'nice 3'])
+})
+
+test('F68: the command line takes --priority=normal or below-normal beside the files; below normal and all files when not named', () => {
+  assert.deepEqual(cliOf(['--priority=normal', 'test\\carryGit.test.mjs']), { priority: NORMAL, gate: false, files: ['test\\carryGit.test.mjs'] })
+  assert.deepEqual(cliOf(['test/a.test.mjs', '--priority=below-normal']), { priority: LOW, gate: false, files: ['test/a.test.mjs'] })
+  assert.deepEqual(cliOf([]), { priority: LOW, gate: false, files: ['test/**/*.test.mjs'] })
+  // S9: --gate asks for the light check (land.ps1's gate: npm test -- --gate)
+  assert.deepEqual(cliOf(['--gate']), { priority: LOW, gate: true, files: ['test/**/*.test.mjs'] })
+  assert.throws(() => cliOf(['--priority=high', 'x']), /unknown priority "high"/)
+})
+
+test('F68: land.ps1 reruns a failed file through the one-at-a-time queue, asking below normal by name; the full run stays npm test, low', () => {
+  const script = readFileSync(new URL('../tools/land.ps1', import.meta.url), 'utf8')
+  const rerun = 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}'
+  assert.equal(script.match(/^\$gateFileCommand = '(.*)'\s*$/m)?.[1], rerun)
+  assert.equal(script.match(/Get-Setting 'gateFile' '(.*)'\)\s*$/m)?.[1], rerun)
+  assert.equal(script.match(/Get-Setting 'gateBoard' '(.*)'\)\s*$/m)?.[1], 'npm test -- --gate')
+  assert.doesNotMatch(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).scripts.test, /--priority/)
+})
+
+test('F68, the real case: land.ps1\'s own rerun command, started from a normal parent (a chat in Full), waits its turn in the queue and runs its test file at below normal priority',{ timeout: 180_000, skip: process.platform !== 'win32' && 'priority classes are Windows\' (land.ps1 runs there only)' }, t => {
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const folder = mkdtempSync(join(os.tmpdir(), 'test-run-rerun-'))
+  t.after(() => rmSync(folder, { recursive: true, force: true }))
+  const seen = join(folder, 'seen.txt')
+  const file = join(folder, 'priority.test.mjs')
+  writeFileSync(file, `import os from 'node:os'\nimport { writeFileSync } from 'node:fs'\nimport { test } from 'node:test'\ntest('priority', () => writeFileSync(${JSON.stringify(seen)}, String(os.getPriority())))\n`)
+  // The command exactly as land.ps1 has it (its default), the file in its place.
+  const command = readFileSync(join(root, 'tools', 'land.ps1'), 'utf8').match(/^\$gateFileCommand = '(.*)'\s*$/m)[1].replace('{file}', `"${file.replace(/\\/g, '/')}"`)
+  // A parent at normal (a landing started from a chat in Full): its children inherit normal unless the rerun lowers itself.
+  const parent = join(folder, 'normal-parent.mjs')
+  writeFileSync(parent, [
+    "import os from 'node:os'",
+    "import { spawnSync } from 'node:child_process'",
+    'os.setPriority(os.constants.priority.PRIORITY_NORMAL)',
+    "const run = spawnSync(process.argv[2], { shell: true, cwd: process.argv[3], encoding: 'utf8', windowsHide: true })",
+    "process.stdout.write(`parent priority ${os.getPriority()}\\n${run.stdout ?? ''}`)",
+    "process.stderr.write(run.stderr ?? '')",
+    'process.exitCode = run.status ?? 1',
+  ].join('\n'))
+  // This test's own lock (never the PC's), no held slot and no first-class word from the run around it, and no NODE_TEST_CONTEXT.
+  const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_PID: _pid, HEAVY_RUN_FIRST: _first, ...plain } = process.env
+  const env = { ...plain, HEAVY_RUN_LOCK: join(folder, 'heavy.lock'), HEAVY_RUN_FIRST: '1', HEAVY_RUN_POLL_MS: '50', HEAVY_RUN_SAY_MS: '200' }
+  const run = spawnSync(process.execPath, [parent, command, root], { env, encoding: 'utf8', windowsHide: true, timeout: 150_000 })
+  const said = `${run.stdout}\n${run.stderr}`
+  assert.equal(run.status, 0, said)
+  assert.match(said, new RegExp(`^parent priority ${os.constants.priority.PRIORITY_NORMAL}$`, 'm'), 'the parent really is normal')
+  assert.match(said, /one-at-a-time: rerun runs now/, 'through the queue')
+  assert.match(said, /^test run: priority below normal$/m)
+  assert.equal(Number(readFileSync(seen, 'utf8')), os.constants.priority.PRIORITY_BELOW_NORMAL, 'the test file ran at below normal')
 })
