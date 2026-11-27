@@ -150,7 +150,8 @@ describe("F17 wake carry on a running board", { concurrency: 1 }, () => {
   test('chat 1\'s re-check 1: past the grace the holder that still has not started gets the courier\'s word', { timeout: 240_000 }, async t => {
     // Hotfix (2026-11-27): the case holds only when the courier's call comes before the board's first wake pass (OPEN_FIRST_MS after its
     // start); a call after it missed that pass, and its word did not come at the minute's pass either (round 2 alone inside the fence).
-    // So a start too slow for that gets a fresh board, up to three.
+    // So a start too slow for that gets a fresh board, up to three. The retry repeats only a spoiled premise, never the assertion:
+    // the word is checked once, on the board whose courier call came in time (or on the third).
     let board = null
     for (let tries = 1; tries <= 3; tries += 1) {
       if (board !== null) await board.stopBoard()
@@ -314,6 +315,7 @@ describe("F17 wake carry on a running board", { concurrency: 1 }, () => {
         // Hotfix (2026-11-27): a pass that runs while Main reports busy rightly drops the word ("Main can no longer carry it") and plans
         // it anew; on a slow start (cases side by side, inside the fence) such a pass fell between the busy report and the check. So the
         // case begins after the pass 10 s after the start, and a board where a pass still came in between is tried again, fresh (three).
+        // The retry repeats only that spoiled premise (the designed drop, by its why), never the assertion: any other state fails at once.
         let board = null
         for (let tries = 1; ; tries += 1) {
           if (board !== null) await board.stopBoard()
