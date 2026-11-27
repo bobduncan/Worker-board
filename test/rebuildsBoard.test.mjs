@@ -151,9 +151,12 @@ describe('B978: what forces a rebuild of the state', { concurrency: true }, () =
     const board = await startBoard(t, 'whoami')
     await board.state()
     const count = async () => (await board.rebuilt()).length
-    // B1535: the board has settled once its start's own reads are done (the start-up check resets the state a few seconds after
-    // the start; with the state built in its thread those reads land later than they did in the loop): no rebuild for 1.5 s.
+    // B1535: the board has settled once its start's own resets are paid. The start-up check resets the state twice, when it starts
+    // and when it ends (src/startupCheckRun.mjs); the trace of 2026-11-27 had the second 35 ms into the rebuild the first began, so
+    // that build is not kept and one more is owed to the next reader. Without a read here the first named whoami below paid it.
+    // So each round reads the state (a kept state costs none) and counts: no rebuild for 1.5 s.
     for (let last = -1, end = Date.now() + 60_000; Date.now() < end;) {
+      await board.state()
       const now = await count()
       if (now === last) break
       last = now
