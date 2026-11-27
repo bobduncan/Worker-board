@@ -307,7 +307,7 @@ test('S9: a big run is queued when a live ticket or slot of a big run\'s folder 
 test('S9: the "runs now" line the runner watches for is the one one-at-a-time writes when a run takes its slot', () => {
   const { dir, lock } = world()
   try {
-    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, ...plain } = process.env
+    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, HEAVY_RUN_MASK: _mask, HEAVY_RUN_CORES: _cores, ...plain } = process.env
     const ran = spawnSync(process.execPath, [HELPER, IDLE_LABEL, '--', 'node', '-e', '0'], { encoding: 'utf8', windowsHide: true, env: { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50' } })
     assert.equal(ran.status, 0, ran.stderr)
     assert.match(ran.stderr, RUNS_NOW)
@@ -447,7 +447,7 @@ test('S9, core review, the real case: steps.run starts one-at-a-time with test.m
     mkdirSync(join(folder, 'tools'), { recursive: true })
     writeFileSync(join(folder, 'tools', 'one-at-a-time.mjs'), readFileSync(HELPER, 'utf8'))
     writeFileSync(join(folder, 'tools', 'test.mjs'), "console.log('files: ' + process.argv.slice(2).join(' '))\nconsole.log('ℹ tests 1')\nconsole.log('ℹ fail 0')\n")
-    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, ...plain } = process.env
+    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, HEAVY_RUN_MASK: _mask, HEAVY_RUN_CORES: _cores, ...plain } = process.env
     const steps = bigSuiteSteps(dir, { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50' })
     const before = Date.now()
     const ran = await steps.run(folder, RERUN_LABEL, { upgrade: () => false, only: ['test/x.test.mjs'] })
