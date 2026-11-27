@@ -147,6 +147,9 @@ written as a field by one module and never read back from a sentence.**
 - **Refactor:** one pure grammar module for the block; the mod sends the block's raw text with the turn's end and the
   board parses it once; `sameAsk` compares equal keys, or a prefix only when the lengths are close (about 20%).
 - **Size:** **3 h**. **Tests:** warningsSeeAsks.test.mjs:40-47 uses only the strict form.
+- **Done (B417):** `src/forYouGrammar.mjs` is the one grammar (handover.mjs, state.mjs and api.mjs `askForYou` go through it);
+  the Workers mod 0.37.0 sends the answer's tail as `forYouText` and its own reader is gone; `sameAsk` takes a start only
+  when the lengths are within 20%. Tests: `test/forYouGrammar.test.mjs`, `test/work/askWords.test.mjs`.
 
 ### 7. The work store reads every read error as "not there"
 
