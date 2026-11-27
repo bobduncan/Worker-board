@@ -108,7 +108,7 @@ test('a rethink on a topic with a step in progress: the stop goes the Stop butto
   await writeStore(work, { items, activities: [{ name: 'Art', isFocus: false, steps: [...items.keys()], notes: [], loose: [] }] }, undefined, { now: NOW - 60 * MIN })
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'rethink', project, port, gamePort: 7330, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), refreshSeconds: 5, handOutBeyondFocus: true, handover: 'sequence' }))
-  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
+  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_TICK_MS: '1000' })
 
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   const base = `http://127.0.0.1:${port}`
@@ -169,7 +169,7 @@ test('a rethink on a topic with a step in progress: the stop goes the Stop butto
   const second = await call('work', { action: 'turn-ended', chat: 'Worker 2', session: 'worker-2-id', since: Date.now() - 5 * MIN })
   assert.equal(second.status, 200, JSON.stringify(second.body))
   assert.ok(!['B1', 'B14'].includes(second.body.handover?.envelope?.step ?? null), 'a held task is not handed out')
-  await pause(7_000)
+  await pause(3_000)
   assert.deepEqual([await head('B14', 'Owner'), await head('B14', 'State'), await head('B1', 'State')], [null, 'refined', 'refined'])
 
   // The evaluation runs on the goal; a second rethink of it sends the words as "more" and holds the same steps again.
@@ -182,7 +182,7 @@ test('a rethink on a topic with a step in progress: the stop goes the Stop butto
   await until(async () => (await outbox()).some(one => one.command === 'evaluate' && /More from the person: "and the rail is too thin"/.test(one.text)), 'the more-word to the partner')
 
   // The board's tick does not free them while the evaluation runs.
-  await pause(7_000)
+  await pause(3_000)
   assert.match(await head('B14', 'Waits for'), mark)
 
   // The end: the partner's marked how-draft. The next free worker is handed B14 as any ready task, and the partner is told in one line.
@@ -201,6 +201,6 @@ test('a rethink on a topic with a step in progress: the stop goes the Stop butto
     return ['B1', 'B14'].includes(given)
   }, 'a task of the topic handed out after the rethink ended')
   // Ticks after the end free nothing again and tell the partner once.
-  await pause(12_000)
+  await pause(4_000)
   assert.equal((await outbox()).filter(one => one.to === 'Advisor' && one.command === 'work' && /now free/.test(one.text)).length, 1)
 })

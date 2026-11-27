@@ -10,7 +10,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import test from 'node:test'
+import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
@@ -116,72 +116,76 @@ async function startBoard(t, name) {
   }
 }
 
-test('B978: Autopilot\'s pass for the main chat that neither drops nor sends a word keeps the board\'s state; one that sends a word resets it', { timeout: 300_000 }, async t => {
-  const board = await startBoard(t, 'pass')
-  // The main chat runs and is free; the board has settled when its rebuilds stop for a refresh.
-  assert.equal((await board.bridge('report', { chat: 'Lead', session: 'lead-id', report: { state: 'idle', since: NOW - 2 * MIN, seq: 1, run: 1 } })).status, 200)
-  await board.state()
-  await pause(6_000)
-  await board.state()
-  const settled = (await board.rebuilt()).length
-
-  // Two refreshes with Autopilot on and nothing to ask the main chat: each pass looks, changes nothing, and the state stands.
-  await pause(12_000)
-  assert.equal((await board.rebuilt()).length, settled, 'an Autopilot pass that changed nothing threw the state away')
-
-  // A pass that sends the main chat its word does reset it: the next read rebuilds after the word (an hour's cache otherwise).
-  assert.equal((await board.asChat('Digger', { action: 'take', minutes: 30, id: 'B12', branch: 'b12' })).status, 200)
-  const ask = await board.asChat('Digger', { action: 'ask', of: 'B12', kind: 'do', title: 'Export the map of B12', text: 'Export the map of B12 once its check passed.' })
-  assert.equal(ask.status, 200, JSON.stringify(ask.body))
-  const word = await until(async () => (await board.outbox()).find(one => one.to === 'Lead' && one.kind === 'main-ask'), 'the main chat\'s word')
-  // (The pass resets it when the word is written down, a moment after it stands in the outbox: read until then.)
-  let rebuiltAfter = false
-  for (const end = Date.now() + 5_000; Date.now() < end && !rebuiltAfter;) {
+// B1553 (gate diet): the two cases start a board of their own on a port of their own and wait in real time (the second, the server's
+// 30 s window), so they run side by side: the file takes as long as the slower case.
+describe('B978: what forces a rebuild of the state', { concurrency: true }, () => {
+  it('B978: Autopilot\'s pass for the main chat that neither drops nor sends a word keeps the board\'s state; one that sends a word resets it', { timeout: 300_000 }, async t => {
+    const board = await startBoard(t, 'pass')
+    // The main chat runs and is free; the board has settled when its rebuilds stop for a refresh.
+    assert.equal((await board.bridge('report', { chat: 'Lead', session: 'lead-id', report: { state: 'idle', since: NOW - 2 * MIN, seq: 1, run: 1 } })).status, 200)
     await board.state()
-    rebuiltAfter = (await board.rebuilt()).some(at => at >= word.at)
-    if (!rebuiltAfter) await pause(100)
-  }
-  assert.ok(rebuiltAfter, 'the pass that sent a word did not reset the state')
-})
+    await pause(6_000)
+    await board.state()
+    const settled = (await board.rebuilt()).length
 
-test('B978: a session the board shows under no name costs a rebuild at most once a second for 30 s, and then at most one in 30 s; a read under a second old is not thrown away; a named session costs none', { timeout: 300_000 }, async t => {
-  const board = await startBoard(t, 'whoami')
-  await board.state()
-  await pause(1_500)
-  const count = async () => (await board.rebuilt()).length
+    // Two refreshes with Autopilot on and nothing to ask the main chat: each pass looks, changes nothing, and the state stands.
+    await pause(12_000)
+    assert.equal((await board.rebuilt()).length, settled, 'an Autopilot pass that changed nothing threw the state away')
 
-  // A named session asks again and again: the board answers from the state it keeps.
-  const before = await count()
-  for (let ask = 0; ask < 5; ask += 1) {
-    assert.deepEqual((await board.whoami('digger-id')).body, { name: 'Digger', role: 'worker', card: null })
-    await pause(300)
-  }
-  assert.equal(await count(), before, 'a named session\'s whoami threw the state away')
+    // A pass that sends the main chat its word does reset it: the next read rebuilds after the word (an hour's cache otherwise).
+    assert.equal((await board.asChat('Digger', { action: 'take', minutes: 30, id: 'B12', branch: 'b12' })).status, 200)
+    const ask = await board.asChat('Digger', { action: 'ask', of: 'B12', kind: 'do', title: 'Export the map of B12', text: 'Export the map of B12 once its check passed.' })
+    assert.equal(ask.status, 200, JSON.stringify(ask.body))
+    const word = await until(async () => (await board.outbox()).find(one => one.to === 'Lead' && one.kind === 'main-ask'), 'the main chat\'s word')
+    // (The pass resets it when the word is written down, a moment after it stands in the outbox: read until then.)
+    let rebuiltAfter = false
+    for (const end = Date.now() + 5_000; Date.now() < end && !rebuiltAfter;) {
+      await board.state()
+      rebuiltAfter = (await board.rebuilt()).some(at => at >= word.at)
+      if (!rebuiltAfter) await pause(100)
+    }
+    assert.ok(rebuiltAfter, 'the pass that sent a word did not reset the state')
+  })
 
-  // Two sessions of no chat, half a second apart, each asking once a second: the first of each second reads anew, the second finds
-  // a state read half a second ago and keeps it. A rebuild for each ask would be twelve in six seconds, one a second is six.
-  const first = Date.now()
-  const start = await count()
-  for (let second = 0; second < 6; second += 1) {
-    assert.equal((await board.whoami('ghost-a')).status, 200)
-    await pause(500)
-    assert.equal((await board.whoami('ghost-b')).status, 200)
-    await pause(500)
-  }
-  const early = (await count()) - start
-  assert.ok(early >= 3, `an unnamed session's whoami read the state anew only ${early} times in six seconds: a chat the app lists later would wait`)
-  assert.ok(early <= 8, `${early} rebuilds in six seconds from two unnamed sessions: a state read under a second ago was thrown away`)
+  it('B978: a session the board shows under no name costs a rebuild at most once a second for 30 s, and then at most one in 30 s; a read under a second old is not thrown away; a named session costs none', { timeout: 300_000 }, async t => {
+    const board = await startBoard(t, 'whoami')
+    await board.state()
+    await pause(1_500)
+    const count = async () => (await board.rebuilt()).length
 
-  // The first 30 s over, the one session keeps asking every second: its read anew comes once in 30 s, not once a second for ever.
-  while (Date.now() - first < 32_000) {
-    await board.whoami('ghost-a')
-    await pause(1_000)
-  }
-  const settled = await count()
-  for (let second = 0; second < 20; second += 1) {
-    assert.equal((await board.whoami('ghost-a')).status, 200)
-    await pause(1_000)
-  }
-  const late = (await count()) - settled
-  assert.ok(late <= 2, `${late} rebuilds in 20 s from one unnamed session that asked every second after its first 30 s`)
+    // A named session asks again and again: the board answers from the state it keeps.
+    const before = await count()
+    for (let ask = 0; ask < 5; ask += 1) {
+      assert.deepEqual((await board.whoami('digger-id')).body, { name: 'Digger', role: 'worker', card: null })
+      await pause(300)
+    }
+    assert.equal(await count(), before, 'a named session\'s whoami threw the state away')
+
+    // Two sessions of no chat, half a second apart, each asking once a second: the first of each second reads anew, the second finds
+    // a state read half a second ago and keeps it. A rebuild for each ask would be twelve in six seconds, one a second is six.
+    const first = Date.now()
+    const start = await count()
+    for (let second = 0; second < 6; second += 1) {
+      assert.equal((await board.whoami('ghost-a')).status, 200)
+      await pause(500)
+      assert.equal((await board.whoami('ghost-b')).status, 200)
+      await pause(500)
+    }
+    const early = (await count()) - start
+    assert.ok(early >= 3, `an unnamed session's whoami read the state anew only ${early} times in six seconds: a chat the app lists later would wait`)
+    assert.ok(early <= 8, `${early} rebuilds in six seconds from two unnamed sessions: a state read under a second ago was thrown away`)
+
+    // The first 30 s over, the one session keeps asking every second: its read anew comes once in 30 s, not once a second for ever.
+    while (Date.now() - first < 32_000) {
+      await board.whoami('ghost-a')
+      await pause(1_000)
+    }
+    const settled = await count()
+    for (let second = 0; second < 20; second += 1) {
+      assert.equal((await board.whoami('ghost-a')).status, 200)
+      await pause(1_000)
+    }
+    const late = (await count()) - settled
+    assert.ok(late <= 2, `${late} rebuilds in 20 s from one unnamed session that asked every second after its first 30 s`)
+  })
 })
