@@ -316,7 +316,8 @@ test('the read action stays the person alone; notes-came-down is the board alone
   assert.match(await readFile(join(dir, 'N9.md'), 'utf8'), /came down: X1 fixed/)
   assert.equal((await api(dir, 'person')({ action: 'read', id: 'N10' })).ok, true, 'the person reads as before')
   // It is in the work API's SERVER and CHANGES lists (and the table) only: never in the page's or a mod's list of actions.
-  const apiSource = await readFile(join(import.meta.dirname, '..', 'src', 'work', 'api.mjs'), 'utf8')
+  // B421: the lists live in actions.mjs, the table in api.mjs: count across both.
+  const apiSource = (await readFile(join(import.meta.dirname, '..', 'src', 'work', 'api.mjs'), 'utf8')) + (await readFile(join(import.meta.dirname, '..', 'src', 'work', 'actions.mjs'), 'utf8'))
   assert.equal([...apiSource.matchAll(/'notes-came-down'/g)].length, 4, 'CHANGES, SERVER, OFF_VIEW and the table')
   assert.doesNotMatch(await readFile(join(import.meta.dirname, '..', 'public', 'board.js'), 'utf8'), /notes-came-down/)
 })
