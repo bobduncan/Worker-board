@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, giveWayLookOf, givesWay, idleRoomOf, isIdleRun, markOf, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
+import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, gateIsNext, giveWayLookOf, givesWay, idleRoomOf, isIdleRun, markOf, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'heavy-run-test-'))
@@ -593,6 +593,22 @@ test('P4: the runs that give way to a gate: those safe to kill and rerun (yield:
   assert.equal(giveWayLookOf(50), 250, 'never more often than every 250 ms')
   assert.equal(markOf({ HEAVY_RUN_MARK: 'ab12cd34ef' }), ' [ab12cd34ef]')
   assert.equal(markOf({ HEAVY_RUN_MARK: 'not hex at all' }), '')
+})
+
+test('P4, core review 2: gateIsNext: only when the next ticket in the queue\'s order is first-class and no slot is free for it', () => {
+  const lock = newLock()
+  const queue = `${lock}.queue`
+  mkdirSync(queue, { recursive: true })
+  const put = (ago, more) => writeFileSync(join(queue, `${String(Date.now() - ago).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`), JSON.stringify({ pid: process.pid, label: 'x', cwd: 'C:/x', startedAt: new Date(Date.now() - ago).toISOString(), order: ORDER_MARK, beat: new Date().toISOString(), ...more }))
+  writeFileSync(lock, lockText())
+  assert.equal(gateIsNext(lock, 1), false, 'nobody waits')
+  put(1000, { first: true })
+  assert.equal(gateIsNext(lock, 1), true, 'a gate waits and the one slot is held')
+  assert.equal(gateIsNext(lock, 2), false, 'a second slot is free: the gate takes that one')
+  writeFileSync(slotPath(lock, 2), lockText())
+  assert.equal(gateIsNext(lock, 2), true, 'both slots held')
+  put(35 * 60_000, {})
+  assert.equal(gateIsNext(lock, 2), false, 'an ordinary ticket 35 minutes older goes first')
 })
 
 /** P4: a command that notes each start (its pid) in `marks`, and runs `ms` the first `long` times, else ends at once with 0. */
