@@ -96,7 +96,7 @@ test('a follow-up: the task waits on one its worker just finished; kept for that
 })
 
 test('a fix of a task is kept for the task\'s builder ten minutes from when it was made', () => {
-  const b13 = step('B13', 'review', { Owner: 'Worker 1' })
+  const b13 = step('B13', 'review', { Owner: 'Worker 1' }, { History: [`${at(NOW - 3 * MIN)} Advisor: result check failed: one point; fix B14 for Worker 1`] })
   const b14 = step('B14', 'refined', { 'Fix of': 'B13' }, { History: [`${at(NOW - 3 * MIN)} Advisor: made by the result check of B13`] })
   // F74: a fix of a built step is nearly finished work: its own band, before the board's repairs.
   assert.deepEqual(list([b13, b14]).ready, [{ id: 'B14', rank: NEARLY_RANK, keptFor: 'Worker 1', keptUntil: NOW + 7 * MIN, pinned: null, prefers: null }])

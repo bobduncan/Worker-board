@@ -279,7 +279,7 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
     refused.add(decision.give)
     // Decided again without it: the take-back above is done, so it is not taken back twice.
     const again = await readStore(dir, fs)
-    decision = { ...decide({ ...factsOf({ lane, state, items: again.items, pause: heldPause(again, state), sent: outbox.outbox(), config, installed, now, event, localOnly, wakes }), ready: facts.ready.filter(one => !refused.has(one.id)) }), takeBack: decision.takeBack }
+    decision = { ...decide({ ...factsOf({ lane, state, items: again.items, pause: heldPause(again, state), sent: outbox.outbox(), config, installed, now, event, localOnly, wakes, landing }), ready: facts.ready.filter(one => !refused.has(one.id)) }), takeBack: decision.takeBack }
     if (decision.give === null) break
   }
   if (decision.give !== null && refused.has(decision.give)) decision = { ...decision, give: null, envelope: null }

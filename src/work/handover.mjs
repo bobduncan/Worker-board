@@ -19,6 +19,7 @@ import { holdEndOf } from './pause.mjs'
 import { chatEffort, familyOf, isSetRefused } from './effort.mjs'
 import { stamp } from './migrate.mjs'
 import { logBranchName } from '../landing.mjs'
+import { activeStepOf, heldForCap, isCapped, isLandingOf, waitingIds } from './parked.mjs'
 
 const MIN = 60_000
 /** The Workers mod that carries out the board's envelope: a worker on an older one is handed nothing (T8.5 step 6). */
@@ -223,24 +224,20 @@ const settledAt = envelope => [envelope?.settledAt, envelope?.deliveredAt, envel
 
 /** Verifier 1: the states in which the work API refuses a worker a second task (api.mjs HOLDS_FOR_GIVE). */
 const HOLDS_FOR_GIVE = ['queued', 'taken', 'in progress']
-/** F74: the states that count toward the cap of two steps per worker. */
-const HOLDS_FOR_CAP = ['queued', 'taken', 'in progress', 'waiting on you']
 /**
  * Whether `name` owns a step the work API would refuse it a second task for: one given or under way that does not only wait (F74:
  * `waiting`, the pass's set of steps that only wait on a record), or two held steps whatever their states (the cap of two).
  */
 export const holdsForGive = (items, name, prefix = '', waiting = null) => {
-  const mine = [...items.values()].filter(item => kindOf(item) === 'step' && HOLDS_FOR_CAP.includes(stateOf(item)) && isMine(item, name, prefix))
-  if (mine.length >= 2) return true
-  return mine.some(item => HOLDS_FOR_GIVE.includes(stateOf(item)) && !(waiting instanceof Set && waiting.has(valueOf(item, 'Id'))))
+  if (isCapped(items, name, prefix)) return true
+  return heldForCap(items, name, prefix).some(item => HOLDS_FOR_GIVE.includes(stateOf(item)) && !(waiting instanceof Set && waiting.has(valueOf(item, 'Id'))))
 }
 
 /**
- * The step the worker holds now (taken, in progress or waiting on you), or undefined. F74: never one that only waits (`waiting`): its
- * worker is on its other step, or on none and free for a new one.
+ * The step the worker is on now (taken, in progress or waiting on you), or undefined. F74 rework (chat 1's blocker 1): parked.mjs
+ * `activeStepOf`: never one that only waits (`waiting`) nor one parked behind the worker's other step, whatever the store's order.
  */
-export const holdingOf = (items, name, prefix, waiting = null) => [...items.values()].find(item => kindOf(item) === 'step' && HOLDS.includes(stateOf(item)) && isMine(item, name, prefix)
-  && !(waiting instanceof Set && waiting.has(valueOf(item, 'Id'))))
+export const holdingOf = (items, name, prefix, waiting = null, landing = null) => activeStepOf(items, name, prefix, { waiting, landing }) ?? undefined
 
 const isQueuedFor = (items, id, name, prefix) => {
   const item = items.get(id)
@@ -443,13 +440,19 @@ export function decide({ waiting = null, worker, peers = [], setsRefused = false
     const why = paused ? PAUSED_WHY : LIMIT_WHY
     // P1 (2026-11-09): a "go on" line still waiting for a holder whose lane is parked now (it recorded its wait after the line) is
     // closed: the line would only wake it to wait.
-    const held = holdingOf(items, name, prefix, waiting)
+    const held = holdingOf(items, name, prefix, waiting, landing)
     const staleGoOn = held === undefined ? null : resumes.find(one => one.state === 'waiting' && markerStep(one.resume) === valueOf(held, 'Id')) ?? null
     const closing = inFlight !== null ? closeOf(inFlight) : staleGoOn === null ? null : staleGoOn.id
     return result(STATES.SUSPENDED, why, inFlight === null ? (closing === null ? {} : { close: closing }) : { takeBack: { id: inFlight.step, why }, close: closing, step: inFlight.step })
   }
+  // F74 rework (P1's close kept; chat 1's review): a "go on" line still waiting for a step that only waits now (its holder recorded the wait
+  // after the line was written) is closed first: the line would only wake the worker to wait. Nothing else goes in that pass.
+  const waitingNow = waiting instanceof Set ? waiting : waitingIds(items, { landing })
+  const staleWaiting = inFlight === null && activeStepOf(items, name, prefix, { waiting: waitingNow, landing }) === null
+    ? resumes.find(one => one.state === 'waiting' && waitingNow.has(markerStep(one.resume) ?? '')) ?? null : null
+  if (staleWaiting !== null) return result(STATES.FREE, null, { close: staleWaiting.id })
   // 2. Its own step: the take ended the hand-over.
-  const holding = holdingOf(items, name, prefix, waiting)
+  const holding = holdingOf(items, name, prefix, waiting, landing)
   if (holding !== undefined) {
     const id = valueOf(holding, 'Id')
     // Signals change 3: a holder that stopped gets one "go on" line, and its step goes back when it does not go on.
@@ -463,7 +466,7 @@ export function decide({ waiting = null, worker, peers = [], setsRefused = false
     // step whose land.ps1 Worker 4 was running). The "go on" line still goes; the give-back waits for the landing to end.
     // Both as the gate log names a branch (`logBranchName`: "qa/b866-x" is "qa-b866-x"): `landing` may come from that name.
     const branch = valueOf(holding, 'Branch')
-    const isLanding = typeof landing === 'string' && landing !== '' && typeof branch === 'string' && logBranchName(branch) !== '' && logBranchName(branch) === logBranchName(landing)
+    const isLanding = isLandingOf(branch, landing)
     if (isLanding && timed.giveBack !== null) return result(STATES.WORKING, null, { step: id, asked: timed.asked, giveBack: null, close: null, envelope: null, goOn: null, landing })
     const resume = timed.resume === null ? null
       // B1294: with its give-back's minutes, so rule 8 waits for that cure before it names the line (holderTimers.mjs `goOnWaitMs`).
@@ -623,7 +626,7 @@ export function decide({ waiting = null, worker, peers = [], setsRefused = false
   }
   // F74: the cap of two: a worker that holds two steps (one waiting, one given; two waiting) gets nothing new, whatever their states;
   // a task this decision takes back is not held any more.
-  const capped = [...items.values()].filter(item => kindOf(item) === 'step' && HOLDS_FOR_CAP.includes(stateOf(item)) && isMine(item, name, prefix) && valueOf(item, 'Id') !== (takenBack?.id ?? null)).length >= 2
+  const capped = isCapped(items, name, prefix, { except: takenBack?.id ?? null })
   const given = capped ? null : match({ ready: open, idle: [worker, ...others], items: scratch, prefix, mayTake }).find(one => plain(one.chat, prefix) === plain(name, prefix)) ?? null
   const clear = owed === null || owed === undefined ? null : { step: owed.step, reportedAt: owed.reportedAt }
   const said = takenBack === null ? null : `${NOT_TAKEN_WHY.replace('it', takenBack.id)}`

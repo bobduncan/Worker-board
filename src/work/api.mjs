@@ -58,7 +58,7 @@ import { isAskedSide } from './sideWord.mjs'
 import { estimateAtOf, nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { askedForOf, takenAtOf, takenForLine } from './held.mjs'
 import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, retiredWords } from './holderTimers.mjs'
-import { ACTIVE, onlyWaits, parkWords, parkedAfter, waitOf, workingOnOther } from './parked.mjs'
+import { ACTIVE, HOLD_CAP, heldForCap, onlyWaits, parkWords, parkedAfter, waitOf, workingOnOther } from './parked.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
 import { writeView } from './view.mjs'
 import { rowWordsOf, rowWordsText } from './rowWords.mjs'
@@ -392,7 +392,7 @@ const isOwner = (item, chat, prefix) => valueOf(item, 'Owner') !== null && plain
 const byId = (a, b) => a.localeCompare(b, 'en', { numeric: true })
 
 /** One item in one line: id, state, what it waits for, title. */
-function oneLine(item, items, held = null, now = null, recaps = null) {
+function oneLine(item, items, held = null, now = null, recaps = null, landing = null) {
   const isOpen = id => !CLEARED.includes(stateOf(items.get(id) ?? { head: new Map() }))
   const open = idsIn(valueOf(item, 'Blocked by')).filter(isOpen)
   // B306: what `Waits for` says holds the step: words until the main chat clears them, ids until each is resolved.
@@ -408,7 +408,7 @@ function oneLine(item, items, held = null, now = null, recaps = null) {
     // B543: a step in review says what it waits for itself (its check, its fix B<n>); B656: a fix the ready list holds, with why.
     reviewWaitOf(item, items, held, now, recaps)?.text ?? null,
     // B567: a step waiting on the person, or parked, says what it waits for and what the chat does meanwhile.
-    ...waitingWords(item, items)].filter(Boolean)
+    ...waitingWords(item, items, landing)].filter(Boolean)
   const missed = Number(valueOf(item, 'Missed') ?? 0)
   const turns = missed > 0 ? `, missed ${missed} turn${missed === 1 ? '' : 's'}` : ''
   const fix = isFix(item) ? ', board fix' : ''
@@ -418,14 +418,14 @@ function oneLine(item, items, held = null, now = null, recaps = null) {
 /** B567: the words of a step waiting on you in its one line: the asks it waits for, or that it is parked. F74: a step taken or in progress that only waits, or is parked behind the worker's new step, says so too. */
 function waitingWords(item, items, landing = null) {
   if (ACTIVE.includes(stateOf(item))) {
-    const parked = parkedAfter(item, items)
+    const parked = parkedAfter(item, items, { landing })
     const wait = waitOf(item, items, { landing })
     if (parked !== null && wait === null) return [`parked: its wait ended; it resumes after ${parked} is reported`]
     if (parked !== null) return [`parked: ${wait.words}; it resumes after ${parked} is reported`]
     return wait === null ? [] : [`${wait.words}; the board gives you new work meanwhile`]
   }
   if (stateOf(item) !== 'waiting on you') return []
-  const parked = parkedAfter(item, items)
+  const parked = parkedAfter(item, items, { landing })
   if (parked !== null) return [`parked: its answers came; it resumes after ${parked} is reported`]
   const open = openAsksUnder(items, valueOf(item, 'Id'), item).map(one => valueOf(one, 'Id'))
   return open.length === 0 ? [] : [`waits for ${open.join(', ')}; take your next queued step meanwhile`]
@@ -534,14 +534,18 @@ function steady(body, w, chat) {
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   // B567: a step that waits on the person's answer goes after the queued ones (the chat takes those meanwhile); a parked
   // one, whose answers came, stays before them: it is handed back first.
-  const rank = item => (stateOf(item) === 'waiting on you' && openAsksUnder(w.store.items, valueOf(item, 'Id'), item).length > 0 ? MINE.length : MINE.indexOf(stateOf(item)))
+  // F74 rework (chat 1's review): a step taken or in progress that only waits on a record, or is parked behind the chat's active step, goes
+  // after the queued ones too: the active step is the one shown in full right after the take line.
+  const landing = typeof w.landingNow === 'function' ? w.landingNow() : null
+  const rank = item => (stateOf(item) === 'waiting on you' && openAsksUnder(w.store.items, valueOf(item, 'Id'), item).length > 0 ? MINE.length
+    : ACTIVE.includes(stateOf(item)) && (onlyWaits(item, w.store.items, { landing }) || parkedAfter(item, w.store.items, { landing }) !== null) ? MINE.length : MINE.indexOf(stateOf(item)))
   const mine = items.filter(item => kindOf(item) === 'step' && MINE.includes(stateOf(item)) && isOwner(item, chat, w.prefix))
     // Fix first: within a state, a board fix before the others (it jumps the queue, it stops no work under way).
     .sort((a, b) => rank(a) - rank(b) || fixFirst(a, b) || byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   const all = [...told, ...mine]
   const open = openOf(chat, w)
   if (all.length === 0) return { ok: true, result: { text: `Nothing is yours, ${chat}: no instruction is open and no step is taken, in progress or queued for you.`, items: [], open, changed: false } }
-  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null, w.now, w.recaps ?? null)).join('\n')}\n\n${serializeItem(all[0])}${qaWords(all[0], w.store.items, w)}${rowWordsBlock(all[0], w)}`
+  const text = `Yours, ${chat}:\n${all.map(item => oneLine(item, w.store.items, w.readyHeld ?? null, w.now, w.recaps ?? null, landing)).join('\n')}\n\n${serializeItem(all[0])}${qaWords(all[0], w.store.items, w)}${rowWordsBlock(all[0], w)}`
   return { ok: true, result: { text, items: all.map(item => valueOf(item, 'Id')), id: valueOf(all[0], 'Id'), open, changed: false } }
 }
 
@@ -3051,7 +3055,7 @@ async function report(body, w) {
 async function resumeParked(reported, w) {
   const items = new Map(w.store.items)
   items.set(valueOf(reported, 'Id'), reported)
-  const parked = [...items.values()].filter(one => kindOf(one) === 'step' && isOwner(one, w.who, w.prefix) && parkedAfter(one, items) !== null)
+  const parked = [...items.values()].filter(one => kindOf(one) === 'step' && isOwner(one, w.who, w.prefix) && parkedAfter(one, items, { loose: true }) !== null)
     .sort((a, b) => byId(valueOf(a, 'Id'), valueOf(b, 'Id')))
   const resumed = []
   const landing = typeof w.landingNow === 'function' ? w.landingNow() : null
@@ -5267,8 +5271,6 @@ async function retireQueue(body, w) {
 
 /** Redesign Part 2: the states in which a worker holds a task for the give: given (queued) or under way. */
 const HOLDS_FOR_GIVE = ['queued', 'taken', 'in progress']
-/** F74: the states that count toward the cap of two steps per worker. */
-const HOLDS_FOR_CAP = ['queued', 'taken', 'in progress', 'waiting on you']
 
 /**
  * Redesign Part 2: the board gives a ready task to a worker (since T8.5 step 6 the hand-over's decision, handover.mjs), by the flow's
@@ -5293,8 +5295,8 @@ async function give(found, body, w) {
   // F74: a step that only waits on a record (parked.mjs `waitOf`: a blocker not done, a Waits on record, its landing running) holds no
   // worker; two held steps, whatever their states, do (the cap of two). The running landing comes from the context (`landingNow`).
   const landing = typeof w.landingNow === 'function' ? w.landingNow() : null
-  const held = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && HOLDS_FOR_CAP.includes(stateOf(one)) && isOwner(one, chat, w.prefix))
-  if (held.length >= 2) return refuse(409, `${chat} holds ${held.map(one => valueOf(one, 'Id')).sort(byId).join(' and ')}: no third task.`)
+  const held = heldForCap(w.store.items, chat, w.prefix)
+  if (held.length >= HOLD_CAP) return refuse(409, `${chat} holds ${held.map(one => valueOf(one, 'Id')).sort(byId).join(' and ')}: no third task.`)
   const holds = held.find(one => HOLDS_FOR_GIVE.includes(stateOf(one)) && !onlyWaits(one, w.store.items, { landing }))
   if (holds !== undefined) return refuse(409, `${chat} holds ${valueOf(holds, 'Id')} (${stateOf(holds)}): no second task.`)
   const waitingStep = held.find(one => onlyWaits(one, w.store.items, { landing })) ?? null

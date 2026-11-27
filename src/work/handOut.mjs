@@ -10,6 +10,7 @@ import { chatEffort, effortOf, familyOf, modelOf } from './effort.mjs'
 import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
 import { isFix, sinceMs, valueOf } from './item.mjs'
 import { barredFrom, isQaTask, notDueWhy } from './qaTask.mjs'
+import { heldForCap, isCapped } from './parked.mjs'
 
 /**
  * The settings' defaults (config.mjs): minutes a follow-up is kept for its worker (0: a preference only, the review of
@@ -168,7 +169,7 @@ export function readyList(items, { now, focus = null, focusGoals = [], backup = 
     const isQa = isQaTask(item)
     const follow = pinned === null && !isQa ? followUpOf(item, items, { now, followUpMs: isKept ? followUpMs : Infinity, prefix }) : null
     const chain = fixChain(item, items)
-    const rank = isQa ? -1 : isNearlyFinished(item) ? NEARLY_RANK : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : chain.some(one => inBackup.has(valueOf(one, 'Goal'))) ? BACKUP_RANK : 2
+    const base = isQa ? -1 : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : chain.some(one => inBackup.has(valueOf(one, 'Goal'))) ? BACKUP_RANK : 2
     const added = addedStamp(item)
     // B691: a fix goes out as its root does: the person's pick (added or pinned) of any step down its chain is its own.
     // A dropped root has nothing left to make pass: its pick does not carry the fix.
@@ -176,10 +177,12 @@ export function readyList(items, { now, focus = null, focusGoals = [], backup = 
     // 2026-10-25, the controller in the person's place (principle 8): a task that is no fix, not of the focus goal and
     // not pinned waits for the person's pick, unless the settings' `handOutBeyondFocus` is true. The whole backlog is
     // not the board's to start. The Backlog tab's blocks: the person picks it with "Add to queue" (`Queued by`).
-    if (rank === 2 && pinned === null && !picked && !beyondFocus) {
+    if (base === 2 && pinned === null && !picked && !beyondFocus) {
       held.push({ id, why: CHOICE_WHY, choice: true })
       continue
     }
+    // F74 rework (chat 1's blocker 2): after the person's pick rule, nearly finished work (a fix round of a built step) goes before the repairs.
+    const rank = base >= 0 && isNearlyFinished(item, items) ? NEARLY_RANK : base
     ready.push({ id, rank, keptFor: pinned ?? (isKept ? follow?.worker ?? null : null), keptUntil: isKept ? follow?.until ?? null : null, pinned, prefers: isKept ? null : follow?.worker ?? null, ...(added === null ? {} : { added }), ...(isQa ? { notBy: barredFrom(item, items) } : {}) })
   }
   // Within rank 2 the person's additions come first, in the order they were added (one without a readable stamp last of them).
@@ -187,8 +190,20 @@ export function readyList(items, { now, focus = null, focusGoals = [], backup = 
   return { ready: ready.sort((a, b) => a.rank - b.rank || addedOrder(a) - addedOrder(b) || byId(a.id, b.id)), held }
 }
 
-/** F74: nearly finished work: a step that is the fix of another (`Fix of`, made by a failed result check or the person's Send back). */
-const isNearlyFinished = item => typeof valueOf(item, 'Fix of') === 'string' && /\bB\d+\b/.test(valueOf(item, 'Fix of'))
+/**
+ * F74 (the person, 2026-11-26: "after it's finished it should give priority to work that's almost completed"): nearly finished work is a fix
+ * ROUND of a built step: `Fix of` a root in review or done whose History says the result check failed and made this fix (api.mjs `checked`),
+ * or that the person sent it back for this next try (`new ... of`, `acceptAnswer`). Chat 1's blocker 2: a next try of a step never built, or
+ * of a dropped root, is new work and ranks as its chain does.
+ */
+const isNearlyFinished = (item, items) => {
+  const rootId = String(valueOf(item, 'Fix of') ?? '').match(/\bB\d+\b/)?.[0] ?? null
+  const root = rootId === null ? undefined : items.get(rootId)
+  if (root === undefined || !['review', 'done'].includes(stateOf(root))) return false
+  const id = idOf(item)
+  const made = new RegExp(`(?:result check failed:.*\\bfix ${id}\\b|\\b(?:sent back|send back|next try)\\b.*\\b${id}\\b)`, 'i')
+  return (root.sections?.get('History') ?? []).some(line => made.test(String(line)))
+}
 
 /** The History line of the board's give (api.mjs `give`). */
 const GIVE_LINE = / → queued \(given by the board to /
@@ -223,8 +238,6 @@ export function oldQueued(items) {
 
 /** The states in which a step holds its worker for the hand-out: given (queued) or under way. */
 const HOLDS_WORKER = ['queued', 'taken', 'in progress']
-/** F74: the states that count toward the cap of two steps per worker (handover.mjs HOLDS plus queued). */
-const HOLDS_FOR_CAP = ['queued', 'taken', 'in progress', 'waiting on you']
 /** A step given (queued) or under way: its Touches count against a task to give. */
 const COUNTS_FOR_TOUCHES = ['queued', ...UNDER_WAY]
 /**
@@ -232,9 +245,8 @@ const COUNTS_FOR_TOUCHES = ['queued', ...UNDER_WAY]
  * steps that only wait on a record), or (the cap of two) two held steps whatever their states.
  */
 const holdsOf = (items, name, prefix, waiting = null) => {
-  const mine = [...items.values()].filter(item => kindOf(item) === 'step' && HOLDS_FOR_CAP.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), prefix) === plain(name, prefix))
-  if (mine.length >= 2) return true
-  return mine.some(item => HOLDS_WORKER.includes(stateOf(item)) && !(waiting instanceof Set && waiting.has(idOf(item))))
+  if (isCapped(items, name, prefix)) return true
+  return heldForCap(items, name, prefix).some(item => HOLDS_WORKER.includes(stateOf(item)) && !(waiting instanceof Set && waiting.has(idOf(item))))
 }
 const isWorkerLane = lane => lane.isMain !== true && lane.isLeftover !== true
 

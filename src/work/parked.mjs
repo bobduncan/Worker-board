@@ -33,6 +33,10 @@ const RESUME_LINE = /:\s+resumes after B\d+\s*$/
 export const WAITABLE = ['taken', 'in progress', 'waiting on you']
 /** F74: the states that hold a step on its worker for the two-step cap (given, under way, or waiting on the person). */
 export const HELD_FOR_CAP = ['queued', 'taken', 'in progress', 'waiting on you']
+/** F74 rework (chat 1's review, 2026-11-27): the states in which a held step is its worker's own now; ONE list for every reader. */
+export const HOLDS = ['taken', 'in progress', 'waiting on you']
+/** F74: the cap (chat 1's hard cap of two, 2026-11-26): a worker holds at most this many steps, whatever their states. */
+export const HOLD_CAP = 2
 
 const stateOf = item => valueOf(item, 'State')
 const idOf = item => valueOf(item, 'Id')
@@ -43,6 +47,28 @@ const plain = (name, prefix = '') => {
 }
 const sameOwner = (a, b, prefix) => valueOf(a, 'Owner') !== null && plain(valueOf(a, 'Owner'), prefix) === plain(valueOf(b, 'Owner'), prefix)
 const stepsIn = items => [...(items?.values?.() ?? items ?? [])].filter(one => (valueOf(one, 'Kind') ?? 'step') === 'step')
+const mineOf = (items, owner, prefix = '') => stepsIn(items).filter(one => valueOf(one, 'Owner') !== null && plain(valueOf(one, 'Owner'), prefix) === plain(owner, prefix))
+/** F74: the steps `owner` holds for the cap (HELD_FOR_CAP). */
+export const heldForCap = (items, owner, prefix = '') => mineOf(items, owner, prefix).filter(one => HELD_FOR_CAP.includes(stateOf(one)))
+/** F74: whether `owner` is at the cap: `except` a step this very decision takes back. One rule for the hand-out, the give and the decision. */
+export const isCapped = (items, owner, prefix = '', { except = null } = {}) => heldForCap(items, owner, prefix).filter(one => idOf(one) !== except).length >= HOLD_CAP
+/** F74: whether a landing runs for a step's branch now (`landing`, as the gate log names branches: `logBranchName`); one place for the match. */
+export const isLandingOf = (branch, landing) => typeof landing === 'string' && landing !== '' && typeof branch === 'string' && logBranchName(branch) !== '' && logBranchName(branch) === logBranchName(landing)
+/** The order of a held step's state for the active pick: in progress, waiting on you, taken (held.mjs HELD_RANK). */
+const ACTIVE_RANK = ['in progress', 'waiting on you', 'taken']
+/**
+ * F74 rework (chat 1's blocker 1: once a parked step's wait ended, `holdingOf` took it by id and the hand-over's timers, the go-on line, the
+ * give-back, the row and the mod's card all switched to it mid-step): the step `owner` is ON now. Of the steps it holds (HOLDS), never one
+ * that only waits (`waiting`, the pass's set; else `waitOf` with `landing`) nor one parked behind another (`parkedAfter`); in progress over
+ * waiting on you over taken, ties by the newest Since. Every reader of "the worker's step" goes by it. Null for none.
+ */
+export function activeStepOf(items, owner, prefix = '', { waiting = null, landing = null } = {}) {
+  const isWaiting = one => (waiting instanceof Set ? waiting.has(idOf(one)) : onlyWaits(one, items, { landing }))
+  const live = mineOf(items, owner, prefix).filter(one => HOLDS.includes(stateOf(one)) && !isWaiting(one) && parkedAfter(one, items, { landing }) === null)
+  // Ties keep the store's order (a stable sort): the first held step, as every reader read it before.
+  live.sort((a, b) => ACTIVE_RANK.indexOf(stateOf(a)) - ACTIVE_RANK.indexOf(stateOf(b)) || (sinceMs(valueOf(b, 'Since')) || 0) - (sinceMs(valueOf(a, 'Since')) || 0))
+  return live[0] ?? null
+}
 
 /** Whether the flow lets the board move a step whose worker rests on an open ask (a project's own flow.json may not). */
 export const flowRests = flow => (flow?.step?.moves ?? []).some(move => move.from === 'in progress' && move.to === 'waiting on you'
@@ -67,14 +93,22 @@ export function workingOnOther(items, item, prefix = '') {
  * The step a parked step resumes after (its History's last "parked (resumes after B<n>)", written after it last moved to
  * waiting on you), or null: a step not waiting on you, never parked, or with an ask under it open again.
  */
-export function parkedAfter(item, items = null) {
+export function parkedAfter(item, items = null, { landing = null, loose = false } = {}) {
   // F74: a step that only waited (taken or in progress) is parked behind the step its worker was given meanwhile, state unchanged.
   if (!WAITABLE.includes(stateOf(item))) return null
   const history = item.sections?.get('History') ?? []
   const at = history.findLastIndex(line => PARK_LINE.test(line))
   if (at < 0 || history.findLastIndex(line => MOVE_LINE.test(line) || RESUME_LINE.test(line)) > at) return null
   if (items !== null && openAskIds(items, idOf(item)).length > 0) return null
-  return history[at].match(PARK_LINE)[1]
+  const after = history[at].match(PARK_LINE)[1]
+  // F74 rework (chat 1's review: two waits gave circular words): a park holds only while the step it is parked behind is still its worker's
+  // active work. Reported, handed on, gone, or itself only waiting (`waitOf`): the park is void and this step is the worker's own again, so
+  // every reader agrees. `loose`: the park as written, for the report that ends it (api.mjs `resumeParked`).
+  if (items !== null && !loose) {
+    const other = items.get?.(after)
+    if (other === undefined || !['queued', ...ACTIVE].includes(stateOf(other)) || !sameOwner(other, item) || waitOf(other, items, { landing }) !== null) return null
+  }
+  return after
 }
 
 /** The History words of a park. */
@@ -98,7 +132,7 @@ export function restsFree(lane, items, prefix = '', waiting = []) {
  * "blocked by B<n>", "waits on <who>", "its landing runs" (F74: the records of `waitOf`), or null when nothing names it.
  */
 export function heldReason(item, items, { landing = null } = {}) {
-  const parked = parkedAfter(item, items)
+  const parked = parkedAfter(item, items, { landing })
   if (parked !== null) return `resumes after ${parked}`
   const open = openAskIds(items, idOf(item))
   if (open.length > 0) return `rests for ${open.join(', ')}`
@@ -120,7 +154,7 @@ export function waitOf(item, items, { landing = null } = {}) {
   const wait = waitsOnOf(item)
   if (wait !== null) return { kind: 'chat', who: wait.who, what: wait.what, since: wait.since, words: `waits on ${wait.who} (${wait.what})` }
   const branch = valueOf(item, 'Branch')
-  if (typeof landing === 'string' && landing !== '' && typeof branch === 'string' && logBranchName(branch) !== '' && logBranchName(branch) === logBranchName(landing)) return { kind: 'landing', branch, words: 'its landing runs' }
+  if (isLandingOf(branch, landing)) return { kind: 'landing', branch, words: 'its landing runs' }
   return null
 }
 
@@ -139,7 +173,8 @@ export function waitingIds(items, { landing = null } = {}) {
  * states, gets nothing new. Mirrors `restsFree`.
  */
 export function waitsFree(lane, items, prefix = '', { landing = null } = {}) {
-  if (lane === undefined || lane === null || lane.isMain === true || lane.isLeftover === true || lane.state === 'suspended' || lane.isRunning === false) return false
-  const mine = stepsIn(items).filter(one => HELD_FOR_CAP.includes(stateOf(one)) && valueOf(one, 'Owner') !== null && plain(valueOf(one, 'Owner'), prefix) === plain(lane.name, prefix))
+  // F74 rework (chat 1's review): an asleep worker (its process ended after its idle turn) is free as the hand-over counts it (`isThere`).
+  if (lane === undefined || lane === null || lane.isMain === true || lane.isLeftover === true || lane.state === 'suspended' || (lane.isRunning === false && lane.asleep !== true)) return false
+  const mine = heldForCap(items, lane.name, prefix)
   return mine.length === 1 && onlyWaits(mine[0], items, { landing })
 }

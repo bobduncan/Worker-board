@@ -35,7 +35,7 @@ import { refineWaitOf } from '../../work/refineWait.mjs'
 import { isQaTask, notDueWhy, openQaTaskOf } from '../../work/qaTask.mjs'
 import { UNCHECKED_MS, gitCheckPassed, needsResultCheck, resultCheckAtMs, resultCheckOf, reviewWaitOf } from '../../work/resultCheck.mjs'
 import { asksOfStep } from '../../work/stepAsks.mjs'
-import { heldReason } from '../../work/parked.mjs'
+import { HOLDS, activeStepOf, heldReason } from '../../work/parked.mjs'
 import { goOnLine, goneWords } from '../../work/holderTimers.mjs'
 import { leakedWords } from '../browsers.mjs'
 import { advisorStillWaitText, advisorWaitText } from '../../stepStatus.mjs'
@@ -69,7 +69,6 @@ export const PARTNER_QUIET_MS = 10 * MIN
 export const HELD_ELSEWHERE_MS = 60 * MIN
 
 /** The states in which a step is its Owner's work now. */
-const HOLDS = ['taken', 'in progress', 'waiting on you']
 const CLOSED = ['done', 'dropped']
 
 const kindOf = item => valueOf(item, 'Kind') ?? 'step'
@@ -247,7 +246,8 @@ function limitBack(view) {
   const found = []
   if (isHeld || isFull) return found
   for (const lane of workers.filter(one => one.state === 'suspended' && one.suspended?.isBack === true)) {
-    const held = steps.find(item => HOLDS.includes(stateOf(item)) && plain(valueOf(item, 'Owner'), prefix) === plain(lane.name, prefix))
+    // F74 rework (chat 1's review): the step the worker is on, never one that only waits or is parked (parked.mjs `activeStepOf`).
+    const held = activeStepOf(view.items, lane.name, prefix, { landing: view.landing ?? null }) ?? undefined
     if (held === undefined) continue
     const id = idOf(held)
     const until = Number.isFinite(lane.suspended.until) ? ` until ${clockOf(lane.suspended.until)}` : ''
@@ -655,7 +655,7 @@ function heldElsewhere(view, { seen = new Map(), observed = [] } = {}) {
     const lane = laneOf(valueOf(item, 'Owner'))
     const on = lane?.task?.stepId ?? null
     if (lane === undefined || lane.isMain === true || lane.state === 'suspended' || on === null || on === id) continue
-    if (!(now - sinceMs(valueOf(item, 'Since')) > HELD_ELSEWHERE_MS) || heldReason(item, items) !== null) continue
+    if (!(now - sinceMs(valueOf(item, 'Since')) > HELD_ELSEWHERE_MS) || heldReason(item, items, { landing: view.landing ?? null }) !== null) continue
     const watch = `held-elsewhere ${id} ${plain(lane.name, prefix)}`
     if (!observed.includes(watch)) observed.push(watch)
     const key = `held-elsewhere ${id} ${Math.floor((now - (seen.get(watch) ?? now)) / HOUR)}`

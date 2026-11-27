@@ -9495,3 +9495,36 @@ worker while Worker 1 held a step blocked by two others for 14 hours and Worker 
   API and the reconciler, the wait that still stands, the landed step reported beside an active one); test/waitsOn.test.mjs's B1081 case
   reads the new way. 15 mutants (the three records, a done blocker, the cap in waitsFree, holdsOf and the hand-over, the order, the park
   at the give, the resume of a standing wait, pickHeld, the stop word, the unblock word), each red.
+
+### F74 rework (2026-11-27, chat 3, chat 1's core review of 68187307: two blockers, nine should-fixes)
+
+One place for the worker's step (src/work/parked.mjs): `activeStepOf` is the step a worker is ON now, of the steps it holds (HOLDS) never one
+that only waits (`waitOf`) nor one parked behind another (`parkedAfter`), in progress over waiting on you over taken, ties by the newest
+Since and the store's order. Every one-step reader goes by it: the hand-over's decision and its timers (handover.mjs `holdingOf`), the row
+and the Workers mod's card (held.mjs `pickHeld`: the hand-over's step never bypasses the pick when it waits or is parked), the lane's held
+ask (state.mjs), Resume all (pause.mjs `isResumed`), the limit's word (repair.mjs limitBack), the wake's resume line and the resume word
+(the store steps' `waits` and `parked` flags), work next (api.mjs steady: a waiting or parked step ranks after the queued ones), and the
+unblock words (say.mjs). Blocker 1 (a parked step whose wait ended switched every reader to it mid-step) is gone.
+
+A park holds only while the step it is parked behind is still its worker's active work (given, taken or in progress, and not itself only
+waiting): reported, handed on or waiting, the park is void and the parked step is the worker's own again, so two waits never give circular
+words. The report that ends a park reads the line as written (`loose`).
+
+Nearly finished work (blocker 2) is a fix ROUND of a built step only: `Fix of` a root in review or done whose History says the result check
+failed and made this fix, or that the person sent it back for this next try; a next try of an unbuilt or dropped root ranks as its chain. The
+pick rule stands as the comment above `readyList` (handOut.mjs) says, judged on the chain's own rank before the band is given.
+
+One rule, one place: HELD_FOR_CAP, HOLDS, HOLD_CAP, `heldForCap`, `isCapped` (with the step a decision takes back) and `isLandingOf` live in
+parked.mjs; the hand-out, the give, the hand-over's cap and `waitsFree` call them. The landing a pass reads is the same everywhere: the
+state's `landingNow` goes into factsOf, heldOf, the lane's steps, the health view (`view.landing`) and the repair rules.
+
+The lane of a worker whose only step waits reads free (chatReport `holdsTask` leaves out waiting and parked steps), is in no cut-off list,
+and its row still shows that step with its status (P7, one status) while the hand-over holds none; an asleep such worker is free too
+(`waitsFree`) and the reconciler's `waitFree` reaches `idleWorkers` and `noneReadyOf`, so no extra worker is asked for. A "go on" line still
+waiting for a step that only waits now is closed by the decision (P1's close, kept). The go-on line ends with the words that name the wait
+record to write (holderTimers.mjs `waitRecordWords`, spec 9a).
+
+Tests: test/work/waitingWorkersReview.test.mjs (the parked step whose wait ended beside an active step through decide, holdingOf, heldOf
+and pickHeld; two waits and their words through work next and the unblock words; the fix-round marker and the pick rule; the landing end
+to end through the facts, the give and the reconciler; the one rule; Resume all; the go-on words; a real lane state built from a store and
+reports for the three wait kinds), the earlier F74 tests updated to the review's calls; 18 mutants red.

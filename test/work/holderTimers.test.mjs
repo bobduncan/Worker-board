@@ -10,6 +10,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+
+import { waitRecordWords } from '../../src/work/holderTimers.mjs'
 import vm from 'node:vm'
 
 import { statusOf } from '../../src/chatStatus.mjs'
@@ -56,7 +58,8 @@ const stopped = (now, more = {}) => ({
   name: 'Worker 1', isMain: false, isLeftover: false, isRunning: true, state: 'interrupted', mod: HANDOVER_MOD, onSequence: true,
   report: { state: 'idle', since: T0, background: false, at: now }, ...more,
 })
-const LINE = 'go on with B12 from your checkpoint: branch b12-gate, commit abc1234, next: write the tests'
+// F74 spec 9a: every go-on line ends with the words that name the wait record to write.
+const LINE = `go on with B12 from your checkpoint: branch b12-gate, commit abc1234, next: write the tests${waitRecordWords('B12')}`
 /** One decision at minute `minutes`. */
 const decideAt = (minutes, { items = mapOf(held()), envelopes = [], worker = stopped(at(minutes)), ...more } = {}) => decide({ worker, items, envelopes, now: at(minutes), ...more })
 /** The resume envelope as the board writes it (handoverBoard.mjs): the decision's envelope with id, time, state. */
@@ -108,7 +111,7 @@ test('a checkpoint at minute 10 resets both timers: no give-back at 20, a new sp
   assert.equal(decideAt(14, { items, envelopes: [sent] }).envelope, null)
   const again = decideAt(15, { items, envelopes: [sent] })
   assert.equal(again.envelope.resume, resumeMarker('B12', at(10)))
-  assert.equal(again.envelope.line, 'go on with B12 from your checkpoint: branch b12-gate, commit def5678, next: paint it')
+  assert.equal(again.envelope.line, `go on with B12 from your checkpoint: branch b12-gate, commit def5678, next: paint it${waitRecordWords('B12')}`)
 })
 
 test('a busy report at minute 8: it works, nothing happens; idle again at 9 is a new spell (no give-back at 20)', () => {
@@ -194,12 +197,12 @@ test('never for a step in review or checking, nor one waiting on you; a Quality 
   const waiting = decideAt(30, { items: mapOf(held({ State: 'waiting on you' })) })
   assert.deepEqual([waiting.state, waiting.envelope], [STATES.WORKING, null])
   const qa = decideAt(5, { items: mapOf(held({ Checks: 'B5', Branch: '-' })) })
-  assert.equal(qa.envelope.line, 'go on with B12 from your checkpoint: branch none, commit abc1234, next: write the tests')
+  assert.equal(qa.envelope.line, `go on with B12 from your checkpoint: branch none, commit abc1234, next: write the tests${waitRecordWords('B12')}`)
 })
 
 test('the line names "none" for what the step lacks: no branch, no commit, no checkpoint at all', () => {
-  assert.equal(goOnLine(held({ Branch: '-', Checkpoint: checkpointLine({ commit: 'none', next: 'start over', now: at(-1) }) })), 'go on with B12 from your checkpoint: branch none, commit none, next: start over')
-  assert.equal(goOnLine(held({ Checkpoint: '' })), 'go on with B12 from your checkpoint: branch b12-gate, commit none, next: none')
+  assert.equal(goOnLine(held({ Branch: '-', Checkpoint: checkpointLine({ commit: 'none', next: 'start over', now: at(-1) }) })), `go on with B12 from your checkpoint: branch none, commit none, next: start over${waitRecordWords('B12')}`)
+  assert.equal(goOnLine(held({ Checkpoint: '' })), `go on with B12 from your checkpoint: branch b12-gate, commit none, next: none${waitRecordWords('B12')}`)
 })
 
 // ---- The board: the envelope, the History line, the give-back (the second half: the store's move).

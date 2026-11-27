@@ -110,7 +110,7 @@ function chatLines(view, now) {
   ]
   const steps = stepsOf(view)
   // F74: a step that only waits on a record (parked.mjs `waitOf`; the lane's `waiting` line carries the landing kind too) is nobody's work now.
-  const waiting = waitingIds(view.items)
+  const waiting = waitingIds(view.items, { landing: view.landing ?? null })
   return chats.map(({ lane, role }) => {
     const mine = steps.filter(item => plain(valueOf(item, 'Owner'), view.prefix) === plain(lane.name, view.prefix))
     const since = view.since.get(lane.name)
@@ -136,7 +136,7 @@ function chatLines(view, now) {
       .filter(one => Number.isFinite(one.at)).sort((a, b) => b.at - a.at)
     const report = reports.length === 0 ? '; no report known' : `; last report ${reports[0].id} at ${dayClockOf(reports[0].at, now)}`
     // X51 to X53: a worker stopped on purpose says so (and is no odd one); one parked for other steps is no limit stop.
-    const purpose = onPurposeOf(lane, on, view)
+    const purpose = onPurposeOf(lane, on, view, { mine, waiting })
     const suspended = purpose !== null ? ` (on purpose: ${purpose})`
       : lane.state === 'suspended' && lane.suspended !== null && typeof lane.suspended === 'object'
         ? ` (for ${lane.suspended.limit ?? 'a limit'}${Number.isFinite(lane.suspended.until) ? ` until ${dayClockOf(lane.suspended.until, now)}` : ''}${lane.suspended.isBack === true ? ', the limit is back' : ''})` : ''
@@ -181,9 +181,17 @@ function chatLines(view, now) {
 /** F74: the lane's waiting step as its own words: "; holds B1081, waits on chat 1 (its go to land)", or ''. */
 const waitingWords = lane => (lane.waiting !== null && typeof lane.waiting === 'object' && typeof lane.waiting.id === 'string' ? `; holds ${lane.waiting.id}, ${lane.waiting.on}` : '')
 
-function onPurposeOf(lane, held, view) {
+function onPurposeOf(lane, held, view, { mine = [], waiting = new Set() } = {}) {
   // F74: a chat that stopped while its only held step waits on a record stopped on purpose (it recorded the wait): no fault.
   if (held === null && lane.state === 'interrupted' && lane.waiting !== null && typeof lane.waiting === 'object' && typeof lane.waiting.id === 'string') return `holds ${lane.waiting.id}, ${lane.waiting.on}`
+  // F74 rework (chat 1's review): a lane without the state's waiting line (X51's shape) says the same from the items: its held step that only waits.
+  if (held === null && lane.state === 'interrupted') {
+    const waitingStep = mine.find(item => waiting.has(valueOf(item, 'Id'))) ?? null
+    if (waitingStep !== null) {
+      const waits = waitsOf(waitingStep, view.items)
+      return waits.length > 0 ? `its step ${valueOf(waitingStep, 'Id')} waits for ${waits.join('; ')}` : `holds ${valueOf(waitingStep, 'Id')}, ${heldReason(waitingStep, view.items, { landing: view.landing ?? null }) ?? 'waits'}`
+    }
+  }
   // The asset wait (the person's "A, Working"): a lane working for the provider's pictures: "Codex draws 4 pictures for it · 2 of 4 done · since 10:43".
   if (lane.state === 'working' && lane.heldBy === 'asset' && typeof lane.assetWork?.words === 'string') return lane.assetWork.words
   if (lane.state === 'suspended') {
@@ -350,7 +358,7 @@ function parkedOf(item, view) {
   const other = workingOnOther(view.items, item, view.prefix)
   const isOlder = other !== null && (!ACTIVE.includes(valueOf(item, 'State')) || !(sinceMs(valueOf(item, 'Since')) > sinceMs(valueOf(view.items.get(other), 'Since'))))
   const on = card ?? (isOlder ? other : null)
-  return on === null ? null : { on, why: heldReason(item, view.items) }
+  return on === null ? null : { on, why: heldReason(item, view.items, { landing: view.landing ?? null }) }
 }
 
 /** Each step under way: its state, for how long, its owner; the backlog's new and refined steps counted in one line. */

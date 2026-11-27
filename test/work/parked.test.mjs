@@ -193,7 +193,7 @@ test('the health summary names a step its worker holds while on another, with th
   // The step it is on is no parked step.
   assert.doesNotMatch(lines([step('B68', 'in progress')]).find(one => one.includes('B68 in progress')), /parked/)
   // Its card on the supervisor's page says so too.
-  assert.equal(stepState(parkedStep, { lanes: [], steps: new Map([['B47', parkedStep]]) }).text, 'Digger · parked until B68 is reported')
+  assert.equal(stepState(parkedStep, { lanes: [], steps: new Map([['B47', parkedStep], ['B68', step('B68', 'in progress')]]) }).text, 'Digger · parked until B68 is reported')
 })
 
 test('held-elsewhere: a step in progress over an hour while its worker is on another, nothing naming why, is named to Main once an hour', () => {

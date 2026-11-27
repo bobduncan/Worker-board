@@ -12,13 +12,12 @@ import { earlierOfCard, shortAnswer } from './autopilot.mjs'
 import { askFiledMs, fixFirst, sinceMs, valueOf } from './item.mjs'
 import { PARTNER_AGAIN_MS, PARTNER_ANSWER_MS, isRoutedToPartner } from './partnerAnswers.mjs'
 import { isHolding } from './pause.mjs'
-import { REST_GUARD, REST_MS, flowRests, openAskIds, restsFree, waitingIds, waitsFree } from './parked.mjs'
+import { HOLDS, REST_GUARD, REST_MS, flowRests, openAskIds, restsFree, waitingIds, waitsFree } from './parked.mjs'
 import { givenBackOf } from './holderTimers.mjs'
 import { isKeptLook } from './keptLook.mjs'
 import { NOT_MERGED, backWordsOf } from './resultCheck.mjs'
 
 /** The states in which a step is its Owner's work now. */
-const HOLDS = ['taken', 'in progress', 'waiting on you']
 const MIN = 60_000
 /** T8.5 step 6: the one line on top of a board whose setting `handover` is not "sequence" (the escape hatch). */
 export const HANDOVER_OFF = 'the hand-over is off: set handover to sequence'

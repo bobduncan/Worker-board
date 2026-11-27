@@ -9,6 +9,7 @@
 import { sinceMs, valueOf } from './item.mjs'
 import { keptRecapWaitOf, waitsOnOf } from './waitsOn.mjs'
 import { assetWaitOf } from './assetWait.mjs'
+import { parkedAfter, waitOf } from './parked.mjs'
 
 export const PAUSE_FILE = 'pause.json'
 export const PAUSE_STATES = ['pausing', 'resuming', 'running']
@@ -31,9 +32,12 @@ export const RESUMED = HELD.filter(state => state !== 'review')
  * and Q715 case): its lane is parked the same way, and a resume would only wake it to wait again. The asset wait (2026-11-11, the B1124
  * case): nor a step whose holder has an open asset request for it (`assets`, work/assetWait.mjs): it waits for the provider.
  */
-const isResumed = (items, holder, assets = [], prefix = '') => {
+const isResumed = (items, holder, assets = [], prefix = '', landing = null) => {
   const step = items?.get?.(holder.id)
   if (!RESUMED.includes(valueOf(step, 'State') ?? '') || waitsOnOf(step) !== null) return false
+  // F74 rework (chat 1's review, spec h): nor a step that only waits on a record (a blocker, its landing) or is parked behind the holder's
+  // active step: the resume names the active one, never a blocked step.
+  if (waitOf(step, items, { landing }) !== null || parkedAfter(step, items, { landing }) !== null) return false
   if (assetWaitOf(step, assets, { chat: holder.chat, prefix }) !== null) return false
   const asks = [...(items?.values?.() ?? [])].filter(item => valueOf(item, 'Kind') === 'ask' && valueOf(item, 'Of') === holder.id)
   return keptRecapWaitOf(step, asks) === null
@@ -257,7 +261,7 @@ export function resumeEnds(pause, now) {
  * main chat while resuming: every other chat holding a step, `{ chat, session (the app's id for it), cliSession, step,
  * checkpoint, branch, hasStarted }`.
  */
-export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role, assets = [] }) {
+export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role, assets = [], landing = null }) {
   const state = pause?.state ?? 'running'
   const since = pause?.since ?? null
   // While resuming a checkpoint counts from when the pause began; a resume with no pause before it has none.
@@ -269,7 +273,7 @@ export function pauseAnswer({ pause, items, lanes = [], prefix = '', chat, role,
   const laneOf = name => lanes.find(lane => plain(lane.name, prefix) === plain(name, prefix))
   // T8.5: a task given to a worker is no step to resume: the resume decides its hand-over anew.
   const resumeList = state !== 'resuming' || role !== 'main' ? [] : holdersOf(items, prefix)
-    .filter(holder => plain(holder.chat, prefix) !== plain(chat, prefix) && laneOf(holder.chat) !== undefined && isResumed(items, holder, assets, prefix))
+    .filter(holder => plain(holder.chat, prefix) !== plain(chat, prefix) && laneOf(holder.chat) !== undefined && isResumed(items, holder, assets, prefix, landing))
     .map(holder => {
       const lane = laneOf(holder.chat)
       return { chat: lane.name, session: lane.appSession ?? null, cliSession: lane.session ?? null, step: holder.id, checkpoint: withMark(holder.checkpoint), branch: holder.branch, hasStarted: hasStarted(lane, since) }

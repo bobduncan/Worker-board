@@ -703,7 +703,8 @@ function orderOf(state) {
 
 /** The step a lane holds that its resume names: its task's step first, else the oldest taken or in progress. */
 const heldStepOf = lane => {
-  const held = (lane.storeSteps ?? []).filter(one => one.state === 'taken' || one.state === 'in progress')
+  // F74 rework: never a step that only waits on a record or is parked behind the chat's active one (the state's `waits`, `parked`).
+  const held = (lane.storeSteps ?? []).filter(one => (one.state === 'taken' || one.state === 'in progress') && one.waits !== true && one.parked !== true)
   return { held, step: held.find(one => one.id === lane.task?.stepId) ?? held[0] ?? null }
 }
 

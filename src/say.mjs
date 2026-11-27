@@ -817,7 +817,8 @@ export function resumesDue(state, outbox) {
     if (stoppedOf(outbox, lane) !== null) continue
     // F23: not to a chat whose board link is gone: nothing there takes it; after its restart the chat reports and resumes (src/modGone.mjs).
     if ((lane.modGone ?? null) !== null) continue
-    const held = (lane.storeSteps ?? []).filter(one => RESUMED_STEPS.includes(one.state))
+    // F74 rework: a step that only waits on a record, or is parked behind the chat's active one, is not the one to resume.
+    const held = (lane.storeSteps ?? []).filter(one => RESUMED_STEPS.includes(one.state) && one.waits !== true && one.parked !== true)
     if (held.length === 0) continue
     const step = held.find(one => one.id === lane.task?.stepId) ?? held[0]
     // The chat last ran when it last wrote or began a turn: a word sent after that belongs to this off spell.
@@ -945,7 +946,9 @@ export function unblockedDue(state, outbox) {
       if (one.unblocked === null || one.unblocked === undefined || !Number.isFinite(one.unblocked.at)) continue
       const isTold = (outbox ?? []).some(sent => sent.command === 'unblocked' && sent.to === lane.name && sent.about === one.id && Number.isFinite(sent.at) && sent.at >= one.unblocked.at)
       if (isTold) continue
-      const active = steps.find(other => other.id !== one.id && RESUMED_STEPS.includes(other.state) && other.waits !== true) ?? null
+      // F74 rework (chat 1's review, two waits): the active step is one that neither waits nor is parked; the unblocked step itself may be
+      // parked behind it (then it resumes at that step's report), or its park is void because that step waits (then: go on with it).
+      const active = steps.find(other => other.id !== one.id && RESUMED_STEPS.includes(other.state) && other.waits !== true && other.parked !== true) ?? null
       words.push(unblockedWords(lane.name, one.id, one.unblocked.by, active === null ? null : active.id))
     }
   }

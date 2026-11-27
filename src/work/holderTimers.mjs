@@ -71,8 +71,13 @@ export function standOf(item) {
 /** The "go on" line (the Addendum's words): `go on with B12 from your checkpoint: branch X, commit Y, next: Z`. */
 export function goOnLine(item) {
   const { branch, commit, next } = standOf(item)
-  return `go on with ${valueOf(item, 'Id')} from your checkpoint: branch ${branch}, commit ${commit}, next: ${next}`
+  return `go on with ${valueOf(item, 'Id')} from your checkpoint: branch ${branch}, commit ${commit}, next: ${next}${waitRecordWords(valueOf(item, 'Id'))}`
 }
+/**
+ * F74 spec 9a (the person, 2026-11-26; B417's case: a wait written only in a checkpoint kept its worker held for hours): the go-on line names
+ * the record a wait is, so such a wait becomes a record within one nudge (parked.mjs `waitOf` reads it; the worker is free meanwhile).
+ */
+export const waitRecordWords = id => `; a wait on a step or a chat is a record, not a checkpoint: work block ${id} on <B<n> or the chat> why <one line>`
 
 /** The step's History line when the board wrote the "go on" line (the board writes it as `server`). */
 export const goOnWords = (chat, since) => `the board asked ${chat} to go on (stopped since ${hourMinute(since)})`

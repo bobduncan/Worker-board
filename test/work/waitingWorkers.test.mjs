@@ -100,9 +100,10 @@ test('e: every one-step reader follows the active step: a waiting step is left o
   const mine = [items.get('B1442'), items.get('B1500')]
   assert.equal(valueOf(pickHeld(mine, 'Worker 1', '', null, waiting, items), 'Id'), 'B1500', 'the active one, although B1442 is in progress and ranks first by state')
   assert.equal(valueOf(pickHeld(mine, 'Worker 1'), 'Id'), 'B1442', 'without the set, today\'s rank by state')
-  assert.equal(pickHeld([items.get('B1442')], 'Worker 1', '', null, waiting, items), undefined, 'a worker whose every held step waits holds none for the row')
+  // F74 rework (chat 1's review; P7, one status): with only a waiting step the row shows it with its status; the hand-over holds none.
+  assert.equal(valueOf(pickHeld([items.get('B1442')], 'Worker 1', '', null, waiting, items), 'Id'), 'B1442', 'a worker whose every held step waits shows one for the row')
   assert.equal(heldOf(items, 'Worker 1', '', { waiting }).id, 'B1500')
-  assert.equal(heldOf(mapOf([blocked(), blocker()]), 'Worker 1', '', { waiting }), null)
+  assert.equal(heldOf(mapOf([blocked(), blocker()]), 'Worker 1', '', { waiting })?.id, 'B1442')
   // parked behind the active one (its wait ended while the worker was on B1500): last, so the row follows B1500
   const parked = step('B1442', 'in progress', { Owner: 'Worker 1', Branch: 'b1442-sandbox' }, { History: [said(590, 'Worker 1', 'taken → in progress'), said(2, 'server', parkWords('B1500'))] })
   const withParked = mapOf([parked, blocker('done'), items.get('B1500')])
@@ -118,7 +119,9 @@ test('e: every one-step reader follows the active step: a waiting step is left o
 test('c: the order of the ready list: checks of finished work, then nearly finished work (a fix of a built step), then board repairs, the focus goal, the backup goal, the rest', () => {
   const items = mapOf([
     step('B1', 'refined', { Goal: 'G1' }), step('B2', 'refined', { Priority: 'fix' }), step('B3', 'refined', { Goal: 'G108' }),
-    step('B4', 'refined', { 'Fix of': 'B40' }, { History: [said(20, 'Partner', 'made by the result check of B40')] }), step('B40', 'review', { Owner: 'Worker 2' }),
+    step('B4', 'refined', { 'Fix of': 'B40' }, { History: [said(20, 'Partner', 'made by the result check of B40')] }),
+    // chat 1's blocker 2: a fix round of a BUILT step: the root in review, its History says the check failed and made this fix.
+    step('B40', 'review', { Owner: 'Worker 2' }, { History: [said(30, 'Worker 2', 'in progress → review'), said(20, 'Partner', 'result check failed: one point; fix B4 for Worker 2')] }),
     step('B5', 'refined', { Goal: 'G2' }),
   ])
   const list = readyList(items, { now: NOW, focus: 'G108', backup: 'G2', followUpMs: 0, beyondFocus: true })
@@ -133,8 +136,8 @@ test('the hand-over: a worker holding only a waiting step is given the next read
   const handing = decide({ worker: lane, items, ready: readyOf('B1500'), now: NOW, event: { kind: 'turn-ended', since: ago(5) }, waiting })
   assert.equal(handing.state, STATES.HANDING)
   assert.equal(handing.give, 'B1500')
-  // without the set the worker is the holder of B1442, as today
-  assert.equal(decide({ worker: lane, items, ready: readyOf('B1500'), now: NOW, event: { kind: 'turn-ended', since: ago(5) } }).give, null)
+  // F74 rework: without the set the decision reads the waits itself (parked.mjs `activeStepOf`): the same answer.
+  assert.equal(decide({ worker: lane, items, ready: readyOf('B1500'), now: NOW, event: { kind: 'turn-ended', since: ago(5) } }).give, 'B1500')
   // the facts carry the set, read from the items and the landing
   const facts = factsOf({ lane, state: { chatPrefix: '' }, items, pause: null, sent: [], config: {}, now: NOW, event: { kind: 'pass' }, landing: null })
   assert.deepEqual([...facts.waiting], ['B1442'])
@@ -251,7 +254,9 @@ test('the wait still standing at the report: the parked step stays parked and th
     const reported = await w1({ action: 'report', id: 'B1500', result: 'Done.', merged: 'def5678' })
     assert.deepEqual(reported.result.resumed ?? [], [], 'B1442 still waits for B1440: not handed back')
     let items = await read()
-    assert.equal(parkedAfter(items.get('B1442'), items), 'B1500')
+    // F74 rework: the park is void once B1500 is reported (the line stays as written); B1442 simply waits.
+    assert.equal(parkedAfter(items.get('B1442'), items), null)
+    assert.equal(parkedAfter(items.get('B1442'), items, { loose: true }), 'B1500')
     assert.equal((await server({ action: 'advance', to: 'queued', id: 'B1501', for: 'Worker 1' })).ok, true, 'free again: the next ready step')
     items = await read()
     assert.match(historyOf(items.get('B1442')).at(-1), /server: parked \(resumes after B1501\)$/, 'parked behind the newer step now')
@@ -272,10 +277,10 @@ test('the wait still standing at the report: the parked step stays parked and th
 test('e: the page draws the waiting step as one muted line under the worker\'s task, and the state carries it as `waiting` beside the store steps\' `waits` flag', async () => {
   const { readFile } = await import('node:fs/promises')
   const page = await readFile(new URL('../../public/board.js', import.meta.url), 'utf8')
-  assert.match(page, /if \(isHeldRow\(lane\) && lane\.waiting !== null && lane\.waiting !== undefined\) list\.append\(el\('li', 'muted', `also holds \$\{lane\.waiting\.id\} \$\{lane\.waiting\.title\} · \$\{lane\.waiting\.on\}/)
+  assert.match(page, /if \(lane\.waiting !== null && lane\.waiting !== undefined && lane\.waiting\.id !== \(lane\.held\?\.id \?\? null\)\) list\.append\(el\('li', 'muted', `\$\{isHeldRow\(lane\) \? 'also holds' : 'holds'\} \$\{lane\.waiting\.id\} \$\{lane\.waiting\.title\} · \$\{lane\.waiting\.on\}/)
   const state = await readFile(new URL('../../src/state.mjs', import.meta.url), 'utf8')
   assert.match(state, /waiting: lane\.isLeftover \|\| lane\.isMain \? null : waitingLineOf\(lane\.name\),/)
-  assert.match(state, /waits: waiting\.has\(one\.head\.get\('Id'\)\), unblocked: unblockedOf\(one, waiting\)/)
+  assert.match(state, /waits: waiting\.has\(one\.head\.get\('Id'\)\), parked: parkedAfter\(one, raw\.work\?\.items \?\? null, \{ landing: landingNow \}\) !== null, unblocked: unblockedOf\(one, waiting\)/)
   // the parked lane suspension for a blocked step or a chat wait is gone (chat 1's call): only the recap and asset waits park a lane
   assert.doesNotMatch(state, /step\?\.blockedBy\?\.length > 0 \? \{ by: 'parked'/)
   assert.doesNotMatch(state, /waitSuspension\(step\?\.waitsOn \?\? null\) \?\?/)

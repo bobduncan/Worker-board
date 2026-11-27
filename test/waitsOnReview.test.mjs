@@ -190,7 +190,8 @@ test('should-fix 3: the timers read the step\'s record, whatever the lane says: 
   for (const w4 of ['stale', 'ended']) {
     const built = build({ now: at(11, 46), history: GO_ONS, w4 })
     const lane = laneOf(built.state, 'Worker 4')
-    assert.ok(['unknown', 'off', 'suspended'].includes(lane.state), `${w4}: ${lane.state}`)
+    // F74 rework: an asleep lane whose only step waits reads free (asleep), as any asleep chat that holds no task.
+    assert.ok(['unknown', 'off', 'suspended'].includes(lane.state) || (lane.state === 'free' && lane.isRunning === false), `${w4}: ${lane.state}`)
     const decision = decided(built, at(11, 46))
     assert.deepEqual([decision.envelope, decision.giveBack, decision.goOn], [null, null, null], `${w4}: ${JSON.stringify(decision)}`)
     const bare = decided(build({ now: at(11, 46), waits: null, history: GO_ONS, w4 }), at(11, 46))
@@ -211,7 +212,8 @@ test('should-fix 3: the timers read the step\'s record, whatever the lane says: 
   const waiting = { id: 'm1', kind: 'resume', command: HANDOVER_COMMAND, to: 'Worker 4', at: at(11, 24), state: 'waiting', resume: `resume B1081 ${IDLE_AT}`, line: 'go on' }
   const parked = build({ now: at(11, 26), outbox: [waiting] })
   const decision = decide({ ...factsOf({ lane: laneOf(parked.state, 'Worker 4'), state: { chatPrefix: PREFIX, readyList: null, limits: parked.state.limits, gaps: [] }, items: parked.work.items, pause: null, sent: [waiting], config, now: at(11, 26), event: { kind: 'pass' } }), ready: [], owed: null })
-  assert.deepEqual([decision.state, decision.close], ['suspended', 'm1'])
+  // F74 rework: the lane reads free (its only step waits); the decision still closes the stale line first.
+  assert.deepEqual([decision.state, decision.close], ['free', 'm1'])
 })
 
 test('should-fix 4: the record and the clear of a wait are progress: the B1081 timeline with an unblock at 12:40 gives nothing back on the next pass, and the "go on" count starts anew', () => {

@@ -200,16 +200,18 @@ test('the B1081 case with the record: parked on purpose at 11:24, 11:30 and 11:4
     const lane = laneOf(built.state, 'Worker 4')
     // F74 (chat 1's call, 2026-11-26): a step that only waits on a record parks its lane no more: the lane reads its report (here: cut off),
     // the waiting step is its own line, and the worker counts free for new work; still no "go on" line and no give-back.
-    assert.equal(lane.state, 'interrupted', `${new Date(now).toTimeString().slice(0, 8)}: ${lane.state}`)
+    // F74 rework (chat 1's review): the lane reads free (its only step waits), never "Stopped · task open".
+    assert.equal(lane.state, 'free', `${new Date(now).toTimeString().slice(0, 8)}: ${lane.state}`)
     assert.equal(lane.suspended ?? null, null)
     assert.deepEqual([lane.waiting?.id, lane.waiting?.on, lane.waiting?.since], ['B1081', 'waits on chat 1 (its go to land)', WAIT_AT])
-    assert.equal(lane.held ?? null, null, 'a worker whose only step waits holds none for the row')
+    assert.equal(lane.held?.id, 'B1081', 'the row shows the waiting step with its status (P7, one status); the hand-over holds none')
     const decision = decided(built, now)
     assert.deepEqual([decision.envelope, decision.goOn, decision.giveBack, decision.takeBack], [null, null, null, null], `${new Date(now).toTimeString().slice(0, 8)}: ${JSON.stringify(decision)}`)
     assert.notEqual(decision.state, 'working')
     // The Supervisor's health line: on purpose, not odd.
     const line = healthSummary(buildView({ state: built.state, items: built.work.items, now }), now).split('\n').find(one => one.includes('Worker 4 (')) ?? ''
-    assert.match(line, /^- Worker 4 \(worker\): interrupted \(on purpose: holds B1081, waits on chat 1 \(its go to land\)\)/, line)
+    assert.match(line, /^- Worker 4 \(worker\): free\b/, line)
+    assert.match(line, /holds B1081, waits on chat 1 \(its go to land\)/, line)
     assert.doesNotMatch(line, /^- !/)
     // Nothing of it under Needs your attention (no Late yet, no idle hint).
     assert.deepEqual(built.state.forYou.filter(one => one.from === 'Worker 4').map(one => one.kind), [])
@@ -230,7 +232,7 @@ test('the B1081 case with the record: parked on purpose at 11:24, 11:30 and 11:4
 test('past 90 minutes of RUNNING time one Late under Needs your attention, linked to the step, and still no give-back; 95 wall minutes with the board off for 30 of them is no Late', () => {
   const late = build({ now: WAIT_AT + 95 * MIN, history: GO_ONS })
   const lane = laneOf(late.state, 'Worker 4')
-  assert.equal(lane.state, 'interrupted', 'F74: the lane reads its report; the wait is its own line')
+  assert.equal(lane.state, 'free', 'F74 rework: the lane reads free; the wait is its own line')
   assert.equal(lane.waiting?.id, 'B1081')
   const cards = late.state.forYou.filter(one => one.kind === 'wait late')
   assert.equal(cards.length, 1, JSON.stringify(late.state.forYou.map(one => [one.kind, one.title])))
