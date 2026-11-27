@@ -309,6 +309,12 @@ export async function playOnce({ files, steps, now = Date.now }) {
         const alone = await steps.run(folder, RERUN_LABEL, { upgrade: () => false, only: [file] })
         const aloneVerdict = verdictOf(alone.output, alone.code, folder)
         // Verifier: a rerun that could not run (the cap, a spawn that failed) proves nothing either way: the big run could not run.
+        // Chat 1's review (B1575): after a stall the run is red anyway, so such a rerun stays red and the open files still go on
+        // probation (a throw recorded the stall as "could not run" and kept the old green).
+        if (aloneVerdict.outcome === 'could not run' && verdict.stalled) {
+          again.push(file)
+          continue
+        }
         if (aloneVerdict.outcome === 'could not run') throw new Error(`the rerun alone of ${file} could not run (${aloneVerdict.why})`)
         if (aloneVerdict.outcome === 'passed') flaky.push(file)
         else again.push(file)

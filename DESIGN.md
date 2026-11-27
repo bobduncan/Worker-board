@@ -9361,7 +9361,8 @@ fix step itself, and that slow test runs in the light check for a while. Plan: .
   - A run the queue stopped at its hold cap (124) is "could not run", never red. A stall is red, with the files it left open.
     B1575: a stall also reruns alone the files that failed before it (the big run of 2093e58, 2026-11-27, stalled on landScript
     after the carry, F24b and sweep files had failed, and reran nothing). The open files stay red and are never rerun; the record
-    keeps them apart (`stalled`), and a stall stays red even when every rerun passes. The fix step says per file "left open in a
+    keeps them apart (`stalled`), and a stall stays red even when every rerun passes. A rerun alone that could not run after a
+    stall stays red too (chat 1's review: a throw recorded the stall as "could not run" and kept the old green). The fix step says per file "left open in a
     stalled run (not rerun)" or "failed again when run alone".
   - Core review: each file that failed in the full run runs again alone once (`big-suite-rerun`, as land.ps1 does). One that passes
     alone is flaky: it is recorded, but it is no red and gets no fix step and no probation. Only the files that fail again are red.

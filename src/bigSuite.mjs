@@ -159,7 +159,11 @@ export function fixStepOf({ run, lastGreen, goLives, log }) {
   // B1575: a file a stalled run left open was never rerun alone; say so per file (the line once claimed every file was rerun).
   const stalled = run.failed.filter(file => (run.stalled ?? []).includes(file))
   const alone = run.failed.filter(file => !stalled.includes(file))
-  const how = stalled.length === 0
+  // A stall's why is gatePassed's "the test run stalled (...)" (chat 1's nit: say so also when it named no open file).
+  const stalledRun = stalled.length > 0 || /^the test run stalled/.test(run.why ?? '')
+  const how = stalledRun && stalled.length === 0
+    ? (alone.length === 0 ? 'in a run that stalled with no open file named (see the log)' : 'in a run that stalled with no open file named; the files named failed again when run alone')
+    : stalled.length === 0
     ? 'and each failing file failed again when run alone'
     : alone.length === 0 ? 'in a run that stalled: the files it left open were not rerun' : 'in a run that stalled: the files it left open were not rerun, the others failed again when run alone'
   return {

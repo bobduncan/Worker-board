@@ -208,7 +208,7 @@ export function stopInside(folder, since, run = spawnSync, boards = boardFolders
   }
 }
 
-function stopTree(child) {
+export function stopTree(child) {
   try {
     if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
     else child.kill('SIGKILL')

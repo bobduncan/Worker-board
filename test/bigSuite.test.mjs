@@ -250,6 +250,13 @@ test('B1575: a stalled big run reruns alone the files that failed before the sta
     const lone = []
     const quiet = await playOnce({ files, steps: fakeSteps(lone, { run: async (folder, label, { only = [] } = {}) => { lone.push(only.join(' ')); return { code: 1, output: stall('test/landScript.test.mjs (at its top level)', null) } } }) })
     assert.deepEqual([quiet.outcome, quiet.failed, lone], ['failed', ['test/landScript.test.mjs'], ['prepare c1abcdef0000', '', 'cleanUp']])
+    // Chat 1's review: a rerun that could not run (the hold cap) after a stall stays red; the stall is no "could not run" and its
+    // open file goes on probation (mutant: the throw kept for stalls).
+    writeFileSync(files.results, JSON.stringify({ last: { commit: 'c0', outcome: 'passed', at: iso(Date.now() - HOUR) }, lastGreen: 'c0' }))
+    const capped = await playOnce({ files, steps: fakeSteps([], { run: async (folder, label, { only = [] } = {}) => (only.length === 0 ? { code: 1, output: stall('test/landScript.test.mjs (at its top level)', 'test/carryGit.test.mjs') } : { code: STOPPED, output: '' }) }) })
+    assert.deepEqual([capped.outcome, capped.failed], ['failed', ['test/landScript.test.mjs', 'test/carryGit.test.mjs']])
+    const after = readJson(files.results)
+    assert.deepEqual([after.last.outcome, Object.keys(after.probation).sort()], ['failed', ['test/carryGit.test.mjs', 'test/landScript.test.mjs']])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -265,6 +272,9 @@ test('B1575: the fix step of a stalled run says per file whether it was rerun: l
   assert.match(open[0], /in a run that stalled: the files it left open were not rerun\./)
   assert.ok(open.includes('Left open in a stalled run (not rerun): test/landScript.test.mjs.'))
   assert.ok(!open.some(line => line.startsWith('Failed again when run alone')))
+  // A stall that named no open file says it stalled (chat 1's nit).
+  const blind = fixStepOf({ run: { commit: 'c4abcdef', failed: [], stalled: [], why: 'the test run stalled (stalled: no test output for 15 minutes; files still open: none named)', at: 'T' }, lastGreen: null, goLives: [], log: 'L' }).text
+  assert.match(blind[0], /in a run that stalled with no open file named \(see the log\)\./)
   // No stall: the line as before.
   const plain = fixStepOf({ run: { commit: 'c4abcdef', failed: ['test/a.test.mjs'], at: 'T' }, lastGreen: null, goLives: [], log: 'L' }).text
   assert.match(plain[0], /failed on main at c4abcde, and each failing file failed again when run alone\./)

@@ -4,13 +4,14 @@
 // suite's stall watchdog ended the run. Here a late run is ended with its whole tree (taskkill /T /F, as the boards are),
 // the same in a test's clean-up while it still runs, and the pipes are destroyed once it ended, so nothing a leftover
 // holds keeps the test file open.
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 
-/** Ends `child` with every process it started (Windows: taskkill /T /F; elsewhere the process alone). */
+import { stopTree } from '../tools/test.mjs'
+
+/** Ends `child` with every process it started (tools/test.mjs stopTree: taskkill /T /F; elsewhere the process alone). */
 export function endTree(child) {
   if (child.exitCode !== null || child.signalCode !== null || !child.pid) return
-  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true })
-  else child.kill('SIGKILL')
+  stopTree(child)
 }
 
 /**
