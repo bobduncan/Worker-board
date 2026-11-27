@@ -10,6 +10,8 @@ export default async function * openFilesReporter(source) {
     if (file === null) continue
     // The file itself is the item at nesting 0 that carries the file's own name (the bare name, or the whole path it was given by).
     const isFile = event.data.nesting === 0 && basename(String(event.data.name)) === basename(file)
-    yield `${JSON.stringify({ at: event.type === 'test:dequeue' ? 'start' : 'end', file, test: isFile ? null : String(event.data.name).slice(0, 120) })}\n`
+    // P4 (keep the tests fast): a file's end carries how long the file took (its run as a whole), for the log's list of file times.
+    const ms = isFile && event.type === 'test:complete' ? Number(event.data.details?.duration_ms) : NaN
+    yield `${JSON.stringify({ at: event.type === 'test:dequeue' ? 'start' : 'end', file, test: isFile ? null : String(event.data.name).slice(0, 120), ...(Number.isFinite(ms) ? { ms } : {}) })}\n`
   }
 }

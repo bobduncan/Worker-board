@@ -114,6 +114,9 @@ test('S9, the real case: node tools/test.mjs --gate in a branch leaves a slow fi
     assert.match(outside.stdout, /^light check: 1 of 2 test files; 1 slow file\(s\) left to the big suite$/m)
     assert.match(outside.stdout, /✔ fast/)
     assert.doesNotMatch(outside.stdout, /✔ slow/)
+    // P4: the run ends with every test file's seconds, and names no slow new or changed test file here
+    assert.match(outside.stdout, /^test files by time \(seconds\), 1 files:\n +\d+\.\d  test\/fast\.test\.mjs$/m)
+    assert.match(outside.stdout, /^slow new or changed test files \(over 5 s\): none$/m)
     writeFileSync(join(root, 'src', 'carry', 'git.mjs'), 'export const a = 2\n')
     git('add', '-A')
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'inside')
@@ -126,6 +129,14 @@ test('S9, the real case: node tools/test.mjs --gate in a branch leaves a slow fi
     writeFileSync(`${lock}.board-big-suite.json`, JSON.stringify({ probation: { 'test/slow.test.mjs': { greens: 0 } } }))
     const held = gate()
     assert.match(held.stdout, /^light check: runs test\/slow\.test\.mjs \(probation\)$/m)
+    // P4: a new test file of the branch that takes over 5 s is named; the run still passes (a report, not a gate)
+    git('checkout', '-q', 'feature')
+    writeFileSync(join(root, 'test', 'new.test.mjs'), "import test from 'node:test'\ntest('new and slow', () => new Promise(done => setTimeout(done, 5300)))\n")
+    git('add', '-A')
+    git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'a slow new test')
+    const slowNew = gate()
+    assert.equal(slowNew.status, 0, slowNew.stdout + slowNew.stderr)
+    assert.match(slowNew.stdout, /^slow new or changed test files \(over 5 s\): test\/new\.test\.mjs \(\d+\.\d s\)$/m)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

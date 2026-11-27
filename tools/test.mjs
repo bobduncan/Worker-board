@@ -75,9 +75,10 @@ export function cliOf(argv) {
 export function gateFiles({ root, git, probation = {} }) {
   const all = testFiles(root)
   const spec = readSlowFiles(root)
-  if (spec === null) return { files: all, lines: ['light check: no test/slow-files.json here: every test file runs'] }
-  const picked = lightFiles({ all, spec, changed: changedFiles(git), probation })
-  return { files: picked.files, lines: lightLines({ all, picked }) }
+  const changed = changedFiles(git)
+  if (spec === null) return { files: all, changed, lines: ['light check: no test/slow-files.json here: every test file runs'] }
+  const picked = lightFiles({ all, spec, changed, probation })
+  return { files: picked.files, changed, lines: lightLines({ all, picked }) }
 }
 /** F39: a test that runs longer than this fails (node --test's own timeout). */
 export const TEST_TIMEOUT_MS = 10 * 60 * 1000
@@ -112,6 +113,44 @@ export function openFiles(text) {
     else one.tests.set(read.test, (one.tests.get(read.test) ?? 1) - 1)
   }
   return [...files.values()].filter(one => one.open).map(one => ({ file: one.file, tests: [...one.tests].filter(([, n]) => n > 0).map(([name]) => name) }))
+}
+
+/** P4 (keep the tests fast, the person's yes of 2026-11-26): a new or changed test file over this many seconds is named in the log. */
+export const SLOW_NEW_S = 5
+
+/**
+ * P4: how long each test file took, from the reporter's lines (a file's end carries `ms`): `[{ file, seconds }]`, the file as a path
+ * from `cwd` with /, the longest first. PURE.
+ */
+export function fileTimes(text, cwd = process.cwd()) {
+  const times = new Map()
+  for (const line of String(text ?? '').split('\n')) {
+    let read
+    try {
+      read = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (typeof read?.file !== 'string' || read.at !== 'end' || (read.test !== null && read.test !== undefined) || !Number.isFinite(read.ms)) continue
+    const file = relative(cwd, resolve(cwd, read.file)).replace(/\\/g, '/')
+    times.set(file, (times.get(file) ?? 0) + read.ms / 1000)
+  }
+  return [...times].map(([file, seconds]) => ({ file, seconds })).sort((a, b) => b.seconds - a.seconds || (a.file < b.file ? -1 : 1))
+}
+
+/**
+ * P4: the lines at a run's end: every test file with its seconds (the longest first), and with `changed` (a go-live's light check: the
+ * branch's files) the new or changed test files over SLOW_NEW_S seconds, which need one line of reason in the step's report (a report,
+ * not a gate: land.ps1 says it, the go-live goes on). PURE.
+ */
+export function timeLines(times, changed = undefined, slowS = SLOW_NEW_S) {
+  const lines = [`test files by time (seconds), ${times.length} files:`, ...times.map(one => `${one.seconds.toFixed(1).padStart(7)}  ${one.file}`)]
+  if (changed !== undefined && changed !== null) {
+    const mine = new Set(changed.map(one => String(one).replace(/\\/g, '/').toLowerCase()))
+    const slow = times.filter(one => one.seconds > slowS && mine.has(one.file.toLowerCase()))
+    lines.push(`slow new or changed test files (over ${slowS} s): ${slow.length === 0 ? 'none' : slow.map(one => `${one.file} (${one.seconds.toFixed(1)} s)`).join(', ')}`)
+  }
+  return lines
 }
 
 /**
@@ -200,6 +239,8 @@ export function runTests({
   files, priority = LOW, cores = os.cpus().length, start = spawn, setPriority = os.setPriority, getPriority = os.getPriority, node = process.execPath,
   timeoutMs = positive(process.env.TEST_TIMEOUT_MS, TEST_TIMEOUT_MS), stallMs = positive(process.env.TEST_STALL_MS, STALL_MS),
   watchMs = positive(process.env.TEST_WATCH_MS, WATCH_MS), out = process.stdout, err = process.stderr, cwd = process.cwd(), env = process.env,
+  // P4: the branch's files on a go-live's light check (the slow new or changed test files are named), undefined elsewhere.
+  changed = undefined,
 }) {
   const lower = (...args) => {
     try {
@@ -259,6 +300,12 @@ export function runTests({
       if (ended) return
       ended = true
       clearInterval(watch)
+      // P4: every test file's seconds, and on a go-live the slow new or changed ones, after the run's own summary.
+      try {
+        out.write(`\n${timeLines(fileTimes(readFileSync(events, 'utf8'), cwd), changed).join('\n')}\n`)
+      } catch {
+        // no reporter's lines: no times
+      }
       try {
         rmSync(folder, { recursive: true, force: true })
       } catch {
@@ -281,6 +328,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
     const picked = gateFiles({ root: process.cwd(), git, probation: readJson(stateFiles(lockPath()).results).probation ?? {} })
     for (const line of picked.lines) process.stdout.write(`${line}\n`)
-    runTests({ files: picked.files, priority }).then((code) => process.exit(code))
+    runTests({ files: picked.files, priority, changed: picked.changed ?? null }).then((code) => process.exit(code))
   } else runTests({ files, priority }).then((code) => process.exit(code))
 }

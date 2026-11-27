@@ -959,6 +959,22 @@ test('the gate runs without colour (NO_COLOR, no FORCE_COLOR) and a refusal name
   assert.equal(world.worktrees(), 1)
 })
 
+test('P4: a landing says the slow new or changed test files of its gate (a report, not a gate: it lands), and says nothing when there are none', LONG, async t => {
+  const world = await makeWorld(t)
+  world.branch('feat')
+  await world.boards()
+  world.config({ gateBoard: world.gate('board-pass-slow-none') })
+  const quiet = await world.land('feat')
+  assert.equal(quiet.status, 0, quiet.out)
+  assert.doesNotMatch(quiet.out, /slow new or changed/)
+  world.branch('feat2')
+  world.config({ gateBoard: world.gate('board-pass-slow-new') })
+  const slow = await world.land('feat2')
+  assert.equal(slow.status, 0, slow.out)
+  assert.ok(lines(slow.out).includes('note: slow new or changed test files (over 5 s): test/alpha.test.mjs (7.2 s); give one line of reason for each in the step\'s report'), slow.out)
+  assert.equal(world.landings().at(-1).result, 'landed')
+})
+
 test('a full run that fails under load is run again per failing test file, alone and once: all passing lands and the log says so; never a second full run', LONG, async t => {
   const world = await makeWorld(t)
   const head = world.branch('feat')

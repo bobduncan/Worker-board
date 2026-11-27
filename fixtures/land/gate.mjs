@@ -24,6 +24,12 @@ const board = fails => {
   console.log('ℹ cancelled 0')
 }
 if (mode === 'board-pass') board(0)
+// P4: the light check's last line, with slow new or changed test files (board-pass-slow-new) or with none (board-pass-slow-none).
+else if (mode === 'board-pass-slow-new' || mode === 'board-pass-slow-none') {
+  board(0)
+  console.log('test files by time (seconds), 2 files:\n    7.2  test/alpha.test.mjs\n    0.3  test/beta.test.mjs')
+  console.log(`slow new or changed test files (over 5 s): ${mode === 'board-pass-slow-new' ? 'test/alpha.test.mjs (7.2 s)' : 'none'}`)
+}
 // F39: a gate that takes a while, so a second landing can start beside it.
 // F39 (a): what tools/test.mjs writes when its stall watchdog ends a run: no summary, the open files as `test at` lines.
 else if (mode === 'board-stalled') {

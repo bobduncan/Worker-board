@@ -10,7 +10,8 @@ import os from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { failingFiles, gateVerdict } from '../src/landing.mjs'
-import { LOW, NORMAL, STALL_MS, TEST_TIMEOUT_MS, boardFolders, cliOf, halfTheCores, holdsBoard, insidePattern, openFiles, priorityWord, runTests, stallLines, stopInside } from '../tools/test.mjs'
+import { LOW, NORMAL, SLOW_NEW_S, STALL_MS, TEST_TIMEOUT_MS, boardFolders, cliOf, fileTimes, halfTheCores, holdsBoard, insidePattern, openFiles, priorityWord, runTests, stallLines, stopInside, timeLines } from '../tools/test.mjs'
+import openFilesReporter from '../tools/openFilesReporter.mjs'
 
 test('B351: npm test runs the tests through tools/test.mjs, on half the cores, at least one', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
@@ -314,4 +315,40 @@ test('F68, the real case: land.ps1\'s own rerun command, started from a normal p
   assert.match(said, /one-at-a-time: rerun runs now/, 'through the queue')
   assert.match(said, /^test run: priority below normal$/m)
   assert.equal(Number(readFileSync(seen, 'utf8')), os.constants.priority.PRIORITY_BELOW_NORMAL, 'the test file ran at below normal')
+})
+
+// P4 (keep the tests fast, the person's yes of 2026-11-26): each run lists every test file's seconds, and a go-live's light check names
+// the new or changed test files over 5 s (a report, not a gate).
+test('P4: the reporter gives a file\'s end its time; a test\'s end gets none', async () => {
+  const events = async function * () {
+    yield { type: 'test:dequeue', data: { file: 'C:/r/test/a.test.mjs', nesting: 0, name: 'a.test.mjs' } }
+    yield { type: 'test:complete', data: { file: 'C:/r/test/a.test.mjs', nesting: 1, name: 'a case', details: { duration_ms: 40 } } }
+    yield { type: 'test:complete', data: { file: 'C:/r/test/a.test.mjs', nesting: 0, name: 'a.test.mjs', details: { duration_ms: 1234.5 } } }
+  }
+  const lines = []
+  for await (const line of openFilesReporter(events())) lines.push(JSON.parse(line))
+  assert.deepEqual(lines, [
+    { at: 'start', file: 'C:/r/test/a.test.mjs', test: null },
+    { at: 'end', file: 'C:/r/test/a.test.mjs', test: 'a case' },
+    { at: 'end', file: 'C:/r/test/a.test.mjs', test: null, ms: 1234.5 },
+  ])
+})
+
+test('P4: every test file with its seconds, the longest first; on a go-live the branch\'s test files over 5 s are named, else "none"', () => {
+  const cwd = 'C:/r'
+  const text = [
+    { at: 'start', file: 'C:/r/test/a.test.mjs', test: null },
+    { at: 'end', file: 'C:/r/test/a.test.mjs', test: 'a case' },
+    { at: 'end', file: 'C:/r/test/a.test.mjs', test: null, ms: 6200 },
+    { at: 'end', file: String.raw`C:\r\test\work\b.test.mjs`, test: null, ms: 7400 },
+    { at: 'end', file: 'C:/r/test/c.test.mjs', test: null, ms: 300 },
+  ].map(one => JSON.stringify(one)).join('\n')
+  const times = fileTimes(text, cwd)
+  assert.deepEqual(times.map(one => [one.file, one.seconds]), [['test/work/b.test.mjs', 7.4], ['test/a.test.mjs', 6.2], ['test/c.test.mjs', 0.3]])
+  assert.deepEqual(timeLines(times), ['test files by time (seconds), 3 files:', '    7.4  test/work/b.test.mjs', '    6.2  test/a.test.mjs', '    0.3  test/c.test.mjs'])
+  // a go-live: the branch changed a (slow) and c (fast); b is slow but not the branch's
+  assert.equal(timeLines(times, [String.raw`test\a.test.mjs`, 'test/c.test.mjs', 'src/x.mjs']).at(-1), 'slow new or changed test files (over 5 s): test/a.test.mjs (6.2 s)')
+  assert.equal(timeLines(times, ['src/x.mjs']).at(-1), 'slow new or changed test files (over 5 s): none')
+  assert.equal(timeLines(times, null).length, 4, 'not a go-live: no such line')
+  assert.equal(SLOW_NEW_S, 5)
 })

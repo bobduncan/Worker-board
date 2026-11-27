@@ -9348,6 +9348,23 @@ fix step itself, and that slow test runs in the light check for a while. Plan: .
   - The long poles stay: landScript (about 13 min, when land.ps1 or the landing code changes) and wakeNoHandsBoard (about 11 min, on a
     server change). S10 shortens those.
 
+## P4: keep the tests fast (2026-11-27, chat 2, review proposal 4, the person's yes of 2026-11-26)
+
+The delivery review: the go-live check doubled in three weeks (median 6.8 to 16.2 min) while the tests grew 32%. In the latest go-live
+5% of the tests took 94% of the test time. The test diet and the light check cut it now; this keeps it from creeping back.
+
+- **Every run lists its test files by time** (tools/test.mjs `fileTimes`, `timeLines`). After node --test's own summary: "test files by
+  time (seconds), N files:", then each file with its seconds, the longest first. The time is the file's run as a whole, from the second
+  reporter (tools/openFilesReporter.mjs: a file's end now carries `ms`, node --test's duration of the file). So every go-live log, every
+  big run's log and every worker's run show where the time goes.
+- **A go-live names the slow new or changed test files.** On the light check (`--gate`), the files the branch changed (the same
+  `main...HEAD` diff as the light check) that took over 5 s (`SLOW_NEW_S`) get one line: "slow new or changed test files (over 5 s):
+  test/x.test.mjs (7.2 s)", or "none".
+  - land.ps1 says it in the landing's output: "note: slow new or changed test files (over 5 s): ...; give one line of reason for
+    each in the step's report".
+  - It is a report, not a gate: the go-live goes on (the brief).
+- Which tests run where stays the speed plan's rule: the light check per go-live, the big suite when idle.
+
 ## F46: a build of the state walks the store once (2026-11-23, chat 4)
 
 Since the laptop import (about 1,450 steps, 4,850 items, 21,000 words) a build took about 2 s, and the live board a full core. Each
