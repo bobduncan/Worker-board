@@ -4,7 +4,7 @@
 import { lstat, readFile, readdir, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 
-import { boardChats, parseAppChat, parseList, readAppChats } from './appChats.mjs'
+import { boardChats, parseList, readAppChatList } from './appChats.mjs'
 import { readAsks } from './asks.mjs'
 import { allWords, forYou, queue } from './backlog.mjs'
 import { projectFile } from './config.mjs'
@@ -203,10 +203,11 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const appFiles = new Set()
   // H1: and the chat files in the account folders it does not read, by app id (the person's other Claude account).
   const appElsewhere = new Map()
-  const [listText, appChatTexts, adviceText, folders, askTexts, goalsText, work, threadTexts, productPlanText] = await Promise.all([
+  const [listText, appChats, adviceText, folders, askTexts, goalsText, work, threadTexts, productPlanText] = await Promise.all([
     readText(join(claude, 'chats', 'list.json')),
     // B986: and the app id of every chat file read, for a lane's own chat (ownChat.mjs).
-    readAppChats(config.appSessions, appFiles, appElsewhere, { account: account?.board ?? null }),
+    // B1535: parsed, and kept by each file's stamp (appChats.mjs `readAppChatList`): the build takes these, not the files' texts.
+    readAppChatList(config.appSessions, appFiles, appElsewhere, { account: account?.board ?? null }),
     plan === null ? null : readText(plan),
     readFolders().catch(() => null),
     readAsks(join(claude, 'asks')),
@@ -219,7 +220,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   ])
 
   const found = boardChats(
-    appChatTexts.map(parseAppChat).filter(chat => chat !== null),
+    appChats,
     { project: chatHomeOf(config), ...parseList(listText ?? '') },
   ).filter(chat => !chat.isLeftover && SAFE_ID.test(chat.cliSessionId))
   // Clear after each step: a chat the Workers mod cleared goes on under a new session id, which its old card names
@@ -271,7 +272,7 @@ export async function readSources(config, readFolders, now = Date.now(), readBra
   const recaps = (await readRecaps(config, goalsText).catch(() => [])).filter(one => goalRecap === null || one.goal !== goalRecap.goal || one.path === goalRecap.path)
 
   return {
-    account, listText, appChatTexts, appFiles: [...appFiles], appElsewhere: Object.fromEntries(appElsewhere), moved, planLineTexts, planLineAt, tails, conversationAt: conversationAts, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
+    account, listText, appChats, appFiles: [...appFiles], appElsewhere: Object.fromEntries(appElsewhere), moved, planLineTexts, planLineAt, tails, conversationAt: conversationAts, adviceText, folders, askTexts, goalsText, threadTexts, productPlanText,
     pictureLists: await pictureLists(config, work, now),
     recaps,
     // 2026-11-01: the focus goal's recap file and the picture of each of its rows, for the recap card on the Focus page (src/recapCard.mjs).

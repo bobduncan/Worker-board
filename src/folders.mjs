@@ -94,6 +94,7 @@ export function cached(read, ttlMs, now = Date.now) {
   let running = null
   let queued = null
   let round = 0
+  let revalidateAfter = false
   const start = () => {
     const mine = round
     const reading = read().then(answer => {
@@ -107,8 +108,13 @@ export function cached(read, ttlMs, now = Date.now) {
       return answer
     }).finally(() => {
       if (running?.reading === reading) running = null
+      if (revalidateAfter && running === null) {
+        revalidateAfter = false
+        // Its failure is a read's like any other: the next caller reads again.
+        start().catch(() => {})
+      }
     })
-    running = { reading, round: mine }
+    running = { reading, round: mine, at: now() }
     return reading
   }
   const fresh = () => {
@@ -132,7 +138,14 @@ export function cached(read, ttlMs, now = Date.now) {
    * nothing reads as written since (`readAt` stays finite). At most one read at a time: none starts while one is under way. The
    * read's promise (its failure is the caller's to record), or null when none started.
    */
-  fresh.revalidate = () => (running === null ? start() : null)
+  fresh.revalidate = () => {
+    if (running === null) return start()
+    // B1535 (chat 1's core review): with the build in its thread a read runs most of the time. One that began before this ask may
+    // have missed what the ask is for (B1502: a card moved meanwhile): the read in the background starts once it lands (one, however
+    // often it was asked meanwhile). One that began at this very time (the same clock reading) has it, and none is started.
+    if (now() > running.at) revalidateAfter = true
+    return null
+  }
   /** B736: the newest answer any read gave, however old, or undefined before the first: for what must not wait for a read. */
   fresh.last = () => latest
   /** F42: when that newest answer came (-Infinity before the first); unlike `readAt`, a reset does not forget it. */
