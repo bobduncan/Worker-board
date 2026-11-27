@@ -17,6 +17,8 @@ import { homedir, userInfo } from 'node:os'
 
 import { loadConfig, workFolder } from './src/config.mjs'
 import { courierLines } from './src/courierSetup.mjs'
+import { heavyModeSetup } from './src/cpuTopology.mjs'
+import { boardsFile, readBoards } from './src/ports.mjs'
 import { chatHomeOf } from './src/projectPaths.mjs'
 import { describeFlow, setupFlow } from './src/flowSetup.mjs'
 import { homeFilesPart } from './src/homeFiles.mjs'
@@ -118,6 +120,18 @@ if (process.platform === 'win32') {
   for (const line of watcher.lines) console.log(line)
   if (!watcher.ok) good = false
 } else console.log('The watcher part is for Windows alone: skipped.')
+
+// S4 (PC plan): the PC's first board writes the heavy-run queue's mode file (heavyModeWriter in its config.json).
+if (process.platform === 'win32') {
+  const configFile = join(here, 'config.json')
+  const text = await readFile(configFile, 'utf8').catch(() => null)
+  if (text !== null) {
+    const boards = await readBoards(boardsFile()).catch(() => [])
+    const part = heavyModeSetup({ here, boards, text })
+    if (part.text !== null && !isCheck) await writeFile(configFile, part.text)
+    console.log(isCheck && part.text !== null ? `${part.line} (not written: --check)` : part.line)
+  }
+}
 
 // F17: the wake courier, a scheduled task only a model can make: what to ask for on this PC (with or without --check).
 let courierProject = null

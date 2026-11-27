@@ -61,11 +61,11 @@
 //   queue and a slot is free: it puts a ticket in the queue for one look, takes the slot, or goes back to the room. The queue's order
 //   and the old copies' rules do not change, and an old copy never sees an idle run waiting ahead of it (no two runs wait for each
 //   other). An idle run that took the slot keeps it: a gate that comes right after waits for it to end (at most the cap). The hold
-//   cap is also read against the wall clock at every beat, less the time the PC slept (a gap between beats well over the beat,
-//   sleepGapOf): a sleep is no hang (chat 1's review). The holder's beats write that time into its lock (`slept`), and whyStale
-//   leaves it out, so no waiter frees a holder that only slept.
-import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
+//   cap is the hold's time awake, read against the wall clock at every beat, less the time the PC slept (a gap between beats well
+//   over the beat, sleepGapOf): a sleep is no hang (chat 1's review). No timer: libuv's timers count the time asleep here. The
+//   holder's beats move its lock's `since` on by the time slept, so no waiter, old copies too, frees a holder that only slept.
+import { execFile, spawn, spawnSync } from 'node:child_process'
+import { appendFileSync, statSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -173,10 +173,9 @@ export function whyStale(info, now = Date.now(), runs = pidRuns, holdMaxMs = HOL
   if (!info) return 'it cannot be read'
   if (!runs(info.pid)) return 'its process is gone'
   // F39, review: no holder keeps the slot for good (its own copy stops its command at the cap; this is the margin past it). S3, chat 1's
-  // review: the time the PC slept while it held the slot (`slept`, which its beats write) does not count.
+  // review: a holder's beats move `since` on by the time the PC slept, so this is its time awake.
   const since = Date.parse(info.since ?? info.startedAt)
-  const slept = Number(info.slept) > 0 ? Number(info.slept) : 0
-  if (Number.isFinite(since) && now - since - slept > holdMaxMs + HOLD_MARGIN_MS) return `it has held the slot for over ${Math.round((holdMaxMs + HOLD_MARGIN_MS) / 60000)} minutes`
+  if (Number.isFinite(since) && now - since > holdMaxMs + HOLD_MARGIN_MS) return `it has held the slot for over ${Math.round((holdMaxMs + HOLD_MARGIN_MS) / 60000)} minutes`
   // F39: a holder that beats keeps its slot however long it runs; one whose beat stopped (a reused process id) does not.
   const beat = Date.parse(info.beat)
   if (Number.isFinite(beat)) return now - beat > BEAT_STALE_MS ? 'its beat is older than 5 minutes' : null
@@ -277,9 +276,9 @@ async function holderOf(file, nap, watched = new Map(), beatMs = BEAT_MS, holdMa
     }
     if (performance.now() - first.at < 2 * beatMs) return seen
   }
-  // S3, review: a live holder past the hold cap by the wall clock (the PC slept past it) writes the time it slept into its lock at its
+  // S3, review: a live holder past the hold cap by the wall clock (the PC slept past it) moves its `since` on by the time slept at its
   // first beat after the wake, and is then no longer past the cap; two beats of this waiter's own clock give it that beat (an old copy
-  // that writes no `slept` is freed after them all the same). Keyed on its process and `since`, as its beats rewrite the rest.
+  // that does not move it is freed after them all the same). Keyed on its process and `since`.
   if (why?.startsWith('it has held the slot for over')) {
     const key = `${file}#since`
     const mark = `${seen.info.pid} ${seen.info.since ?? seen.info.startedAt}`
@@ -480,17 +479,18 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
       if (createLock(slot, text)) {
         // F14: the moment the work begins, for a log of the run (land.ps1 starts the gate's clock here).
         say(`one-at-a-time: ${label} runs now (waited ${Math.round((Date.now() - came) / 1000)} s)`)
-        // F39: the beat, while the command runs: only into the lock that is still ours. S3, chat 1's review: with the time the PC
-        // slept since the slot was taken (`slept`), which the waiters leave out of the hold.
+        // F39: the beat, while the command runs: only into the lock that is still ours. S3, chat 1's review: after a sleep of the PC
+        // (a gap between beats well over the beat) `since` moves on by the time slept, so it says the time awake to every waiter, old
+        // copies too (they judge the hold by `since` alone).
         const clockNow = timing.now ?? Date.now
         let lastBeat = clockNow()
-        let slept = 0
+        let sinceMs = Date.parse(held.since)
         const beat = setInterval(() => {
           const at = clockNow()
-          if (at - lastBeat > sleepGapOf(timing.beat)) slept += at - lastBeat - timing.beat
+          if (at - lastBeat > sleepGapOf(timing.beat)) sinceMs += at - lastBeat - timing.beat
           lastBeat = at
           const now = new Date(at).toISOString()
-          const next = JSON.stringify({ ...held, startedAt: now, beat: now, ...(slept > 0 ? { slept } : {}) })
+          const next = JSON.stringify({ ...held, since: new Date(sinceMs).toISOString(), startedAt: now, beat: now })
           if (rewriteLock(slot, text, next)) text = next
         }, timing.beat)
         beat.unref()
@@ -597,6 +597,106 @@ function stopTree(child, name) {
   }
 }
 
+/**
+ * S5 of the PC plan (chat 1, 2026-11-26; the person, 2026-11-25: "2 performance cores kept free"): the fence. Before it
+ * spawns, the run that holds the slot puts itself on the work cores the board's mode file names (`<lock>.mode.json`,
+ * written by the board: src/cpuTopology.mjs) with one awaited PowerShell call on its own pid, and starts the command at
+ * the level's priority (below normal in Full, idle in Low). Windows hands both to every process the command starts in
+ * turn (the shell, node, git, vitest's workers, a browser and its renderers), so they are born fenced, with no race. A
+ * run under another (HEAVY_RUN_HELD) is inside its fence already and never fences again. No mode file, another PC, a
+ * failed call: the run goes as before, unfenced, and says why. The command gets HEAVY_RUN_MASK (hex) and HEAVY_RUN_CORES.
+ * Efficiency mode (EcoQoS) is a process's own and not handed on, so it is left to the board's re-apply pass (S8).
+ * The same lines in both repositories' copies of this helper.
+ */
+export const FENCE_PRIORITY = { full: 'BelowNormal', low: 'Idle' }
+/** How old the mode file's beat may be (the board beats on every CPU pass, every few seconds). */
+export const MODE_STALE_MS = 2 * 60 * 1000
+
+/** The mode file beside the lock: `{ level, mask, cores }` for the level, or `{ why }` when there is none to go by. */
+export function readMode(env = process.env, { alive = pidRuns, now = Date.now } = {}) {
+  let mode
+  try {
+    mode = JSON.parse(readFileSync(`${lockPath(env)}.mode.json`, 'utf8'))
+  } catch (error) {
+    return { why: error?.code === 'ENOENT' ? 'no mode file' : 'the mode file cannot be read' }
+  }
+  // S4's owner and beat (chat 1's review): a board that is gone, or whose beat is old, leaves no level to go by (a crashed
+  // board's Low would else pin every later run to its cores, across restarts). A file without a beat goes by its own age.
+  if (Number.isInteger(mode?.pid) && mode.pid > 0 && !alive(mode.pid)) return { why: 'the board that wrote the mode file is gone' }
+  const beat = Number.isFinite(mode?.beat) ? mode.beat : (() => { try { return statSync(`${lockPath(env)}.mode.json`).mtimeMs } catch { return 0 } })()
+  if (now() - beat > MODE_STALE_MS) return { why: 'the mode file is old (its board beats no more)' }
+  const level = mode?.level === 'low' ? 'low' : mode?.level === 'full' ? 'full' : null
+  const hex = level === null ? null : mode?.masks?.[level === 'low' ? 'low' : 'work']
+  const cores = level === null ? null : mode?.threads?.[level === 'low' ? 'low' : 'work']
+  if (level === null || typeof hex !== 'string' || !/^0x[0-9a-f]{1,16}$/i.test(hex) || BigInt(hex) === 0n || !Number.isInteger(cores) || cores < 1) {
+    return { why: 'the mode file names no level and mask' }
+  }
+  return { level, mask: BigInt(hex), cores }
+}
+
+/** The PowerShell that sets a process's cores and answers the cores it then has (a decimal number). */
+export function fenceScript(pid, mask) {
+  return `$p = Get-Process -Id ${Number(pid)} -ErrorAction Stop; $p.ProcessorAffinity = [IntPtr][long]${BigInt.asIntN(64, mask)}; $p.Refresh(); [Console]::Out.WriteLine($p.ProcessorAffinity.ToInt64())`
+}
+
+function powershellOut(script) {
+  return new Promise((resolve, reject) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { windowsHide: true, timeout: 30_000 }, (error, stdout, stderr) => {
+      if (error) reject(Object.assign(new Error(String(stderr || error.message).trim().split('\n')[0]), { timedOut: error.killed === true }))
+      else resolve(stdout)
+    })
+  })
+}
+
+/**
+ * Fences this process before its command starts: `{ fenced: true, level, mask, cores, priority }`, or `{ fenced: false, why }`.
+ * `run` (a script to its output) and `platform` are given otherwise only by tests.
+ */
+export async function fenceSelf({ env = process.env, platform = process.platform, pid = process.pid, run = powershellOut, alive = pidRuns, now = Date.now } = {}) {
+  if (env.HEAVY_RUN_HELD === '1') return { fenced: false, why: 'inside its run\'s fence' }
+  if (platform !== 'win32') return { fenced: false, why: 'not Windows' }
+  const mode = readMode(env, { alive, now })
+  if (mode.why) return { fenced: false, why: mode.why }
+  let said
+  try {
+    said = String(await run(fenceScript(pid, mode.mask))).trim()
+  } catch (error) {
+    if (error?.timedOut) return { fenced: false, why: 'the fence call did not answer in time (its cores are unknown)' }
+    return { fenced: false, why: `the fence call failed (${error instanceof Error ? error.message : 'unknown'})` }
+  }
+  if (!/^-?\d+$/.test(said) || BigInt.asUintN(64, BigInt(said)) !== mode.mask) return { fenced: false, why: `the cores did not take (${said || 'no answer'})` }
+  return { fenced: true, level: mode.level, mask: mode.mask, cores: mode.cores, priority: FENCE_PRIORITY[mode.level] }
+}
+
+
+/**
+ * Runs `start` (which spawns a process) with this process at `priority` (BelowNormal or Idle), then puts this process's
+ * own priority back (also when `start` throws): on Windows a new process starts in the class of the one that makes it
+ * when that is below normal, and so does everything it starts in turn. It only ever lowers: a process already at that
+ * priority or below (a run inside an idle fence) starts its command as it is. Elsewhere, with no priority, or when the
+ * system refuses, it only runs `start`. `system` and `platform` are given otherwise only by tests.
+ */
+export function startAt(priority, start, { system = os, platform = process.platform } = {}) {
+  const wanted = priority === null || priority === undefined ? null : system.constants.priority[priority === 'Idle' ? 'PRIORITY_LOW' : 'PRIORITY_BELOW_NORMAL']
+  if (platform !== 'win32' || wanted === null || wanted === undefined) return start()
+  let was = null
+  try {
+    was = system.getPriority(0)
+    // Node's numbers grow as the priority falls (below normal 10, idle 19).
+    if (was >= wanted) was = null
+    else system.setPriority(0, wanted)
+  } catch {
+    was = null // not allowed here: the command starts at this process's own priority
+  }
+  try {
+    return start()
+  } finally {
+    if (was !== null) {
+      try { system.setPriority(0, was) } catch { /* keeps the low class */ }
+    }
+  }
+}
+
 const signalExit = (name) => 128 + (os.constants.signals[name] ?? 0)
 
 /**
@@ -612,6 +712,9 @@ export async function runOneAtATime({
   say = (line) => process.stderr.write(`${line}\n`),
   // S3: the wall clock the hold cap is checked against at every beat (the tests' seam for a PC sleep).
   now = Date.now,
+  // S5: the fence and the start of the command (the tests' seams).
+  fence: fenceOf = fenceSelf,
+  startWith = startAt,
 }) {
   // S3, review: a first-class run (a landing's gate) never waits for an idle PC, whatever its label.
   const idle = env.HEAVY_RUN_FIRST !== '1' && isIdleRun(label, env)
@@ -626,6 +729,7 @@ export async function runOneAtATime({
   const came = Date.now()
   let began = null
   let code = null
+  let fenceSaid = null
 
   const onSignal = (name) => {
     const again = signalled !== null
@@ -651,12 +755,24 @@ export async function runOneAtATime({
       }
       began = Date.now()
     }
+    // S5: the fence, once the slot is ours and before the command starts (a run under another is inside its fence already).
+    const fence = await fenceOf({ env })
+    // Chat 1's review: a stop signal while the fence was set finds no command yet; it must not start one then.
+    if (signalled) {
+      code = signalExit(signalled)
+      return code
+    }
+    if (env.HEAVY_RUN_HELD !== '1' && !fence.fenced) say(`one-at-a-time: ${label} runs unfenced: ${fence.why}`)
+    const fenceEnv = fence.fenced ? { HEAVY_RUN_MASK: `0x${fence.mask.toString(16).toUpperCase()}`, HEAVY_RUN_CORES: String(fence.cores), HEAVY_RUN_PRIORITY: fence.priority } : {}
+    fenceSaid = fence.fenced ? `${fence.level} ${fenceEnv.HEAVY_RUN_MASK} ${fence.priority}` : `unfenced: ${fence.why}`
     // The run that holds the slot, for a log under it (tools/vitest-run-log.mjs leaves its own slot out of the PC's other runs).
     const ownerPid = env.HEAVY_RUN_HELD === '1' && env.HEAVY_RUN_PID ? env.HEAVY_RUN_PID : String(process.pid)
     const exited = new Promise((resolve) => {
       forceExit = () => resolve(signalExit(signalled))
       const { HEAVY_RUN_FIRST: _first, HEAVY_RUN_IDLE: _idle, ...plain } = env
-      child = spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, HEAVY_RUN_HELD: '1', HEAVY_RUN_PID: ownerPid } })
+      // S5: the fence's priority; a run under another keeps the one it was born with (an idle fence is never lifted).
+      const priority = env.HEAVY_RUN_HELD === '1' ? null : fence.fenced ? fence.priority : null
+      child = startWith(priority, () => spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, ...fenceEnv, HEAVY_RUN_HELD: '1', HEAVY_RUN_PID: ownerPid } }))
       child.on('error', (error) => {
         say(`one-at-a-time: could not start the command: ${error.message}`)
         resolve(127)
@@ -673,11 +789,9 @@ export async function runOneAtATime({
           stopTree(child, 'SIGTERM')
           setTimeout(() => resolve(124), STOP_WAIT_MS).unref()
         }
-        const cap = setTimeout(stopAtCap, maxMs)
-        cap.unref()
-        // S3: the hold is also read against the wall clock at every beat, whatever clock the timer keeps. Chat 1's review: the time the
-        // PC slept is no hang and does not count (a gap between two beats well over the beat, sleepGapOf), so a slow-tier run that spans
-        // a night's sleep is not stopped with 124 when the PC wakes.
+        // S3, chat 1's review: the cap is the hold's time awake, read against the wall clock at every beat; the time the PC slept is no
+        // hang and does not count (a gap between two beats well over the beat, sleepGapOf). No timer: on this PC libuv's timers count the
+        // time asleep, so a timer stopped a run that spanned a sleep at the moment of waking (124 within seconds of a wake, 11-23 to 11-25).
         const beatMs = positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS)
         let lastTick = beganAt
         let slept = 0
@@ -688,10 +802,7 @@ export async function runOneAtATime({
           if (at - beganAt - slept > maxMs) stopAtCap()
         }, beatMs)
         watch.unref()
-        quiet = () => {
-          clearTimeout(cap)
-          clearInterval(watch)
-        }
+        quiet = () => clearInterval(watch)
         child.on('exit', quiet)
         child.on('error', quiet)
       }
@@ -705,7 +816,7 @@ export async function runOneAtATime({
       logRun(env, {
         at: new Date(came).toISOString(), label, cwd, first: env.HEAVY_RUN_FIRST === '1', ...(idle ? { idle: true } : {}), slots: slotsOf(env),
         waitedS: Math.round(waited / 1000), ranS: began === null ? 0 : Math.round((now - began) / 1000),
-        exit: code, stopped: began === null ? `before its turn${signalled ? ` (${signalled})` : ''}` : signalled,
+        exit: code, fence: fenceSaid, stopped: began === null ? `before its turn${signalled ? ` (${signalled})` : ''}` : signalled,
       })
     }
     quiet()

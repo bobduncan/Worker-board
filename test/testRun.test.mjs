@@ -257,6 +257,15 @@ test('F68: a run asked for normal priority sets itself and node --test to normal
   assert.equal(seen.text, 'test run: priority normal\n')
 })
 
+test('S5: inside a heavy run\'s fence the run never goes above the fence\'s priority: idle stays idle, F68\'s normal is below normal', async () => {
+  for (const [fence, asked, want] of [['Idle', LOW, os.constants.priority.PRIORITY_LOW], ['Idle', NORMAL, os.constants.priority.PRIORITY_LOW], ['BelowNormal', NORMAL, LOW], [undefined, NORMAL, NORMAL]]) {
+    const set = []
+    const { stream } = sink()
+    await runTests({ files: ['x'], priority: asked, cores: 4, start: standIn(0).start, setPriority: (...args) => set.push(args), getPriority: () => want, out: stream, err: stream, env: fence ? { HEAVY_RUN_PRIORITY: fence } : {} })
+    assert.deepEqual(set, [[want], [4242, want]], `${fence} fence, asked ${asked}`)
+  }
+})
+
 test('F68: the full run says below normal; a priority that cannot be read says the asked one', async () => {
   const low = sink()
   await runTests({ files: ['x'], cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => LOW, out: low.stream, err: low.stream })

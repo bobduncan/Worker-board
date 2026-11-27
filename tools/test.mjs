@@ -42,6 +42,8 @@ export function halfTheCores(cores) {
 }
 
 export const LOW = os.constants.priority.PRIORITY_BELOW_NORMAL
+/** S5: the fence's priority (HEAVY_RUN_PRIORITY) as node's number: the highest a run inside the fence may go. */
+export const FENCE_NICE = Object.freeze({ BelowNormal: os.constants.priority.PRIORITY_BELOW_NORMAL, Idle: os.constants.priority.PRIORITY_LOW })
 /** F68: the priority of land.ps1's rerun alone of a failed file. */
 export const NORMAL = os.constants.priority.PRIORITY_NORMAL
 const { PRIORITY_LOW, PRIORITY_ABOVE_NORMAL, PRIORITY_HIGH, PRIORITY_HIGHEST } = os.constants.priority
@@ -242,6 +244,11 @@ export function runTests({
   // P4: the branch's files on a go-live's light check (the slow new or changed test files are named), undefined elsewhere.
   changed = undefined,
 }) {
+  // S5 (chat 1's review): inside a heavy run's fence (HEAVY_RUN_PRIORITY, given by tools/one-at-a-time.mjs) the run never goes
+  // above the fence's level: a Low fence's idle stays idle, and F68's normal is below normal in a Full fence. Node's numbers
+  // grow as the priority falls.
+  const fenceCap = FENCE_NICE[env.HEAVY_RUN_PRIORITY] ?? null
+  if (fenceCap !== null && fenceCap > priority) priority = fenceCap
   const lower = (...args) => {
     try {
       setPriority(...args)

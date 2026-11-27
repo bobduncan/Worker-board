@@ -424,13 +424,18 @@ describe('clear after each step', () => {
 
   test('a question to the person stops a clear only when the board did not file it as an ask', () => {
     const asks = 'The knight is in.\n\n> **For you**\n> 1. **Answer:** sheet A or B? I advise A.'
-    expect(unfiledAsk('The knight is in.', null, 0)).toBe(false)
-    expect(unfiledAsk(asks, { asked: ['Q4'] }, 1)).toBe(false)
-    expect(unfiledAsk(asks, { left: ['asked already'] }, 1)).toBe(false)
-    expect(unfiledAsk(asks, null, 1)).toBe(true)
-    expect(unfiledAsk(asks, { unfiled: 1 }, 1)).toBe(true)
-    // A quoted question the mod could not read as the block at the end of the answer.
-    expect(unfiledAsk(`${asks}\n\nAnd more words after it.`, { asked: [] }, 0)).toBe(true)
+    expect(unfiledAsk('The knight is in.', null)).toBe(false)
+    expect(unfiledAsk(asks, { asked: ['Q4'], asks: 1 })).toBe(false)
+    expect(unfiledAsk(asks, { left: ['asked already'], asks: 1 })).toBe(false)
+    expect(unfiledAsk(asks, null)).toBe(true)
+    expect(unfiledAsk(asks, { unfiled: 1, asks: 1 })).toBe(true)
+    // B417: the board read the block and it unfiled some, whatever form the item was written in (the mod reads none of it).
+    expect(unfiledAsk('In.\n\n> **For you**\n> 1. **Answer**: sheet A or B?', { unfiled: 1, asks: 1 })).toBe(true)
+    expect(unfiledAsk('In.\n\n> **For you**\n> 1. **Answer**: sheet A or B?', { asked: ['Q4'], asks: 1 })).toBe(false)
+    // A quoted question the board did not read as the block at the end of the answer (it read no question).
+    expect(unfiledAsk(`${asks}\n\nAnd more words after it.`, { asked: [], asks: 0 })).toBe(true)
+    // A board that does not say how many it read: told to be careful.
+    expect(unfiledAsk(asks, { asked: [] })).toBe(true)
   })
 
   test('the board\'s word on the role: only the six roles count', () => {
@@ -477,6 +482,7 @@ describe('clear after each step', () => {
   test('an answer leaves a question with the person when its quote block holds an item "Answer:"', () => {
     expect(asksPerson('The knight is in.\n\n> **For you**\n> 1. **Answer:** sheet A or B? I advise A.\n> 2. **Do:** look at it in the game.')).toBe(true)
     expect(asksPerson('The knight is in.\n\n> **For you**\n> 1. **Do:** look at it in the game.')).toBe(false)
+    expect(asksPerson('The knight is in.\n\n> **For you**\n> 1. **Answer**: sheet A or B?')).toBe(true)
     expect(asksPerson('Answer: it is merged. Nothing is open.')).toBe(false)
     expect(asksPerson('')).toBe(false)
   })
