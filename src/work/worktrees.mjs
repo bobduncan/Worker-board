@@ -364,8 +364,12 @@ const hours = ms => `${Math.round(ms / (60 * MIN))} h`
  * and the worktree was not used since the give-back: no step holds it, and it goes after RECENT_MS unused, merged or not
  * (its branch keeps the commits), so the next worker can check the branch out. `runs` unknown (null): nothing changes.
  */
-/** Signals change 3 and F74: a give-back's worktree is left once its worker's process is gone, a put-down's at once (its builder works on). */
-export const isLeftBack = (back, runs) => back !== null && back !== undefined && Number.isFinite(back.at) && (back.putDown === true || runs(back.chat) === false)
+/**
+ * Signals change 3 and F74: a give-back's worktree is left once its worker's process is gone; a put-down's while the step still has no owner
+ * (its builder works on; once a worker took the step again, the folder is that worker's business), unused since the put-down.
+ */
+export const isLeftBack = (back, runs, item = null) => back !== null && back !== undefined && Number.isFinite(back.at)
+  && (back.putDown === true ? (item === null || valueOf(item, 'Owner') === null) : runs(back.chat) === false)
 
 export async function findLeftovers({ repos, project = '', items = [], run, fs = FILES, now = Date.now(), keep = [], platform = process.platform, runs = () => null }) {
   const steps = [...(items instanceof Map ? items.values() : items)]
@@ -375,7 +379,7 @@ export async function findLeftovers({ repos, project = '', items = [], run, fs =
     .filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && typeof valueOf(item, 'Id') === 'string')
     .map(item => ({ item, back: givenBackOf(item).at(-1) ?? null }))
     // F74: a put-down's builder runs on (its next step): its worktree is left once unused since the put-down, whatever `runs` says.
-    .filter(one => isLeftBack(one.back, runs))
+    .filter(one => isLeftBack(one.back, runs, one.item))
   const leftBy = (path, branch) => givenBack.find(({ item }) => namesStep(nameOf(path), valueOf(item, 'Id')) || (branch !== null && ownBranch(valueOf(item, 'Branch')) === branch))?.back ?? null
   // B751: a worktree named for a step that is done or dropped is that step's, wherever it lies.
   const closed = [...(items instanceof Map ? items.values() : items)]

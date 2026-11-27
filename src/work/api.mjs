@@ -57,7 +57,7 @@ import { RECAP_AT_WORK, WAIT_ON_MINUTES, hourMinute as waitClock, waitReminder, 
 import { isAskedSide } from './sideWord.mjs'
 import { estimateAtOf, nextPlan, planMinutes, planOf, planText } from './stepPlan.mjs'
 import { askedForOf, takenAtOf, takenForLine } from './held.mjs'
-import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, putDownLine, putDownOf, putDownWords, retiredWords } from './holderTimers.mjs'
+import { RETIRED_WATCH_RULES, TIMED_STATES, continuationOf, givenBackRefusal, goOnWords, putDownLine, putDownWords, retiredWords } from './holderTimers.mjs'
 import { ACTIVE, parkWords, parkedAfter, putDownCheck, workingOnOther } from './parked.mjs'
 import { REMOVE_TOOL } from './worktrees.mjs'
 import { routingAction, ROUTING_ACTIONS, ROUTING_READS } from './routing/api.mjs'
@@ -872,18 +872,28 @@ async function putDownWaiting(item, w) {
   const id = valueOf(item, 'Id')
   if (!TIMED_STATES.includes(stateOf(item)) || valueOf(item, 'Owner') === null || !isOwner(item, w.who, w.prefix)) return NO_PUT_DOWN
   // The one judgement (parked.mjs `putDownCheck`): the record, its writer (the holder's own), the go-live words, the landing lock, a fresh checkpoint.
-  const landing = typeof w.landingNow === 'function' ? await Promise.resolve(w.landingNow()).catch(() => null) : null
+  // The landing lock unreadable: not known whether a landing runs: no put-down this time (chat 1's re-check: catch its errors).
+  let landing = null
+  if (typeof w.landingNow === 'function') {
+    try {
+      landing = await Promise.resolve().then(() => w.landingNow())
+    } catch {
+      return NO_PUT_DOWN
+    }
+  }
   const check = putDownCheck(item, w.store.items, { who: w.who, prefix: w.prefix, landing })
-  if (!check.ok) return { done: false, words: check.why === 'checkpoint' ? ` It stays yours until your checkpoint is in: push the branch and write work step ${id} commit <hash> next <words> (a checkpoint written since your take); then the board puts it down and you get new work.` : '' }
-  // Chat 1's review: the commit must be on the remote (the next worker fetches the branch); the server's git answers, a test's stub, none: not checked.
-  if (typeof w.isPushed === 'function' && await w.isPushed({ branch: check.branch, commit: check.commit }).catch(() => null) === false) {
-    return { done: false, words: ` It stays yours until your checkpoint commit ${check.commit} is pushed on ${check.branch}; then the board puts it down and you get new work.` }
+  if (!check.ok) return { done: false, words: check.why === 'checkpoint' ? ` It stays yours until your checkpoint is in: push the branch and write work step ${id} commit <hash> next <words> (a checkpoint written after this record); then the board puts it down and you get new work.` : '' }
+  // Chat 1's re-check: the commit must be KNOWN to be on the remote (the next worker fetches the branch): the server answers from git before the
+  // call enters the store's queue (`isPushed`, server.mjs `pushedAheadOf`); no answer, or none to ask, counts as not pushed: the step stays.
+  const pushed = typeof w.isPushed === 'function' ? await Promise.resolve().then(() => w.isPushed({ branch: check.branch, commit: check.commit })).catch(() => null) : null
+  if (pushed !== true) {
+    return { done: false, words: ` It stays yours until your checkpoint commit ${check.commit} is on the remote (push ${check.branch}, then write the checkpoint again); then the board puts it down and you get new work.` }
   }
   const again = await load(id, w, { kind: ['step'] })
   if (!again.ok) return NO_PUT_DOWN
   const back = await giveBackHeld(again, { chat: w.who, why: putDownWords(w.who, check.wait.words), putDown: true }, w)
   if (!back.ok) return NO_PUT_DOWN
-  return { done: true, words: ` The board put ${id} down: it ${check.wait.words}; you are free: run work next. It comes back first when the wait ends, to you when you are free${check.wait.kind === 'chat' ? `; work unblock ${id} once ${check.wait.who} answered (the main chat or the person may too)` : ''}. Remove your task folder for ${id} now with node ${REMOVE_TOOL} <folder> (the next worker makes its own from the branch).` }
+  return { done: true, words: ` The board put ${id} down: it ${check.wait.words}; you are free: run work next. It comes back first when ${check.wait.on.join(' and ')} ${check.wait.on.length === 1 ? 'is' : 'are'} done, to you when you are free. Remove your task folder for ${id} now with node ${REMOVE_TOOL} <folder> (the next worker makes its own from the branch).` }
 }
 
 /** A checkpoint's fields from work step: `{ ok, commit, next }` (commit "none" when not given), or a refusal. */
@@ -3801,9 +3811,7 @@ async function waitOn(found, on, w, isBlock, body) {
     // a side chat a new why is a new wait with a fresh clock (and so one new word, work/sideWord.mjs); waits on board chats stay as they were.
     const newWhy = isAskedSide(on) && String(body.why ?? '').trim() !== '' && waitWhatOf(body.why).toLowerCase() !== standing?.what.toLowerCase()
     if (standing !== null && plain(standing.who, w.prefix) === plain(on, w.prefix) && !newWhy) {
-      const putDown = await putDownWaiting(found.item, w)
-      if (putDown.done) return putDownAnswer(id, `${id} waits on ${standing.who} since ${waitClock(standing.since)} (${standing.what}).`, putDown.words, w)
-      return { ok: true, result: { id, text: `${id} waits on ${standing.who} since ${waitClock(standing.since)} already (${standing.what}): the record stands; work unblock ${id} once it answered.${putDown.words}`, changed: false } }
+      return { ok: true, result: { id, text: `${id} waits on ${standing.who} since ${waitClock(standing.since)} already (${standing.what}): the record stands; work unblock ${id} once it answered.`, changed: false } }
     }
     // A new why on the same chat keeps that chat's name as the record wrote it.
     if (standing !== null && plain(standing.who, w.prefix) === plain(on, w.prefix)) on = standing.who
@@ -3812,13 +3820,9 @@ async function waitOn(found, on, w, isBlock, body) {
     const item = ordered(said(put(copy(found.item), 'Waits on', waitsOnLine(on, what, w.now)), w, `waits on ${on} · ${what}${standing === null ? '' : ` (before: ${plain(standing.who, w.prefix) === plain(on, w.prefix) ? standing.what : standing.who})`}`))
     const done = await save(item, found.text, w)
     if (!done.ok) return done
-    const putDown = await putDownWaiting(item, w)
-    if (putDown.done) return putDownAnswer(id, `${id} waits on ${on} (${what}) since ${waitClock(w.now)}.`, putDown.words, w)
-    return changed(item, `${id} waits on ${on} (${what}) since ${waitClock(w.now)}. The board holds it for you: no "go on" line and no give-back for ${limit} min of its running time; past that the person sees it as late. work unblock ${id} once ${on} answered, then go on.${putDown.words}`)
+    return changed(item, `${id} waits on ${on} (${what}) since ${waitClock(w.now)}. The board holds it for you: no "go on" line and no give-back for ${limit} min of its running time; past that the person sees it as late. work unblock ${id} once ${on} answered, then go on.`)
   }
-  // F74: the builder of a step the board put down (nobody holds it) clears the wait it recorded, as its holder would.
-  const isBuilder = owner === null && putDownOf(found.item) !== null && plain(putDownOf(found.item).builder, w.prefix) === plain(w.who, w.prefix)
-  if (!['main', 'person'].includes(w.role) && !isHolder && !isBuilder) return refuse(403, `${id}: only ${owner ?? 'its holder or its builder'}, the main chat or the person clears what it waits on.`)
+  if (!['main', 'person'].includes(w.role) && !isHolder) return refuse(403, `${id}: only ${owner ?? 'its holder'}, the main chat or the person clears what it waits on.`)
   if (standing === null) return { ok: true, result: { id, text: `${id} waits on no chat: nothing to clear.`, changed: false } }
   // `on=<who>` names the standing who (with or without the prefix, any case), else nothing is cleared.
   if (on !== '' && plain(on, w.prefix) !== plain(standing.who, w.prefix)) return refuse(409, `${id} waits on ${standing.who}, not on ${on}: work unblock ${id} on="${standing.who}" (or without "on") clears it.`)

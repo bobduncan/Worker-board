@@ -9,7 +9,6 @@ import { REST_GUARD, workingOnOther } from './parked.mjs'
 import { fixesThrough, gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
 import { refineAsksOf } from './stepAsks.mjs'
 import { rethinkWords } from './rethink.mjs'
-import { waitsOnOf } from './waitsOn.mjs'
 import { putDownOf } from './holderTimers.mjs'
 
 const idsIn = value => (value ?? '').match(/\b[A-Z]\d+\b/g) ?? []
@@ -48,8 +47,6 @@ export function readyHold(item, ctx) {
   const open = blockersOpen(item, ctx)
   if (open.length > 0) return `blocked by ${open.map(id => `${id} (${items.has(id) ? valueOf(items.get(id), 'State') : 'not in the store'})`).join(', ')}`
   if (waitWords(item) !== null) return `waits for: ${waitWords(item)}`
-  // F74: a step put down while it waited on a chat (api.mjs `putDownWaiting`) keeps its record: held until the main chat, the person or its builder clears it.
-  if (valueOf(item, 'Owner') === null && waitsOnOf(item) !== null) return `waits on ${waitsOnOf(item).who} (${waitsOnOf(item).what})`
   const blocking = asksOf(item, ctx).filter(ask => isOpen(ask) && valueOf(ask, 'Blocking') === 'yes').map(ask => valueOf(ask, 'Id'))
   if (blocking.length > 0) return `waits for the answer to ${blocking.join(', ')}`
   const asks = refineAsksOf(items, item)
@@ -160,8 +157,10 @@ export function overlapIn(items, item, states = UNDER_WAY) {
   const mine = touchesOf(item)
   if (mine.length === 0) return null
   for (const other of items.values()) {
-    // F74: a step the board put down (refined, its builder named) still holds its files: new work on them waits for it, not the other way round.
-    const isPutDown = valueOf(other, 'State') === 'refined' && putDownOf(other) !== null
+    // F74: a step the board put down (refined, its builder named) holds its files again once its blocker is done (it is ready, nearly finished):
+    // new work on them waits for it, not the other way round. While it is still blocked it holds nothing (chat 1's re-check: two put-down
+    // steps never hold each other).
+    const isPutDown = valueOf(other, 'State') === 'refined' && putDownOf(other) !== null && blockersOpen(other, { store: { items } }).length === 0
     if (other === item || valueOf(other, 'Id') === valueOf(item, 'Id') || (!states.includes(valueOf(other, 'State')) && !isPutDown)) continue
     for (const theirs of touchesOf(other)) {
       const own = mine.find(one => covers(one, theirs))

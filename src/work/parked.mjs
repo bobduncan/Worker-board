@@ -14,8 +14,6 @@ import { sinceMs, valueOf } from './item.mjs'
 import { isHeld } from './askHold.mjs'
 import { isKeptLook } from './keptLook.mjs'
 import { waitsOnOf } from './waitsOn.mjs'
-import { LANDING_WHAT } from './landedWait.mjs'
-import { lastTakenAt } from './holderTimers.mjs'
 import { checkpointOf } from './pause.mjs'
 import { logBranchName } from '../landing.mjs'
 
@@ -87,42 +85,43 @@ export function waitOf(item, items) {
   return null
 }
 
-/** F74 (chat 1's blocker 2): a recorded chat wait whose words name the landing (the go-live: "its go to land") keeps its worker. */
-export const isGoLiveWait = wait => wait?.kind === 'chat' && LANDING_WHAT.test(String(wait.what ?? ''))
-const RECORD_LINE = /^-\s+\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?\s+([^:]{1,80}): (blocked by (B\d+)|waits on )/
+const RECORD_LINE = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s+([^:]{1,80}): (blocked by (B\d+)|waits on )/
 /**
- * F74 (chat 1's review): who wrote the record a step waits on, from its History (the newest "blocked by B<n>" line of one of its open
- * blockers, or the newest "waits on" line), or null when no line says.
+ * F74 (chat 1's review): the record a step waits on, from its History: the newest "blocked by B<n>" line of one of its open blockers (or the
+ * newest "waits on" line), `{ who, at }`; null when no line says.
  */
-export function recordWriterOf(item, wait) {
+export function recordOf(item, wait) {
   if (wait === null || wait === undefined) return null
   const lines = (item?.sections?.get('History') ?? []).map(String)
   for (let at = lines.length - 1; at >= 0; at -= 1) {
     const hit = RECORD_LINE.exec(lines[at])
     if (hit === null) continue
-    if (wait.kind === 'chat' && hit[2] === 'waits on ') return hit[1].trim()
-    if (wait.kind === 'blocked' && hit[3] !== undefined && wait.on.includes(hit[3])) return hit[1].trim()
+    if ((wait.kind === 'chat' && hit[3] === 'waits on ') || (wait.kind === 'blocked' && hit[4] !== undefined && wait.on.includes(hit[4]))) return { who: hit[2].trim(), at: sinceMs(hit[1]) }
   }
   return null
 }
+/** Who wrote the record (`recordOf`), or null. */
+export const recordWriterOf = (item, wait) => recordOf(item, wait)?.who ?? null
 
 /**
- * F74: whether the board puts the step `who` holds down now: `{ ok: true, wait }`, or `{ ok: false, why, wait }` with why 'none' (no
- * record), 'go-live' (the wait is the landing's: the go-live keeps its worker), 'landing' (its branch holds the landing lock), 'other'
- * (the record is not the holder's own: the main chat's, another chat's), 'checkpoint' (no checkpoint with a commit written since this
- * holder's take, or a branch of none). The push of the commit is the caller's check (it needs git).
+ * F74: whether the board puts the step `who` holds down now: `{ ok: true, wait, branch, commit }`, or `{ ok: false, why, wait }` with why
+ * 'none' (no record), 'chat' (chat 1's re-check of 2026-11-27: ONLY a "Blocked by <step>" wait is put down; a wait on a chat keeps its
+ * step as before F74, whatever its words, and the Late card handles a long one), 'landing' (its branch holds the landing lock), 'other'
+ * (the record is not the holder's own: the main chat's, another chat's), 'checkpoint' (no checkpoint with a commit written after that
+ * record and since this holder's take, or a branch of none). The push of the commit is the caller's check (it needs git).
  */
 export function putDownCheck(item, items, { who, prefix = '', landing = null } = {}) {
   const wait = waitOf(item, items)
   if (wait === null) return { ok: false, why: 'none', wait: null }
-  if (isGoLiveWait(wait)) return { ok: false, why: 'go-live', wait }
+  if (wait.kind !== 'blocked' || waitsOnOf(item) !== null) return { ok: false, why: 'chat', wait }
   const branch = valueOf(item, 'Branch')
   const hasBranch = typeof branch === 'string' && branch !== '' && branch !== '-' && branch.toLowerCase() !== 'none'
   if (hasBranch && typeof landing === 'string' && landing !== '' && logBranchName(branch) !== '' && logBranchName(branch) === logBranchName(landing)) return { ok: false, why: 'landing', wait }
-  const writer = recordWriterOf(item, wait)
-  if (writer === null || plain(writer, prefix) !== plain(who, prefix)) return { ok: false, why: 'other', wait }
+  const record = recordOf(item, wait)
+  if (record === null || plain(record.who, prefix) !== plain(who, prefix)) return { ok: false, why: 'other', wait }
   const checkpoint = checkpointOf(item)
-  const fresh = checkpoint !== null && /^[0-9a-f]{4,40}$/i.test(checkpoint.commit ?? '') && Number.isFinite(checkpoint.at) && checkpoint.at >= lastTakenAt(item)
+  // The first checkpoint after the record (never an older one: an earlier holder's record is not this holder's, so its checkpoint never counts), on a branch.
+  const fresh = checkpoint !== null && /^[0-9a-f]{4,40}$/i.test(checkpoint.commit ?? '') && Number.isFinite(checkpoint.at) && Number.isFinite(record.at) && checkpoint.at >= record.at
   if (!fresh || !hasBranch) return { ok: false, why: 'checkpoint', wait }
   return { ok: true, wait, branch, commit: checkpoint.commit }
 }

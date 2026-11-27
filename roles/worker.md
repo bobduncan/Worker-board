@@ -167,6 +167,12 @@ step therefore says what it touches ("Touches: ...").
   Read the person's words (`work next`, or the step's "Your words"), then do ONE of three: re-ask what is still open (`work ask`, the
   held ask is withdrawn "re-asked as Q<new>"), `work withdraw Q<n> why="<what the words settled>"`, or, when the words change nothing,
   `work note to=main of=Q<n> text="still stands: <why>"`. Left alone, the ask comes back to the person by itself after an hour of the board's running time (never held again). You do not call `words` (the person, the main chat and a side chat of the app do).
+- A step blocked by another step (F74, 2026-11-27): record it with `work block id=B<n> on=B<m>`, push your branch and write your checkpoint
+  (`work step id=B<n> commit=<hash> next=<words>`), and the board PUTS THE STEP DOWN: it goes back to the list held by its blocker, with
+  your branch, checkpoint and name, and you get new work at once (remove your task folder for it: the next worker makes its own from the
+  branch). When the blocker is done the step comes back first in line, to you when you are free, else to the first free worker, who goes on
+  from your checkpoint. Only your own record puts down, and only a checkpoint written after it: the answer says what is still missing. A wait
+  on a chat (below) keeps the step with you.
 - Record every wait on a chat (P1 of the one wait system, 2026-11-09): while you wait for another chat's answer (chat 1's go
   to land, a review), write `work block id=B<n> on="chat 1" why="its go to land"` — never only in a checkpoint. The
   board then shows you as waiting on purpose, sends no "go on" line and gives the step to nobody for 90 minutes of its running

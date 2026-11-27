@@ -9517,3 +9517,17 @@ first)"); its worktree is left for the sweep once unused since (worktrees.mjs `i
 step that waits on a chat keeps its Late card and its side word in its builder's name (state.mjs `isWaitingHeld`). The send-back's fix round
 is read from the fix's own History ("made by your Send back in Q<n>"). Tests: test/work/putDown.test.mjs, 14 cases including a real lane
 state for the Late; 15 more mutants red.
+
+### Chat 1's re-check (67c914b7, 2026-11-27): the scope narrowed to blocked-by waits
+
+Most findings came from guessing what a chat wait means from its words, so: ONLY a "Blocked by <step>" wait is put down. A wait on a chat
+(a review, the go-live, any words) keeps its step as before F74, and the Late card and the side word handle a long one; a blocker recorded
+beside a chat wait keeps the step too. The put-down happens only on the holder's own block of a step, or at its first checkpoint after that
+record (the checkpoint newer than the record and than this holder's take); the hand-over's pass puts nothing down, and the steps already
+blocked when this went live are put down at their holder's next checkpoint. The push is checked before the call enters the store's queue
+(server.mjs `pushedAheadOf`: git once, for the one commit the call is about) and the API takes no answer as not pushed: the step stays and
+the answer says to push and write the checkpoint again; an unreadable landing lock is no put-down either. The overlap guard counts a put-down
+step's Touches only once its blocker is done (it is ready again, nearly finished), so two blocked put-down steps never hold each other. The
+person's pin stays on a put-down: a pinned step waits for its pinned worker (the person's choice), never for the pick. The worktree sweep
+removes a put-down folder only while the step still has no owner and the folder is unused since. The worker role says it in its own words
+(roles/worker.md). Tests: test/work/putDown.test.mjs (12); 25 mutants red.

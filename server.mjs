@@ -117,7 +117,7 @@ import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
 import { isReadAction, keepPersonAction, workApi } from './src/work/api.mjs'
 import { effortOf, setsRefusedOf } from './src/work/effort.mjs'
-import { PAUSE_FILE, chatsAsking, chatsWithoutProcess, isHolding, parsePause, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
+import { PAUSE_FILE, chatsAsking, chatsWithoutProcess, checkpointOf, isHolding, parsePause, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
@@ -1933,7 +1933,7 @@ async function main(args) {
       },
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
       // F74: the put-down's checks (api.mjs `putDownWaiting`): the branch a landing runs for now, and whether a commit is on the remote.
-      landingNow: () => runningLanding({ dir: join(HERE, 'data'), now: clock() }), isPushed,
+      landingNow: () => runningLanding({ dir: join(HERE, 'data'), now: clock() }),
       // One question per task (2026-10-31): the step a chat's card names at that moment (the lane's task), for an ask that names none.
       cardStepOf: chat => [...lanes, ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].find(lane => lane.name === chat)?.task?.stepId ?? null,
       routingPolicy: config.routing,
@@ -2067,6 +2067,18 @@ async function main(args) {
   const keepStability = isDemo || isShowOnly || workDir === null ? null : stabilityKeeper({ dir: join(HERE, 'data'), clock })
   const workReads = new Set(['next', 'list', 'pause-state', 'route-state', 'health'])
   /** One action on the store; after a change the board reads it anew, and after a report (or a recheck) it runs its own check. */
+  /** F74: the commit a `step` or `block` call may put a step down on (the body's, else the step's checkpoint), and whether git finds it on a remote branch. */
+  const pushedAheadOf = async body => {
+    if (workDir === null || !['step', 'block'].includes(body?.action) || typeof body?.id !== 'string') return null
+    if (body.action === 'block' && !/^b\d+$/i.test(String(body.on ?? ''))) return null
+    let commit = /^[0-9a-f]{4,40}$/i.test(String(body.commit ?? '')) ? String(body.commit) : null
+    if (commit === null) {
+      const read = await readStore(workDir).catch(() => null)
+      commit = checkpointOf(read?.items?.get(body.id) ?? null)?.commit ?? null
+    }
+    if (commit === null || !/^[0-9a-f]{4,40}$/i.test(commit)) return null
+    return { commit, pushed: (await isPushed({ commit }).catch(() => null)) === true }
+  }
   const workAction = async (body, as, trace = null) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }
     if (workWriters === null && !workReads.has(body?.action)) return { ok: false, status: 409, why: `This board only shows. Change the work on the board that delivers: http://${HOST}:${recordingPort}/` }
@@ -2074,7 +2086,10 @@ async function main(args) {
     const ctx = await workCtx({ kept: body?.action === 'health', chat: as === undefined && typeof body?.chat === 'string' ? body.chat : null, action: body?.action ?? null, of: typeof body?.of === 'string' ? body.of : null, forYou: (Array.isArray(body?.forYou) && body.forYou.length > 0) || (typeof body?.forYouText === 'string' && body.forYouText !== ''), trace })
     // B1139: the call's context is there (a kept state, or the rebuild it waited for).
     trace?.mark('ctx')
-    const done = await workApi(body, { ...ctx, ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }) })
+    // F74 (chat 1's re-check): the put-down's push check asks git here, before the call enters the store's queue, for the one commit the
+    // call is about (the checkpoint's); the API reads the answer, and none counts as not pushed.
+    const pushedAhead = await pushedAheadOf(body).catch(() => null)
+    const done = await workApi(body, { ...ctx, ...(as === undefined ? {} : { as }), ...(workWriters === null ? { onlyShows: true } : {}), ...(actionsFile === null ? {} : { actionsFile }), ...(pushedAhead === null ? {} : { isPushed: ({ commit }) => (commit === pushedAhead.commit ? pushedAhead.pushed : null) }) })
     trace?.mark('action')
     // T9.1.1: a result check is a Quality Assurance task the work API makes itself (api.mjs `qaStep`): no word to the Advisor.
     // B359: a failed check counts an attempt of its goal: the guard looks whether it fires.

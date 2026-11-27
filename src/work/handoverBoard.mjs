@@ -16,9 +16,7 @@ import { RESTART_COMMAND, restartWords } from './modRollout.mjs'
 import { EFFORTS, chatEffort, effortOf, effortWords, isSetRefused, modelOf, readBackMarkOf, runSettings, sameModel, setsRefusedOf, settingOf } from './effort.mjs'
 import { CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, HANDOVER_COMMAND, contractOf, decide, envelopesOf, failedWhy, isClearOwedOnly, mergeStages, onSequence } from './handover.mjs'
 import { giveBackStep } from './giveBack.mjs'
-import { GIVE_BACK_MINUTES, RESUME_MINUTES, continuationOf, putDownWords, standOf } from './holderTimers.mjs'
-import { putDownCheck } from './parked.mjs'
-import { valueOf as fieldOf } from './item.mjs'
+import { GIVE_BACK_MINUTES, RESUME_MINUTES, continuationOf, standOf } from './holderTimers.mjs'
 import { isHolding } from './pause.mjs'
 import { readStore } from './store.mjs'
 import { isLate } from '../store.mjs'
@@ -239,22 +237,6 @@ export async function closeClearOnly(outbox, now) {
  * One worker's decision carried out: `{ decision, envelope }` (the message written, or null). `apply(body)` is the work
  * API as the server. A give the API refuses moves to the next candidate in the same call (at most three).
  */
-/**
- * F74: the step the lane's idle holder should put down now, `{ id, wait, branch, commit }`, or null: the lane idle (its report idle, or asleep),
- * holding one step taken or in progress whose own record it waits on, with a fresh checkpoint on a pushed branch (parked.mjs `putDownCheck`;
- * the push is the caller's check). PURE.
- */
-export function putDownDue({ lane, items, prefix = '', landing = null }) {
-  if (lane === null || lane === undefined || lane.isMain === true || lane.isLeftover === true) return null
-  const idle = lane.report?.state === 'idle' || lane.asleep === true
-  if (!idle) return null
-  const plainOf = name => String(name ?? '').trim().replace(prefix, '').trim().toLowerCase()
-  const held = [...items.values()].find(item => (fieldOf(item, 'Kind') ?? 'step') === 'step' && ['taken', 'in progress'].includes(fieldOf(item, 'State')) && plainOf(fieldOf(item, 'Owner')) === plainOf(lane.name))
-  if (held === undefined) return null
-  const check = putDownCheck(held, items, { who: lane.name, prefix, landing })
-  return check.ok ? { id: fieldOf(held, 'Id'), wait: check.wait, branch: check.branch, commit: check.commit } : null
-}
-
 export async function handOver({ lane, state, dir, outbox, apply, config, installed = null, now, newId, event, fs, isPushed = null, log, wakes = null, landingNow = null, landingsOf = null }) {
   const read = await readStore(dir, fs)
   const sent = outbox.outbox()
@@ -272,16 +254,6 @@ export async function handOver({ lane, state, dir, outbox, apply, config, instal
     landings = typeof landingsOf === 'function' ? await landingsOf() : []
   } catch {
     landings = []
-  }
-  // F74 (chat 1's review): an idle holder whose step only waits on its own record, with its fresh checkpoint pushed, is put down at the pass
-  // too (a step already waiting when this went live, a retried block that changed nothing): then the decision below reads a free worker.
-  const due = putDownDue({ lane, items: read.items, prefix: state.chatPrefix ?? '', landing })
-  if (due !== null && (typeof isPushed !== 'function' || await isPushed({ branch: due.branch, commit: due.commit }).catch(() => null) !== false)) {
-    const back = await apply({ action: 'advance', id: due.id, to: 'refined', giveBack: { chat: lane.name, why: putDownWords(lane.name, due.wait.words), putDown: true } }).catch(() => null)
-    if (back?.ok === true) {
-      const again = await readStore(dir, fs)
-      read.items = again.items
-    }
   }
   const facts = factsOf({ lane, state, items: read.items, pause: heldPause(read, state), sent, config, installed, now, event, localOnly, wakes, landing, landings })
   let decision = decide(facts)
