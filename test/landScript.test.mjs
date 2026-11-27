@@ -879,11 +879,13 @@ test('a push that times out but landed is found out with git ls-remote and the l
   const world = await makeWorld(t)
   const head = world.branch('feat')
   await world.boards()
-  world.slowRemote(8)
-  world.config({ pushTimeoutSeconds: 3 })
+  // B1575: the push must reach the remote's ref update before its timeout, so the timeout has room under load (3 s did not: the
+  // push was stopped before origin took the head, and the landing was refused); the hook outlasts it and is stopped with the push.
+  world.slowRemote(60)
+  world.config({ pushTimeoutSeconds: 15 })
   const ran = await world.land('feat')
   assert.equal(ran.status, 0, ran.out)
-  assert.ok(lines(ran.out).some(line => /^note: the push to origin said it failed \(timed out after 3 s\), but origin\/main has [0-9a-f]{7}: going on$/.test(line)), ran.out)
+  assert.ok(lines(ran.out).some(line => /^note: the push to origin said it failed \(timed out after 15 s\), but origin\/main has [0-9a-f]{7}: going on$/.test(line)), ran.out)
   assert.equal(git(world.remote, 'rev-parse', 'main'), head)
   assert.equal(git(world.main, 'rev-parse', 'HEAD'), head)
   for (const port of world.ports) assert.equal((await boardState(port)).commit, head.slice(0, 7))
