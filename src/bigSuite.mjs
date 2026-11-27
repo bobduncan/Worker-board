@@ -16,11 +16,17 @@ export const NIGHT_FROM_HOUR = 1
 export const NIGHT_ORDINARY_HOUR = 5
 /** A runner whose file is older than this is dead, unless its run is in the queue (S3's rule, as the game's slow tier). */
 export const RUNNER_MAX_MS = 3 * 60 * 60 * 1000
-/** The queue labels of a big run: idle (waits for an idle PC) or ordinary (an overdue one). */
+/**
+ * The queue labels of a big run: idle (waits for an idle PC) or ordinary (an overdue one). P4 (chat 1, 2026-11-27): both give way to
+ * a gate while they hold the slot (one-at-a-time.mjs givesWay: the idle room, and the `yield:` prefix), so a 30-minute suite never
+ * stands in front of a go-live; the suite then starts over at its next turn.
+ */
 export const IDLE_LABEL = 'idle:big-suite'
-export const ORDINARY_LABEL = 'big-suite'
-/** The label of the rerun alone of a file that failed in a big run (short: an ordinary run). */
-export const RERUN_LABEL = 'big-suite-rerun'
+export const ORDINARY_LABEL = 'yield:big-suite'
+/** The label of the rerun alone of a file that failed in a big run (an ordinary run that gives way to a gate too, P4). */
+export const RERUN_LABEL = 'yield:big-suite-rerun'
+/** P4: the labels of before, for a big run an older copy still has in the queue. */
+const OLD_LABELS = ['big-suite', 'big-suite-rerun']
 /** Core review: after main moved, a big run waits at least this long after the last start (no run after every landing). */
 export const SETTLE_MS = 60 * 60 * 1000
 /** The folder name of a big run's worktree in the temporary folder. */
@@ -212,7 +218,7 @@ export function bigRunQueued(lock, tool, alive = pidRuns, now = Date.now()) {
     // Verifier: a ticket whose beat is old (a killed run's, left by a reboot; its pid may be reused) is no queued run.
     const beat = Date.parse(run?.beat)
     if (Number.isFinite(beat) && now - beat > (tool.BEAT_STALE_MS ?? 5 * 60 * 1000)) return false
-    return [IDLE_LABEL, ORDINARY_LABEL, RERUN_LABEL].includes(run?.label) && folder.startsWith(RUN_FOLDER) && alive(run.pid)
+    return [IDLE_LABEL, ORDINARY_LABEL, RERUN_LABEL, ...OLD_LABELS].includes(run?.label) && folder.startsWith(RUN_FOLDER) && alive(run.pid)
   }
   for (const folder of [...(typeof tool.idleRoomOf === 'function' ? [tool.idleRoomOf(lock)] : []), `${lock}.queue`]) {
     let names = []

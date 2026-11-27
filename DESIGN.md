@@ -9243,9 +9243,9 @@ clock stands still while the PC sleeps (both ended with 124, late). Plan: .claud
     and its health line says "waits for an idle PC since 14:02". A folder's running run, then a run waiting its turn, is named
     before an older idle job of the same folder.
   - The run log marks idle runs (`idle: true`).
-- **An idle run that took the slot keeps it.** A gate that comes right after it waits until it ends, for up to the idle run's
-  whole time and never past the cap. S9's big suite holds about 15 minutes on a quiet PC (more under load). Measured in test/oneAtATime.test.mjs: a gate that came
-  with 1537 ms of the idle run left began its command after 1676 ms, so the wait beyond the time left was a poll and a node start.
+- **An idle run that took the slot gives way to a gate** (P4, 2026-11-27, below; until then it kept the slot, and a gate waited for its
+  whole time). An ordinary run still keeps it: a gate that comes right after it waits until it ends, never past the cap (measured in
+  test/oneAtATime.test.mjs: the wait beyond the run's time left is a poll and a node start).
 - **The cap counts the time awake; a sleep is no hang** (chat 1's review). The holder also reads the wall clock at every beat
   (HEAVY_RUN_BEAT_MS, 60 s) against when it took the slot, less the time the PC slept. A sleep is a gap between two beats well over
   the beat (`sleepGapOf`: 3 beats, at least the beat plus 2 minutes), because the holder only waits on its command, so nothing else
@@ -9303,14 +9303,15 @@ fix step itself, and that slow test runs in the light check for a while. Plan: .
   folder.
   - It is a worktree like land.ps1's gate: the main checkout's node_modules as a junction. At the end the junction goes first (rmdir,
     never a recursive delete), then the marker package is checked, then `git worktree remove` without force.
-  - It runs through the queue as `idle:big-suite` (S3: it waits for an idle PC), or as an ordinary `big-suite` run once it is overdue.
+  - It runs through the queue as `idle:big-suite` (S3: it waits for an idle PC), or as an ordinary `yield:big-suite` run once it is
+    overdue. Both give way to a gate (P4).
     Overdue means 4 hours after the last start, or from 05:00 while the night run has not run. An idle run still waiting in the idle
     room at that moment (its ticket there, not only no "runs now" line yet: core review; a room that cannot be read counts as waiting)
     is stopped and started again as an ordinary one. A run counts from when it took its slot, so an idle run that waited from 23:00
     and ran at 01:10 is the night run.
   - Its state lies beside the PC's test lock (`<lock>.board-big-suite.json`), so every gate worktree reads the same probation.
   - A run the queue stopped at its hold cap (124) is "could not run", never red. A stall is red, with the files it left open.
-  - Core review: each file that failed in the full run runs again alone once (`big-suite-rerun`, as land.ps1 does). One that passes
+  - Core review: each file that failed in the full run runs again alone once (`yield:big-suite-rerun`, as land.ps1 does). One that passes
     alone is flaky: it is recorded, but it is no red and gets no fix step and no probation. Only the files that fail again are red.
     In 8 of the last 9 full gates a file failed that then passed alone. At most 10 files run again alone (a broken shared module fails
     dozens: the rest stay red). A rerun alone that could not run makes the whole big run "could not run", because it proves nothing.
@@ -9386,6 +9387,20 @@ The delivery review: the go-live check doubled in three weeks (median 6.8 to 16.
     each in the step's report".
   - It is a report, not a gate: the go-live goes on (the brief).
 - Which tests run where stays the speed plan's rule: the light check per go-live, the big suite when idle.
+- **Background work gives way to a gate** (chat 1, 2026-11-27: a mutant run, queued as an ordinary run, held the slot 28 minutes
+  while a go-live's rerun waited, and the whole line stood still).
+  - Who gives way (tools/one-at-a-time.mjs `givesWay`): a run from the idle room (S3's idle labels), and a run with the `yield:`
+    prefix or HEAVY_RUN_YIELD=1. A `yield:` run waits in the queue as an ordinary run, not for an idle PC: a builder's mutants, the
+    big suite once it is overdue (`yield:big-suite`) and its reruns alone (`yield:big-suite-rerun`). A first-class run (a gate, its
+    rerun) never gives way, nor does a run under another (HEAVY_RUN_HELD).
+  - How: while it holds the slot it looks every quarter poll (at least every 250 ms) whether a first-class ticket waits in the queue.
+    Then it stops its command's whole tree (taskkill /T /F), gives the slot back at once, says "gives way to a gate (its command starts
+    over at its next turn)", and waits again where it came from: the idle room, or the back of the queue. At its next turn the command
+    starts over. Measured: a gate takes the slot at its first look after the one it came with.
+  - From the third time in a row its lines (the give-way line and every waiting line) add "gave way to a gate N times in a row, not
+    finished since HH:MM", so a run that never finishes shows; its ticket carries `gaveWay`, and the log's record too.
+  - The big suite (tools/big-suite.mjs) reads the give-way line: what the stopped half said is dropped, so its verdict and its start
+    are the new run's.
 
 ## F46: a build of the state walks the store once (2026-11-23, chat 4)
 

@@ -1,6 +1,7 @@
 // S9: the big suite. Every test file of main, in a worktree of its own in the temporary folder, through the PC's one-at-a-time queue:
-// as `idle:big-suite` (it waits for an idle PC, S3), or as an ordinary `big-suite` run when it is overdue (src/bigSuite.mjs labelFor;
-// an idle run still waiting at that moment is stopped and started anew as an ordinary one). How it works: src/bigSuite.mjs.
+// as `idle:big-suite` (it waits for an idle PC, S3), or as an ordinary `yield:big-suite` run when it is overdue (src/bigSuite.mjs labelFor;
+// an idle run still waiting at that moment is stopped and started anew as an ordinary one). Both give way to a gate (P4) and start
+// over after it. How it works: src/bigSuite.mjs.
 //
 //   node tools/big-suite.mjs --run <main checkout>   (the board starts it when it is due, server.mjs)
 //   node tools/big-suite.mjs --status                 (a gate's start: a red run, the files on probation)
@@ -40,6 +41,8 @@ export function rotateLog(log, maxBytes = LOG_MAX_BYTES) {
 }
 /** one-at-a-time's line when a run takes its slot (F14): until then an idle run only waits, and may be started anew as ordinary. */
 export const RUNS_NOW = /one-at-a-time: .+ runs now/
+/** P4: one-at-a-time's line when a run gave way to a gate (its gaveWayLine): the run waits again, and its command starts over. */
+export const GAVE_WAY = /one-at-a-time: .+ gives way to a gate[^\n]*\n/g
 export { RERUN_LABEL }
 
 export const git = (args, cwd) => spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true })
@@ -128,6 +131,13 @@ export function bigSuiteSteps(repo, env = process.env) {
         const take = (chunk) => {
           const text = String(chunk)
           output += text
+          // P4: a run that gave way to a gate starts over: what it said before (the half of a stopped suite) is no part of its verdict,
+          // and it holds no slot until its next "runs now" (so an idle one may be started anew as ordinary again).
+          const gave = [...output.matchAll(GAVE_WAY)].at(-1)
+          if (gave !== undefined) {
+            output = output.slice(gave.index + gave[0].length)
+            ranAt = null
+          }
           // On the whole output, not the chunk: the line may come in two pieces (verifier).
           if (ranAt === null && RUNS_NOW.test(output)) ranAt = Date.now()
           appendFileSync(files.log, text)

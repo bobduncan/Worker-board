@@ -60,10 +60,17 @@
 //   room beside the lock (`<lock>.idle`, beating tickets as in the queue), oldest first, and goes only when no ticket waits in the
 //   queue and a slot is free: it puts a ticket in the queue for one look, takes the slot, or goes back to the room. The queue's order
 //   and the old copies' rules do not change, and an old copy never sees an idle run waiting ahead of it (no two runs wait for each
-//   other). An idle run that took the slot keeps it: a gate that comes right after waits for it to end (at most the cap). The hold
+//   other). P4 (chat 1, 2026-11-27): an idle run that took the slot gives way to a gate (givesWay, below), no longer keeps it. The hold
 //   cap is the hold's time awake, read against the wall clock at every beat, less the time the PC slept (a gap between beats well
 //   over the beat, sleepGapOf): a sleep is no hang (chat 1's review). No timer: libuv's timers count the time asleep here. The
 //   holder's beats move its lock's `since` on by the time slept, so no waiter, old copies too, frees a holder that only slept.
+// - P4 (chat 1, 2026-11-27, after a mutant run held the slot 28 minutes while a go-live's rerun waited): background work gives way
+//   to a gate. A run from the idle room, or one with the `yield:` prefix or HEAVY_RUN_YIELD=1 (it waits in the queue as an ordinary
+//   run, not for an idle PC), that holds the slot looks every quarter poll whether a first-class ticket (a landing's gate or its
+//   rerun) waits in the queue. Then it stops its command's whole tree, gives the slot back at once, says so, and waits again where it
+//   came from (the room, or the back of the queue); at its next turn its command starts over. A first-class run, and a run under
+//   another (HEAVY_RUN_HELD), never gives way. From the third time in a row its lines say how often and since when, so a run that
+//   never finishes shows (its ticket carries the count too, and the log's record).
 import { execFile, spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, statSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import os from 'node:os'
@@ -138,6 +145,23 @@ export function isIdleRun(label, env = process.env) {
 export function idleRoomOf(file) {
   return `${file}.idle`
 }
+/** P4: the label prefix of a run that waits in the queue as an ordinary run but gives way to a gate (mutants, the big suite). */
+export const YIELD_LABEL = /^yield:/i
+/** P4: whether a run gives way to a gate while it holds the slot: an idle or `yield:` run of its own, never a first-class one. */
+export function givesWay(label, env = process.env) {
+  if (env.HEAVY_RUN_FIRST === '1' || env.HEAVY_RUN_HELD === '1') return false
+  return isIdleRun(label, env) || env.HEAVY_RUN_YIELD === '1' || YIELD_LABEL.test(String(label ?? ''))
+}
+/** P4: how often a run that gives way looks for a waiting gate: every quarter poll, at least every 250 ms. */
+export const giveWayLookOf = (pollMs) => Math.max(250, Math.floor(pollMs / 4))
+/** P4: from this many give-ways in a row a run's lines say how often and since when. */
+export const GAVE_WAY_SAID = 3
+/** P4: the line a run says when it gives way (big-suite.mjs reads it, so its output starts over with the command). */
+export const gaveWayLine = (label, times, since) => `one-at-a-time: ${label} gives way to a gate (its command starts over at its next turn${gaveWayWords(times, since)})`
+/** P4: the words a run that gave way adds to its lines from the third time in a row (`since` when it came, ISO), or ''. */
+const gaveWayWords = (times, since) => (times >= GAVE_WAY_SAID ? `; gave way to a gate ${times} times in a row, not finished since ${clock(since)}` : '')
+/** P4: the end of a hold whose command was stopped to give way (never an exit code). */
+const GAVE_WAY = Symbol('gave way')
 
 /** The file of slot `n` (from 1): slot 1 is the lock file itself, slot n is `<name>.n.lock` beside it. */
 export function slotPath(file, n) {
@@ -339,6 +363,11 @@ function queueOf(folder, now = Date.now()) {
   return live
 }
 
+/** P4: whether a first-class ticket (a landing's gate or its rerun, of any copy) waits in the queue folder `queue` now. */
+export function gateWaits(queue) {
+  return queueOf(queue).some((one) => one.first)
+}
+
 /**
  * S3, review: the tickets of a folder as an idle run reads them, oldest first (`{ name, pid }` each). Unlike queueOf, a ticket whose
  * process runs but whose beat is old (the PC slept: its owner beats again within a look of the wake), or that cannot be read yet,
@@ -405,11 +434,13 @@ export function aheadOf(order, ticketName, first) {
  * time into it (F39, review: at every look; one dropped meanwhile, an old beat after a PC sleep, is made again), `leave` removes it
  * while it is still ours.
  */
-function ticketIn(folder, at, { label, cwd, first = false, idle = false }) {
+function ticketIn(folder, at, { label, cwd, first = false, idle = false, gaveWay = null }) {
   mkdirSync(folder, { recursive: true })
   const name = `${String(at).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`
   const file = path.join(folder, name)
-  const textOf = (beat) => JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date(at).toISOString(), ...(first ? { first: true } : {}), ...(idle ? { idle: true } : {}), order: ORDER_MARK, beat })
+  // P4: a run that gave way to a gate carries how often in a row and since when, for whoever reads the queue.
+  const gave = gaveWay !== null && gaveWay.times > 0 ? { gaveWay: gaveWay.times, gaveWaySince: gaveWay.since } : {}
+  const textOf = (beat) => JSON.stringify({ pid: process.pid, label, cwd, startedAt: new Date(at).toISOString(), ...(first ? { first: true } : {}), ...(idle ? { idle: true } : {}), ...gave, order: ORDER_MARK, beat })
   let text = textOf(new Date(at).toISOString())
   createLock(file, text)
   return {
@@ -446,13 +477,15 @@ function ticketIn(folder, at, { label, cwd, first = false, idle = false }) {
  * `stop` aborted the wait. The poll and say intervals are in `timing`; `slots` how many may run at once. S3: an `idle` run waits
  * in the idle room until the queue holds no ticket, then takes a free slot at once or goes back to the room.
  */
-async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first = false, idle = false, holdMaxMs = HOLD_MAX_MS }) {
+async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first = false, idle = false, holdMaxMs = HOLD_MAX_MS, gaveWay = null }) {
   mkdirSync(path.dirname(file), { recursive: true })
   const queue = `${file}.queue`
   mkdirSync(queue, { recursive: true })
   const came = Date.now()
+  // P4: the words of a run that gave way three times or more in a row, in every waiting line.
+  const gaveSaid = gaveWay === null ? '' : gaveWayWords(gaveWay.times, gaveWay.since)
   // S3: an idle run's ticket stays in the room; it is in the queue only for the one look at which it takes its slot.
-  const ticket = ticketIn(idle ? idleRoomOf(file) : queue, came, { label, cwd, first, idle })
+  const ticket = ticketIn(idle ? idleRoomOf(file) : queue, came, { label, cwd, first, idle, gaveWay })
   let placed = null
   const watched = new Map()
   const watchedTickets = new Map()
@@ -546,7 +579,7 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
         }
         if (Date.now() - saidAt >= timing.say) {
           const queued = others.length > 0 ? `, ${others.length} in the queue` : ''
-          say(`waiting for an idle PC (${running() || 'no run'}${queued})`)
+          say(`waiting for an idle PC (${running() || 'no run'}${queued})${gaveSaid}`)
           saidAt = Date.now()
         }
         await nap(timing.poll)
@@ -565,7 +598,7 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
       }
       if (Date.now() - saidAt >= timing.say) {
         const before = ahead > 0 ? `, ${ahead} ahead of this run` : ''
-        say(`waiting for ${running() || 'a free slot'}${before}`)
+        say(`waiting for ${running() || 'a free slot'}${before}${gaveSaid}`)
         saidAt = Date.now()
       }
       await nap(timing.poll)
@@ -730,6 +763,10 @@ export async function runOneAtATime({
   let began = null
   let code = null
   let fenceSaid = null
+  // P4: a background run gives way to a gate while it holds the slot; how often in a row, and since when it came.
+  const mayGiveWay = givesWay(label, env)
+  const gaveWay = { times: 0, since: new Date(came).toISOString() }
+  let givingWay = false
 
   const onSignal = (name) => {
     const again = signalled !== null
@@ -746,69 +783,102 @@ export async function runOneAtATime({
   process.on('exit', onExit)
 
   try {
-    if (env.HEAVY_RUN_HELD !== '1') {
-      const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS), now }
-      giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1', idle, holdMaxMs: positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS) })
-      if (!giveLockBack || signalled) {
+    // P4: one pass per hold; a hold that gave way to a gate waits again where it came from, and its command starts over.
+    for (;;) {
+      if (env.HEAVY_RUN_HELD !== '1') {
+        const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS), now }
+        giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1', idle, holdMaxMs: positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS), gaveWay: mayGiveWay ? gaveWay : null })
+        if (!giveLockBack || signalled) {
+          code = signalExit(signalled)
+          return code
+        }
+        began = Date.now()
+      }
+      // S5: the fence, once the slot is ours and before the command starts (a run under another is inside its fence already).
+      const fence = await fenceOf({ env })
+      // Chat 1's review: a stop signal while the fence was set finds no command yet; it must not start one then.
+      if (signalled) {
         code = signalExit(signalled)
         return code
       }
-      began = Date.now()
-    }
-    // S5: the fence, once the slot is ours and before the command starts (a run under another is inside its fence already).
-    const fence = await fenceOf({ env })
-    // Chat 1's review: a stop signal while the fence was set finds no command yet; it must not start one then.
-    if (signalled) {
-      code = signalExit(signalled)
-      return code
-    }
-    if (env.HEAVY_RUN_HELD !== '1' && !fence.fenced) say(`one-at-a-time: ${label} runs unfenced: ${fence.why}`)
-    const fenceEnv = fence.fenced ? { HEAVY_RUN_MASK: `0x${fence.mask.toString(16).toUpperCase()}`, HEAVY_RUN_CORES: String(fence.cores), HEAVY_RUN_PRIORITY: fence.priority } : {}
-    fenceSaid = fence.fenced ? `${fence.level} ${fenceEnv.HEAVY_RUN_MASK} ${fence.priority}` : `unfenced: ${fence.why}`
-    // The run that holds the slot, for a log under it (tools/vitest-run-log.mjs leaves its own slot out of the PC's other runs).
-    const ownerPid = env.HEAVY_RUN_HELD === '1' && env.HEAVY_RUN_PID ? env.HEAVY_RUN_PID : String(process.pid)
-    const exited = new Promise((resolve) => {
-      forceExit = () => resolve(signalExit(signalled))
-      const { HEAVY_RUN_FIRST: _first, HEAVY_RUN_IDLE: _idle, ...plain } = env
-      // S5: the fence's priority; a run under another keeps the one it was born with (an idle fence is never lifted).
-      const priority = env.HEAVY_RUN_HELD === '1' ? null : fence.fenced ? fence.priority : null
-      child = startWith(priority, () => spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, ...fenceEnv, HEAVY_RUN_HELD: '1', HEAVY_RUN_PID: ownerPid } }))
-      child.on('error', (error) => {
-        say(`one-at-a-time: could not start the command: ${error.message}`)
-        resolve(127)
-      })
-      child.on('exit', (code, signal) => resolve(capped ? 124 : signalled ? signalExit(signalled) : (code ?? signalExit(signal))))
-      // F39, review: no run holds the PC's slot for good (a hung check or build): stopped at the cap, code 124.
-      if (env.HEAVY_RUN_HELD !== '1') {
-        const maxMs = positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS)
-        const beganAt = now()
-        const stopAtCap = () => {
-          if (capped) return
-          capped = true
-          say(`one-at-a-time: ${label} ran longer than ${Math.round(maxMs / 60000)} minutes and was stopped`)
-          stopTree(child, 'SIGTERM')
-          setTimeout(() => resolve(124), STOP_WAIT_MS).unref()
+      if (env.HEAVY_RUN_HELD !== '1' && !fence.fenced) say(`one-at-a-time: ${label} runs unfenced: ${fence.why}`)
+      const fenceEnv = fence.fenced ? { HEAVY_RUN_MASK: `0x${fence.mask.toString(16).toUpperCase()}`, HEAVY_RUN_CORES: String(fence.cores), HEAVY_RUN_PRIORITY: fence.priority } : {}
+      fenceSaid = fence.fenced ? `${fence.level} ${fenceEnv.HEAVY_RUN_MASK} ${fence.priority}` : `unfenced: ${fence.why}`
+      // The run that holds the slot, for a log under it (tools/vitest-run-log.mjs leaves its own slot out of the PC's other runs).
+      const ownerPid = env.HEAVY_RUN_HELD === '1' && env.HEAVY_RUN_PID ? env.HEAVY_RUN_PID : String(process.pid)
+      const exited = new Promise((resolve) => {
+        forceExit = () => resolve(signalExit(signalled))
+        const { HEAVY_RUN_FIRST: _first, HEAVY_RUN_IDLE: _idle, ...plain } = env
+        // S5: the fence's priority; a run under another keeps the one it was born with (an idle fence is never lifted).
+        const priority = env.HEAVY_RUN_HELD === '1' ? null : fence.fenced ? fence.priority : null
+        child = startWith(priority, () => spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, ...fenceEnv, HEAVY_RUN_HELD: '1', HEAVY_RUN_PID: ownerPid } }))
+        child.on('error', (error) => {
+          say(`one-at-a-time: could not start the command: ${error.message}`)
+          resolve(127)
+        })
+        child.on('exit', (code, signal) => resolve(givingWay ? GAVE_WAY : capped ? 124 : signalled ? signalExit(signalled) : (code ?? signalExit(signal))))
+        // P4: a gate waits: the whole tree stops and the hold ends as "gave way" (never at the cap, nor after a stop signal).
+        if (mayGiveWay) {
+          const queue = `${lockPath(env)}.queue`
+          const look = setInterval(() => {
+            if (givingWay || capped || signalled || !gateWaits(queue)) return
+            givingWay = true
+            clearInterval(look)
+            stopTree(child, 'SIGTERM')
+            // The tree is stopped (taskkill /F returns once it is): the slot goes back now, not at the exit's event, so the gate's
+            // next look finds it free.
+            giveLockBack?.()
+            giveLockBack = null
+            setTimeout(() => resolve(GAVE_WAY), STOP_WAIT_MS).unref()
+          }, giveWayLookOf(positive(env.HEAVY_RUN_POLL_MS, POLL_MS)))
+          look.unref()
+          const unlook = () => clearInterval(look)
+          child.on('exit', unlook)
+          child.on('error', unlook)
         }
-        // S3, chat 1's review: the cap is the hold's time awake, read against the wall clock at every beat; the time the PC slept is no
-        // hang and does not count (a gap between two beats well over the beat, sleepGapOf). No timer: on this PC libuv's timers count the
-        // time asleep, so a timer stopped a run that spanned a sleep at the moment of waking (124 within seconds of a wake, 11-23 to 11-25).
-        const beatMs = positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS)
-        let lastTick = beganAt
-        let slept = 0
-        const watch = setInterval(() => {
-          const at = now()
-          if (at - lastTick > sleepGapOf(beatMs)) slept += at - lastTick - beatMs
-          lastTick = at
-          if (at - beganAt - slept > maxMs) stopAtCap()
-        }, beatMs)
-        watch.unref()
-        quiet = () => clearInterval(watch)
-        child.on('exit', quiet)
-        child.on('error', quiet)
-      }
-    })
-    code = await exited
-    return code
+        // F39, review: no run holds the PC's slot for good (a hung check or build): stopped at the cap, code 124.
+        if (env.HEAVY_RUN_HELD !== '1') {
+          const maxMs = positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS)
+          const beganAt = now()
+          const stopAtCap = () => {
+            if (capped) return
+            capped = true
+            say(`one-at-a-time: ${label} ran longer than ${Math.round(maxMs / 60000)} minutes and was stopped`)
+            stopTree(child, 'SIGTERM')
+            setTimeout(() => resolve(124), STOP_WAIT_MS).unref()
+          }
+          // S3, chat 1's review: the cap is the hold's time awake, read against the wall clock at every beat; the time the PC slept is no
+          // hang and does not count (a gap between two beats well over the beat, sleepGapOf). No timer: on this PC libuv's timers count the
+          // time asleep, so a timer stopped a run that spanned a sleep at the moment of waking (124 within seconds of a wake, 11-23 to 11-25).
+          const beatMs = positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS)
+          let lastTick = beganAt
+          let slept = 0
+          const watch = setInterval(() => {
+            const at = now()
+            if (at - lastTick > sleepGapOf(beatMs)) slept += at - lastTick - beatMs
+            lastTick = at
+            if (at - beganAt - slept > maxMs) stopAtCap()
+          }, beatMs)
+          watch.unref()
+          quiet = () => clearInterval(watch)
+          child.on('exit', quiet)
+          child.on('error', quiet)
+        }
+      })
+      code = await exited
+      if (code !== GAVE_WAY) return code
+      // P4: gave way: the slot back at once, the line said, and the next turn awaited where this run came from.
+      quiet()
+      giveLockBack?.()
+      giveLockBack = null
+      gaveWay.times += 1
+      say(gaveWayLine(label, gaveWay.times, gaveWay.since))
+      child = null
+      capped = false
+      givingWay = false
+      began = null
+      code = null
+    }
   } finally {
     if (env.HEAVY_RUN_HELD !== '1') {
       const now = Date.now()
@@ -817,6 +887,7 @@ export async function runOneAtATime({
         at: new Date(came).toISOString(), label, cwd, first: env.HEAVY_RUN_FIRST === '1', ...(idle ? { idle: true } : {}), slots: slotsOf(env),
         waitedS: Math.round(waited / 1000), ranS: began === null ? 0 : Math.round((now - began) / 1000),
         exit: code, fence: fenceSaid, stopped: began === null ? `before its turn${signalled ? ` (${signalled})` : ''}` : signalled,
+        ...(gaveWay.times > 0 ? { gaveWay: gaveWay.times } : {}),
       })
     }
     quiet()

@@ -461,6 +461,43 @@ test('S9, core review, the real case: steps.run starts one-at-a-time with test.m
   }
 })
 
+test('P4, the real case: a big run that holds the slot gives way to a gate, starts over after it, and its verdict and its start are the new run\'s', { timeout: 60_000 }, async () => {
+  const { dir, lock } = world()
+  try {
+    assert.match(ORDINARY_LABEL, /^yield:/, 'an overdue big run waits as an ordinary run that gives way')
+    assert.match(RERUN_LABEL, /^yield:/, 'so does the rerun alone of a failing file')
+    assert.equal(tool.givesWay(IDLE_LABEL, {}), true, 'and the idle one gives way as every idle run')
+    const folder = join(dir, 'board-big-suite-real')
+    mkdirSync(join(folder, 'tools'), { recursive: true })
+    writeFileSync(join(folder, 'tools', 'one-at-a-time.mjs'), readFileSync(HELPER, 'utf8'))
+    // The first start says half of a red run and runs on; the second passes at once.
+    writeFileSync(join(folder, 'tools', 'test.mjs'), [
+      "import { appendFileSync, readFileSync } from 'node:fs'",
+      "const marks = new URL('starts.txt', import.meta.url)",
+      "appendFileSync(marks, 'x')",
+      "if (readFileSync(marks, 'utf8').length === 1) { console.log('✖ half of a run that was stopped'); console.log('ℹ fail 3'); setTimeout(() => {}, 60000) }",
+      "else { console.log('ℹ tests 1'); console.log('ℹ fail 0') }",
+    ].join('\n'))
+    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, HEAVY_RUN_MASK: _mask, HEAVY_RUN_CORES: _cores, ...plain } = process.env
+    const env = { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50' }
+    const steps = bigSuiteSteps(dir, env)
+    const running = steps.run(folder, ORDINARY_LABEL, { upgrade: () => false })
+    const marks = join(folder, 'tools', 'starts.txt')
+    for (const end = Date.now() + 30_000; Date.now() < end && !(existsSync(marks) && readFileSync(marks, 'utf8').length === 1);) await new Promise(done => setTimeout(done, 50))
+    const gateCame = Date.now()
+    const gate = spawnSync(process.execPath, [HELPER, 'gate', '--', 'node', '-e', 'setTimeout(() => {}, 300)'], { encoding: 'utf8', windowsHide: true, env: { ...env, HEAVY_RUN_FIRST: '1' } })
+    assert.equal(gate.status, 0, gate.stderr)
+    const ran = await running
+    assert.equal(ran.code, 0, ran.output)
+    assert.equal(readFileSync(marks, 'utf8').length, 2, 'the suite started over after the gate')
+    assert.doesNotMatch(ran.output, /half of a run|fail 3/, 'nothing of the stopped half')
+    assert.equal(verdictOf(ran.output, ran.code, folder).outcome, 'passed')
+    assert.ok(ran.ranAt > gateCame, 'the run counts from its new start')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('S9, core review: at most RERUNS_MAX failing files run again alone (the rest stay red), and a run counts from when it took its slot', async () => {
   const { dir, files } = world()
   try {
