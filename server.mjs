@@ -1050,10 +1050,13 @@ async function main(args) {
    * Signals change 3: whether a commit is on a remote branch of a repository the board knows (true, false), or null when
    * no repository knows it: the continuation line to a given-back step's next worker names a local-only commit.
    */
-  const isPushed = async ({ commit }) => {
+  const isPushed = async ({ commit, branch = null }) => {
     for (const repo of knownRepos()) {
       const out = await gitRunner()(['-C', repo.dir, 'branch', '-r', '--contains', commit])
-      if (out !== null) return out.trim() !== ''
+      if (out === null) continue
+      // F74 (chat 1's nit): with the step's branch named, the commit must be on THAT branch of a remote (origin/<branch>), not on any remote branch.
+      if (typeof branch === 'string' && branch !== '') return out.split(/\r?\n/).some(line => line.trim().replace(/^\*\s*/, '').endsWith(`/${branch}`))
+      return out.trim() !== ''
     }
     return null
   }
@@ -2071,13 +2074,12 @@ async function main(args) {
   const pushedAheadOf = async body => {
     if (workDir === null || !['step', 'block'].includes(body?.action) || typeof body?.id !== 'string') return null
     if (body.action === 'block' && !/^b\d+$/i.test(String(body.on ?? ''))) return null
-    let commit = /^[0-9a-f]{4,40}$/i.test(String(body.commit ?? '')) ? String(body.commit) : null
-    if (commit === null) {
-      const read = await readStore(workDir).catch(() => null)
-      commit = checkpointOf(read?.items?.get(body.id) ?? null)?.commit ?? null
-    }
-    if (commit === null || !/^[0-9a-f]{4,40}$/i.test(commit)) return null
-    return { commit, pushed: (await isPushed({ commit }).catch(() => null)) === true }
+    const read = await readStore(workDir).catch(() => null)
+    const item = read?.items?.get(body.id) ?? null
+    const commit = /^[0-9a-f]{4,40}$/i.test(String(body.commit ?? '')) ? String(body.commit) : checkpointOf(item)?.commit ?? null
+    if (item === null || commit === null || !/^[0-9a-f]{4,40}$/i.test(commit)) return null
+    const branch = item.head.get('Branch') ?? null
+    return { commit, pushed: (await isPushed({ commit, branch: typeof branch === 'string' && !['', '-', 'none'].includes(branch.toLowerCase()) ? branch : null }).catch(() => null)) === true }
   }
   const workAction = async (body, as, trace = null) => {
     if (workDir === null) return { ok: false, status: 404, why: 'This board has no work store.' }

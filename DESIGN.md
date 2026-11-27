@@ -9531,3 +9531,8 @@ step's Touches only once its blocker is done (it is ready again, nearly finished
 person's pin stays on a put-down: a pinned step waits for its pinned worker (the person's choice), never for the pick. The worktree sweep
 removes a put-down folder only while the step still has no owner and the folder is unused since. The worker role says it in its own words
 (roles/worker.md). Tests: test/work/putDown.test.mjs (12); 25 mutants red.
+
+Chat 1's re-check of fd6b6720 (2026-11-27): between two READY put-down steps on the same files only the older put-down (its stamp, then the
+lower id) holds the other, never both ways (guards.mjs `isNewerPutDown`), so one of them goes out; a blocked put-down step is still held by a
+ready one. The push check names the step's own branch: the commit must be on origin's branch of that name (server.mjs `isPushed` with
+`branch`), not on any remote branch.

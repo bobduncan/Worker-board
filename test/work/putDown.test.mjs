@@ -284,6 +284,36 @@ test('a retried block that changes nothing puts the step down once the checkpoin
   }
 })
 
+test('two put-down steps on the same files, both ready again (chat 1\'s re-check 2): only the older put-down holds the other, so one goes out; the same stamp: the lower id', () => {
+  const touching = (id, at, more = {}) => {
+    const item = step(id, 'refined', { Goal: 'G108', Branch: `${id.toLowerCase()}-x`, Checkpoint: `abc1234 · go on · ${stamp(at - 5 * MIN)}`, 'Put down': putDownLine('Worker 1', at), ...more }, {
+      History: [said(600, 'Worker 1', 'queued → taken'), said(30, 'Worker 1', 'blocked by B1440'), `- ${stamp(at)} server: in progress → refined (${putDownWords('Worker 1', 'waits for B1440')})`],
+    })
+    item.sections.set('Context', ['  Touches: lava-tactics src/maps/isle.ts'])
+    return item
+  }
+  const older = touching('B1442', ago(40))
+  const newer = touching('B1443', ago(20))
+  const items = mapOf([older, newer, blocker('done')])
+  assert.equal(overlapIn(items, newer, ['queued', 'taken', 'in progress', 'waiting on you'])?.id, 'B1442', 'the newer waits behind the older')
+  assert.equal(overlapIn(items, older, ['queued', 'taken', 'in progress', 'waiting on you']), null, 'the older is held by nothing')
+  const ready = list(items)
+  assert.deepEqual(ready.ready.map(one => one.id), ['B1442'])
+  assert.equal(ready.held.find(one => one.id === 'B1443')?.why, 'waits: same files as B1442, put down (nearly finished: it comes first)')
+  // The same stamp: the lower id goes first.
+  const same = mapOf([touching('B1442', ago(20)), touching('B1443', ago(20)), blocker('done')])
+  assert.deepEqual(list(same).ready.map(one => one.id), ['B1442'])
+  // Still blocked (B1440 in review): neither holds the other, neither is ready: the blocker holds both, and says so.
+  const blocked = mapOf([touching('B1442', ago(40), { 'Blocked by': 'B1440' }), touching('B1443', ago(20), { 'Blocked by': 'B1440' }), blocker()])
+  assert.deepEqual(list(blocked).held.map(one => [one.id, one.why]), [['B1442', 'blocked by B1440 (review)'], ['B1443', 'blocked by B1440 (review)']])
+  // A blocked put-down step beside a READY newer put-down on the same files: the ready one holds it (the two-way rule is for two ready ones).
+  const mixed = mapOf([touching('B1442', ago(40), { 'Blocked by': 'B1440' }), touching('B1443', ago(20)), blocker()])
+  assert.equal(overlapIn(mixed, mixed.get('B1442'), ['queued', 'taken', 'in progress', 'waiting on you'])?.id, 'B1443')
+  // A put-down step beside a step under way on the same files: the step under way holds it, as any ready step.
+  const underWay = mapOf([older, step('B1600', 'in progress', { Owner: 'Worker 3' }, { Context: ['  Touches: lava-tactics src/maps/isle.ts'] }), blocker('done')])
+  assert.equal(list(underWay).held.find(one => one.id === 'B1442')?.why, 'waits: same files as B1600, under way')
+})
+
 test('the unchanged-record retry puts the step down when the checkpoint came between the record and the retry', async () => {
   const { as, read, end } = await garden([recorded(), blocker()])
   try {

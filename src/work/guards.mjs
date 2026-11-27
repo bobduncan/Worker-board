@@ -156,18 +156,29 @@ export const UNDER_WAY = ['taken', 'in progress', 'waiting on you']
 export function overlapIn(items, item, states = UNDER_WAY) {
   const mine = touchesOf(item)
   if (mine.length === 0) return null
+  // F74 (chat 1's re-check 2): between two READY put-down steps only the older put-down (its stamp, then the lower id) holds the other, never both
+  // ways, or neither would be handed out and nothing would say so.
+  const ownPutDown = valueOf(item, 'State') === 'refined' ? putDownOf(item) : null
+  const ownReady = ownPutDown !== null && blockersOpen(item, { store: { items } }).length === 0
   for (const other of items.values()) {
     // F74: a step the board put down (refined, its builder named) holds its files again once its blocker is done (it is ready, nearly finished):
     // new work on them waits for it, not the other way round. While it is still blocked it holds nothing (chat 1's re-check: two put-down
     // steps never hold each other).
     const isPutDown = valueOf(other, 'State') === 'refined' && putDownOf(other) !== null && blockersOpen(other, { store: { items } }).length === 0
     if (other === item || valueOf(other, 'Id') === valueOf(item, 'Id') || (!states.includes(valueOf(other, 'State')) && !isPutDown)) continue
+    if (isPutDown && ownReady && isNewerPutDown(putDownOf(other), other, ownPutDown, item)) continue
     for (const theirs of touchesOf(other)) {
       const own = mine.find(one => covers(one, theirs))
       if (own !== undefined) return { id: valueOf(other, 'Id'), state: isPutDown ? 'put down' : valueOf(other, 'State'), mine: named(own), theirs: named(theirs) }
     }
   }
   return null
+}
+
+/** Whether the put-down `theirs` (of `other`) is the newer of two: a later stamp, or the same stamp and the higher id; a stamp not known counts oldest. */
+const isNewerPutDown = (theirs, other, own, item) => {
+  const at = value => (Number.isFinite(value?.at) ? value.at : -Infinity)
+  return at(theirs) > at(own) || (at(theirs) === at(own) && String(valueOf(other, 'Id')).localeCompare(String(valueOf(item, 'Id')), 'en', { numeric: true }) > 0)
 }
 
 /**
