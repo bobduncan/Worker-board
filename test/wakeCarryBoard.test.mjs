@@ -107,6 +107,7 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   // Landing 1 ships A off; a board copy that tests A (landing 2) turns it on.
   const launchFile = join(dir, 'launches.jsonl')
   const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_CARRY_BY_MODEL: byModel ? '1' : '0', WORKER_BOARD_OPEN_STUB: launchFile })
+  const upAt = Date.now()
   const base = `http://127.0.0.1:${port}`
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   const call = (path, body, headers = {}) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.27.1', ...headers }, body: JSON.stringify(body) })
@@ -127,7 +128,21 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   const token = /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
   const state = () => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
   const launches = () => readFile(launchFile, 'utf8').then(text => text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line)), () => [])
-  return { out, call, json, claim, words, record, state, launches }
+  /**
+   * B1568: past the board's wake passes of its first seconds: the one at the start-up check's end (src/startupCheckRun.mjs `afterApply`)
+   * and the one 10 s after the start (src/opener.mjs OPEN_FIRST_MS). The next comes a minute after the start (OPEN_CHECK_MS). For a case
+   * whose few calls must not have a pass between them.
+   */
+  const pastFirstPasses = async () => {
+    await until(async () => {
+      const check = (await state()).check ?? null
+      return check !== null && check.running !== true
+    }, 'the start-up check done')
+    const left = upAt + 15_000 - Date.now()
+    if (left > 0) await new Promise(done => setTimeout(done, left))
+    assert.ok(Date.now() - upAt < 50_000, `the next wake pass is near: ${Date.now() - upAt} ms after the start`)
+  }
+  return { out, call, json, claim, words, record, state, launches, pastFirstPasses }
 }
 
 /** The page's word to wake Worker 2 (a B577 wake word): a hand's job, but only while the app runs the hands' sends. */
@@ -161,7 +176,9 @@ describe("F17 wake carry on a running board", { concurrency: 1 }, () => {
 
   describe("the other cases run side by side", { concurrency: 2 }, () => {
     describe("the cases that wait for the board's wake minute", { concurrency: 4 }, () => {
-      test('review 8: while refused, the page\'s wake word for Worker 2 goes as one word for the courier (once it calls); once that word closes, so does the carry word', { timeout: 240_000 }, async t => {
+      test('review 8: while refused, the page\'s wake word for Worker 2 goes as one word for the courier (once it calls); once that word closes, so does the carry word', { timeout: 360_000 }, async t => {
+        // B1568: its waits add up to over 240 s on a loaded PC (the board's start, two looks of up to a minute, the next pass of up to two):
+        // it timed out once in the big suite. A ceiling only; a green run takes about 65 s.
         const { json, words } = await boardWith(t, { refused: true, lines: [WAKE_WORD] })
         // The courier calls: from now the board counts on it. (A wake pass may run inside this first call, after it set the courier's time:
         // then this very call lists the new word already. Either is right: the test waits for the word, not for an empty first list.)
@@ -296,13 +313,17 @@ describe("F17 wake carry on a running board", { concurrency: 1 }, () => {
         const justNow = Date.now() - MIN
         const word = { id: 'c0c0c0c0c0c0c004', at: justNow, to: 'Main', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'x', text: 'Wake Worker 2 for the worker board: send_message with session_id "local_w2"', state: 'waiting' }
         const attempt = { path: 'message', at: justNow, by: 'Main', jobId: word.id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: 'model' }
-        const { json, claim, words, record } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt], byModel: true })
+        const { json, claim, words, record, pastFirstPasses } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt], byModel: true })
+        // B1568: a wake pass while Main reports busy closes the waiting word, by design ("Main can no longer carry it", given back for
+        // another carrier): it flaked so when a pass of the board's first seconds fell between the busy report and the look below.
+        await pastFirstPasses()
         assert.deepEqual((await claim()).filter(job => job.id === word.id), [], 'no hand takes it')
         // Main busy on its own turn: its take does not get the word.
         await json('/api/bridge/report', { chat: 'Main', session: 'main-id', report: { state: 'busy', since: Date.now(), seq: 2, run: 1, word: null, turn: Date.now() - 1000 } })
         const busy = await json('/api/bridge/take', { chat: 'Main', session: 'main-id' })
         assert.deepEqual((busy.messages ?? []).filter(one => one.id === word.id), [])
-        assert.equal((await words()).find(one => one.id === word.id).state, 'waiting')
+        const still = (await words()).find(one => one.id === word.id)
+        assert.equal(still.state, 'waiting', JSON.stringify(still))
         // Main idle: its take types it; not sent yet.
         await json('/api/bridge/report', { chat: 'Main', session: 'main-id', report: { state: 'idle', since: Date.now(), seq: 3, run: 1 } })
         const idle = await json('/api/bridge/take', { chat: 'Main', session: 'main-id' })
