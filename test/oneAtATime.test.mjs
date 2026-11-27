@@ -33,7 +33,8 @@ function newLock() {
  * HEAVY_RUN_FIRST (a landing's gate sets it, F14: the runs of this test are ordinary unless a case says otherwise).
  */
 function envFor(lock, extra = {}) {
-  const { HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, ...plain } = process.env
+  // Hotfix (2026-11-27): no fence of the run around this test (a gate inside the live fence gives HEAVY_RUN_PRIORITY, _MASK, _CORES).
+  const { HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, HEAVY_RUN_MASK: _mask, HEAVY_RUN_CORES: _cores, ...plain } = process.env
   // One slot unless a test asks for more: the older cases are about one run at a time.
   return { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50', HEAVY_RUN_SAY_MS: '200', HEAVY_RUN_SLOTS: '1', ...extra }
 }
@@ -389,8 +390,9 @@ test('a stale lock in a slot beyond this run\'s own (its process gone) does not 
 
 test('a landing\'s gate waits in the same queue: land.ps1 gates with npm test, which runs through the helper', () => {
   const land = readFileSync(new URL('../tools/land.ps1', import.meta.url), 'utf8')
-  assert.match(land, /\$gateBoardCommand = 'npm test'/)
-  assert.match(land, /Get-Setting 'gateBoard' 'npm test'/)
+  // S9: npm test with --gate, the light check, still through the helper.
+  assert.match(land, /\$gateBoardCommand = 'npm test -- --gate'/)
+  assert.match(land, /Get-Setting 'gateBoard' 'npm test -- --gate'/)
   assert.doesNotMatch(land, /HEAVY_RUN_(HELD|LOCK|SLOTS)/, 'the landing never skips or moves the queue')
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.match(pkg.scripts.test, /^node tools\/one-at-a-time\.mjs /)

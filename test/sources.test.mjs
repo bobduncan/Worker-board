@@ -123,7 +123,7 @@ test('readSources gives empty sources for folders that do not exist, and survive
   const config = { ...parseConfig('{}', {}), project: join(DATA, 'no-such-project'), appSessions: join(DATA, 'no-such-app'), transcripts: join(DATA, 'none') }
   const raw = await readSources(config, async () => { throw new Error('git is not installed') }, NOW)
   // B1273: `account`, the Claude app's account and the board's (null without a reader).
-  assert.deepEqual(raw, { account: null, listText: null, appChatTexts: [], appFiles: [], appElsewhere: {}, moved: [], planLineTexts: {}, planLineAt: {}, tails: {}, conversationAt: {}, adviceText: null, folders: null, askTexts: [], goalsText: null, threadTexts: [], productPlanText: null, pictureLists: {}, recaps: [], goalRecap: null /* 2026-11-01: the focus goal's recap file, for the recap card */, work: undefined, usageText: null, appStartedAt: null, branches: null, adviceAt: null, productPlanAt: null })
+  assert.deepEqual(raw, { account: null, listText: null, appChats: [] /* B1535: parsed, kept by stamp */, appFiles: [], appElsewhere: {}, moved: [], planLineTexts: {}, planLineAt: {}, tails: {}, conversationAt: {}, adviceText: null, folders: null, askTexts: [], goalsText: null, threadTexts: [], productPlanText: null, pictureLists: {}, recaps: [], goalRecap: null /* 2026-11-01: the focus goal's recap file, for the recap card */, work: undefined, usageText: null, appStartedAt: null, branches: null, adviceAt: null, productPlanAt: null })
 })
 
 test('a picture is found only inside a folder the board may show, also when a path tries to leave it', async t => {

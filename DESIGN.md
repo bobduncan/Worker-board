@@ -8054,6 +8054,53 @@ slow calls, so the PC's threadpool is ruled out), each slow part with the step t
 - next or new waiting in `workCtx`'s fresh read after a write, 2 (11-24 22:41 a next of 13.2 s and its repeat; 11-25 00:15 a new of
   5.3 s), and one step of 5.3 s in the store's own action: in the rebuild bursts B1496 and B1501 shrink; read again after both.
 
+### The state is built in a thread of its own (B1535, X93, chat 1's way A, 2026-11-25)
+
+X93 came back at 19:47 after B1139 (fifth fix). A day of the trace (11-24 18:02 to 11-25 21:18, 3282 calls): 121 over 5 s, turn-ended
+74 of 495 and next 36 of 286; where they waited: decide 45%, before the board took them 18%, ctx 18%. In the slow calls the board's
+own CPU was as long as the call (median 0.99): the board computed, a full PC only stretched it; the live board used 57% of a core all
+day. A profile of a copy on the live data named the cause: `buildState` ran 1.5 to 2.6 s in ONE synchronous block on the loop at every
+rebuild (the page's poll every 5 s, every write's reset, every turn end's decide), which a PC at 80-100% stretched to the 14 s loop
+stalls of 19:50; besides, the app's 566 chat files (37 MB of JSON) were read and parsed three times per rebuild (0.45 s).
+
+- **The build runs in a worker thread** (src/stateThread.mjs, src/stateWorker.mjs): `readState` reads as before, then hands `raw` and
+  the options to the thread and awaits the state (structured clone both ways: about 90 ms of the loop for the copy out, against the
+  1.5-2.6 s it held). Every other call is answered meanwhile, from the kept state (`keptStateFor`); a read that needs a fresh state
+  (the decide, a dirty or unknown read) awaits the build without holding anyone. `cached` (folders.mjs) is unchanged: one read at a
+  time, a reset during a build drops its answer, `revalidate` as B1502 made it; the thread takes its builds in order too.
+- **The fallback**: a thread that throws or ends is ended and the builds it held are made in the loop as before; the next build starts
+  a new thread. Three failures in a row, a thread that cannot start or a state that cannot be copied turn the thread off: every build
+  in the loop until the board starts anew ("state-thread-off" in the loops line). A spell of failures is said once ("state-thread"),
+  and cleared once a new thread builds (review lens 1).
+- **A slow build is never cut short; a hang is** (chat 1's core review and its check): a slow but live build finishes in its thread;
+  whoever may take the kept state takes it meanwhile (keptState.mjs, never through this read), and the rest (a decide, a dirty or old
+  read, the take check) wait for that build, so none is answered with a state from before its own write, and no kept state is ever
+  stamped as read now (F42's after-sleep guard stands). Only a thread that gives no build within 5 minutes (a hang) is ended: its
+  build is never made from its old raw, the read fails with LATE, the next read is built in the loop, and a hang never counts toward
+  off for good. A timer that fires far past its time slept with the PC: it is set again, at every sleep, and an answer that waits at
+  the wake is taken first.
+- **No new thread from newer code**: a new thread loads src/ from the folder; while the folder holds a newer server than the running
+  one (a landing or a self-update before its restart; the version read fresh before each start), the builds are made in the loop; a
+  thread that runs builds on.
+- **revalidate after a running read** (folders.mjs, chat 1's core review): with a read under way most of the time, a revalidate asked
+  while an older read runs starts its read once that one lands (one, however often asked); B1502's own cases are unchanged.
+- An error of the build itself is the read's error, as it was. The stall log's job is "state build (thread)" or "state build (loop)",
+  named after the build.
+- **The chat files are kept by stamp** (src/appChats.mjs `chatFileOf`): a file is read and parsed again only when its time written or
+  size changed, or when it was read within 2 s of its time written (git's racy rule: the app may write it again in the same tick at
+  the same size); only the parse is kept, not the 37 MB of text. sources.mjs hands the build `appChats` (parsed) in place of the
+  texts, so they are neither parsed again nor copied to the thread.
+- **board-slow names the cause** (callTrace.mjs `slowCause`, watch.mjs `causeWords`): where the slow calls of its 10 minutes waited,
+  the board's own CPU over their time (near 100% the board computed; low, it waited for the PC or the disk), the loop's longest hold,
+  the PC's CPU, its busiest programs then (`pcTop`: two process listings 3 s apart on a slow call, at most every 2 minutes) and where
+  the state is built.
+- Pinned by `test/stateThread.test.mjs` (the same state as the loop's; the loop free while a build holds its thread 1.5 s, held by
+  the same build in the loop; the fallback for a thread that throws, ends, cannot copy or hangs, said once), `test/stateThreadBoard
+  .test.mjs` (the 19:50 and 19:55 cases through a copy of the board: while a build of 6 s runs, a note and a pause-state answer within
+  1 s, the turn end awaits its build, the trace shows the calls taken at once and the loop never held over 1 s),
+  `test/appChatsCache.test.mjs` and `test/boardSlowCause.test.mjs` (the live calls of 19:50 to 19:55). Left for later steps (chat 1):
+  fewer rebuilds, the decide without a whole rebuild (B1496), the O(n²) fix scans of a build.
+
 ## The boards survive a Claude app update (F10, 2026-11-14)
 
 The person, 2026-11-11 ("Yes, build it"): the Claude app updated itself at 22:42 (AppX Register, "TerminateApplications") and ended
@@ -9244,7 +9291,7 @@ clock stands still while the PC sleeps (both ended with 124, late). Plan: .claud
     before an older idle job of the same folder.
   - The run log marks idle runs (`idle: true`).
 - **An idle run that took the slot keeps it.** A gate that comes right after it waits until it ends, for up to the idle run's
-  whole time and never past the cap. S9's big suite holds about 25 minutes. Measured in test/oneAtATime.test.mjs: a gate that came
+  whole time and never past the cap. S9's big suite holds about 15 minutes on a quiet PC (more under load). Measured in test/oneAtATime.test.mjs: a gate that came
   with 1537 ms of the idle run left began its command after 1676 ms, so the wait beyond the time left was a poll and a node start.
 - **The cap counts the time awake; a sleep is no hang** (chat 1's review). The holder also reads the wall clock at every beat
   (HEAVY_RUN_BEAT_MS, 60 s) against when it took the slot, less the time the PC slept. A sleep is a gap between two beats well over
@@ -9271,6 +9318,104 @@ clock stands still while the PC sleeps (both ended with 124, late). Plan: .claud
   - It gives the file back only while it is its own.
   - `playRequests` takes its steps as a seam, so the takeover is tested.
 - The game's copy (lava-tactics/tools/one-at-a-time.mjs) has the same change and lands right after this one.
+
+## S9: a light check with every go-live, the big suite on a schedule (2026-11-26, chat 2, the person's choice of 2026-11-25 21:2x)
+
+The person: the light check leaves out the slowest tests, except where a change touches their area. The big suite runs everything
+when the PC is idle, at least every 4 hours and once each night. A red big run names the go-lives since the last green run, files a
+fix step itself, and that slow test runs in the light check for a while. Plan: .claude/plans/pc-lag-test-speed-plan.md, S9.
+
+- **The slow list** (`test/slow-files.json`): every test file over 60 s on a quiet PC (the two quiet gates of 11-25), board-starting
+  ones too, 15 files, longest first. Core review: the third gate of 11-25 ran under load and made ten fast files look slow. Leaving
+  them out saved about 0.4 min and cost their coverage in every gate. Each file has honest globs (chat 1, 2026-11-25): the files that
+  could make it fail.
+  - Its own path always counts.
+  - `@board` stands for the board's own files (`board`: server.mjs, start-board.mjs, run-game.mjs, package.json, src/state.mjs,
+    src/tick.mjs, fixtures/lines.mjs).
+  - Then come the modules it is about, from its imports, the scripts it spawns and the files it reads.
+  - Tests check that every listed file is a test file, that every glob matches a file of the repository, and (second review) that
+    every repository file a slow test imports directly is in its area. The transitive imports and the copied board folders are not
+    all listed; the big suite catches what the light check leaves.
+- **The light check** (tools/test.mjs `--gate`, src/lightCheck.mjs). land.ps1's gate is `npm test -- --gate`. It runs every test file
+  but the slow ones, except a slow file that either:
+  - has an area the branch changed (`git diff --name-only --no-renames refs/heads/main...HEAD`, or origin/main; a renamed file names
+    its old path too; when git cannot tell, every slow file runs);
+  - or is on probation.
+  A change to the light check itself (test/slow-files.json, src/lightCheck.mjs, tools/test.mjs, and src/bigSuite.mjs and
+  tools/one-at-a-time.mjs, through which it reads the probation) runs every slow file, so a branch is never judged by a list it changed.
+  Its first lines say how many files run, and which slow files and why ("light check: runs test/x.test.mjs (area: src/y.mjs)").
+  Without the list, every file runs. The slow files that run go first, longest first, because node --test starts files in the order
+  given, so a long one does not end the run alone (model: 8.2 to 7.0 min on average).
+- **The big suite** (tools/big-suite.mjs, src/bigSuite.mjs). Every test file of main's head, in its own worktree in the temporary
+  folder.
+  - It is a worktree like land.ps1's gate: the main checkout's node_modules as a junction. At the end the junction goes first (rmdir,
+    never a recursive delete), then the marker package is checked, then `git worktree remove` without force.
+  - It runs through the queue as `idle:big-suite` (S3: it waits for an idle PC), or as an ordinary `big-suite` run once it is overdue.
+    Overdue means 4 hours after the last start, or from 05:00 while the night run has not run. An idle run still waiting in the idle
+    room at that moment (its ticket there, not only no "runs now" line yet: core review; a room that cannot be read counts as waiting)
+    is stopped and started again as an ordinary one. A run counts from when it took its slot, so an idle run that waited from 23:00
+    and ran at 01:10 is the night run.
+  - Its state lies beside the PC's test lock (`<lock>.board-big-suite.json`), so every gate worktree reads the same probation.
+  - A run the queue stopped at its hold cap (124) is "could not run", never red. A stall is red, with the files it left open.
+  - Core review: each file that failed in the full run runs again alone once (`big-suite-rerun`, as land.ps1 does). One that passes
+    alone is flaky: it is recorded, but it is no red and gets no fix step and no probation. Only the files that fail again are red.
+    In 8 of the last 9 full gates a file failed that then passed alone. At most 10 files run again alone (a broken shared module fails
+    dozens: the rest stay red). A rerun alone that could not run makes the whole big run "could not run", because it proves nothing.
+    Only test files run again alone (a `location:` line in a helper module is no test file).
+  - The log beside the lock goes to `.old` past 5 MB.
+  - The failing files are repository paths: on Windows node prints `test at test\a.test.mjs`, and a `location:` line gives the whole
+    path in the run's worktree. With the backslash the probation key never matched the light check's.
+  - A runner killed by a sleep or a reboot leaves its worktree with a live junction. The next runner sweeps every `board-big-suite-*`
+    folder first, each the safe way: junction first. No runner starts, and none sweeps, while a big run is in the queue (the idle room,
+    the queue or a slot, its rerun alone too), also one whose runner died while its one-at-a-time child still runs. A ticket whose beat
+    is older than 5 minutes is no live run (a killed run's, its pid maybe reused). A leftover folder git no longer knows as a worktree
+    goes as a plain folder once its junction is gone, so it never fails every run of its commit.
+- **When it runs** (`dueNow`, the person's words: idle, at least every 4 hours, each night):
+  - no run yet;
+  - the night run (from 01:00, none started since midnight: a run that took its slot at 00:55 is that night's run);
+  - an hour after the last start, while main moved past the last run or that run was not green. Such a run waits for an idle PC until
+    4 hours after the last start, then it goes as an ordinary run.
+  Core review: an earlier "main moved" made a big run follow almost every landing, more full-suite load than the gates it saved,
+  and a gate that came in its 15-45 minutes waited behind it. A second review: without the idle wait in the daytime, every run went
+  ordinary at the 4-hour mark, ahead of the workers' later runs.
+  - With no local main, nothing starts.
+- **Red** (`recordRun`, `goLivesIn`, `fixStepOf`):
+  - A red run puts the files that failed again on probation, and they leave after two green big runs in a row (chat 1). A red run
+    of other files starts every count anew, because the two must be in a row.
+  - The board's pass (src/bigSuitePass.mjs, every 10 minutes, only on the PC's first board; config `bigSuite`) files one fix step
+    for each red streak and file (`owedOf`):
+    - a red that lasts across landings files once, and a set that shrinks files nothing;
+    - a file that joins the streak gets a step of its own;
+    - a file an open big-suite step names gets none (also when a flaky pass broke the streak in between). It is filed as a board fix (`priority: 'fix'`, in the place the board's fixes go), with the
+    failing files and the go-lives since the last green run: the landed records of data/landings.jsonl whose new main is in
+    `git rev-list <last green>..<red>`.
+  - A big suite that could not run 3 times in a row also gets one fix step, because a suite that never finishes never turns red. This
+    holds after a red run too.
+  - What it filed is kept in the board's own data (data/big-suite-filed.json), never in the runner's file.
+    - A pending mark is written before the step is made, and the record is read again right before it. A filing that threw takes its
+      mark away and is tried again. One the work API refused is said and tried again after an hour, and so is one cut off by a stop.
+    - Filing and starting are apart: a store that cannot be read never keeps the big suite from running.
+    - The pass is `loops.single` (one at a time; it counts as hung only after 30 minutes, above its 10-minute look) and git gets a
+      minute at most. The runner's spawn has an error listener.
+  - Gates say the red and the probation at their start (land.ps1 runs `big-suite.mjs --status --quiet` from the main checkout). They
+    also say a run that could not run, and a big suite with no run yet or no green run for 8 hours, because the light checks leave
+    the slow files to it.
+  - At most 20 go-lives are named; a first red with no green run before it says so.
+  - The board's pass never runs on a board in the temporary folder (the tests' copied boards).
+- **The runner's rules are the game slow tier's** (S3):
+  - it counts as alive past 3 hours while its run waits in the idle room or holds a slot (a run in a `board-big-suite-` folder);
+  - it renews its file before each phase, and stops when another runner took the file over;
+  - it gives the file back only while the file is its own.
+- **What it saves** (the model of the last 10 landings, with each file's time from the quiet gates of 11-25, 12 slots):
+  - The full gate is about 14.6 min.
+  - The light check takes about 3-4 min when no slow area changes. It is bound by the total test time over 12 slots plus each file's
+    start, which the model sets at 1 s (2.7 min); at 2-3 s it is 3.5-4.3 min.
+  - Over the last 10 landings, a light check would have taken about 7 min on average with the long files first. A change to
+    server.mjs or src/state.mjs still runs the board-starting slow files.
+  - Left out of that number: a gate that comes while a big run holds the slot waits for it (about 15 min quiet, up to 45 under load).
+    Now that the big suite no longer runs after every landing, that is rare.
+  - The long poles stay: landScript (about 13 min, when land.ps1 or the landing code changes) and wakeNoHandsBoard (about 11 min, on a
+    server change). S10 shortens those.
 
 ## F46: a build of the state walks the store once (2026-11-23, chat 4)
 

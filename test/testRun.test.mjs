@@ -12,6 +12,11 @@ import { fileURLToPath } from 'node:url'
 import { failingFiles, gateVerdict } from '../src/landing.mjs'
 import { LOW, NORMAL, STALL_MS, TEST_TIMEOUT_MS, boardFolders, cliOf, halfTheCores, holdsBoard, insidePattern, openFiles, priorityWord, runTests, stallLines, stopInside } from '../tools/test.mjs'
 
+// Hotfix (2026-11-27): these tests judge runTests on its own, never inside the fence of the run around them. A gate inside the live
+// fence (S5) gives them HEAVY_RUN_PRIORITY, HEAVY_RUN_MASK and HEAVY_RUN_CORES, and runTests reads process.env by default: F68's
+// "asked normal" was then capped to below normal and every go-live was refused.
+for (const name of ['HEAVY_RUN_PRIORITY', 'HEAVY_RUN_MASK', 'HEAVY_RUN_CORES']) delete process.env[name]
+
 test('B351: npm test runs the tests through tools/test.mjs, on half the cores, at least one', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   // 2026-10-25: through the helper that lets one heavy run happen at a time on the PC (test/oneAtATime.test.mjs).
@@ -276,9 +281,11 @@ test('F68: the full run says below normal; a priority that cannot be read says t
 })
 
 test('F68: the command line takes --priority=normal or below-normal beside the files; below normal and all files when not named', () => {
-  assert.deepEqual(cliOf(['--priority=normal', 'test\\carryGit.test.mjs']), { priority: NORMAL, files: ['test\\carryGit.test.mjs'] })
-  assert.deepEqual(cliOf(['test/a.test.mjs', '--priority=below-normal']), { priority: LOW, files: ['test/a.test.mjs'] })
-  assert.deepEqual(cliOf([]), { priority: LOW, files: ['test/**/*.test.mjs'] })
+  assert.deepEqual(cliOf(['--priority=normal', 'test\\carryGit.test.mjs']), { priority: NORMAL, gate: false, files: ['test\\carryGit.test.mjs'] })
+  assert.deepEqual(cliOf(['test/a.test.mjs', '--priority=below-normal']), { priority: LOW, gate: false, files: ['test/a.test.mjs'] })
+  assert.deepEqual(cliOf([]), { priority: LOW, gate: false, files: ['test/**/*.test.mjs'] })
+  // S9: --gate asks for the light check (land.ps1's gate: npm test -- --gate)
+  assert.deepEqual(cliOf(['--gate']), { priority: LOW, gate: true, files: ['test/**/*.test.mjs'] })
   assert.throws(() => cliOf(['--priority=high', 'x']), /unknown priority "high"/)
 })
 
@@ -287,7 +294,7 @@ test('F68: land.ps1 reruns a failed file through the one-at-a-time queue, asking
   const rerun = 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}'
   assert.equal(script.match(/^\$gateFileCommand = '(.*)'\s*$/m)?.[1], rerun)
   assert.equal(script.match(/Get-Setting 'gateFile' '(.*)'\)\s*$/m)?.[1], rerun)
-  assert.equal(script.match(/Get-Setting 'gateBoard' '(.*)'\)\s*$/m)?.[1], 'npm test')
+  assert.equal(script.match(/Get-Setting 'gateBoard' '(.*)'\)\s*$/m)?.[1], 'npm test -- --gate')
   assert.doesNotMatch(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).scripts.test, /--priority/)
 })
 
