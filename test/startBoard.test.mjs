@@ -329,27 +329,29 @@ describe('B1555: start-board.mjs against slow, held and lost ports, side by side
     assert.match(said.stdout, new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\(another keeper won the port; this one, process \\d+, ended\\)`))
   })
 
-  test('F10, round 5: an early end that is no port race (the child dies before it is up) fails at once with the log\'s words, not after the 20 s wait', windows, async t => {
-    const port = String(await freePort())
-    t.after(() => sweep(port))
-    // The fallback route (the keeper as this script's child) hands the caller's env on; the test hook ends the board at once.
-    const began = Date.now()
-    const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_START_ROUTE: 'child', WORKER_BOARD_FAIL_START: '1' } })
-    assert.equal(said.status, 1, `${said.stdout} ${said.stderr}`)
-    assert.ok(Date.now() - began < 12_000, `at once, not after the wait: ${Date.now() - began} ms`)
-    assert.match(said.stderr, /WORKER_BOARD_FAIL_START is set|before it was up/)
-    assert.doesNotMatch(said.stderr, /did not answer on .* within 20 seconds/)
-  })
+})
 
-  test('F10, round 4: under --anew a lost race IS a failure (the winner is the old board the cold restart kills next): 1 at once, with the log\'s words; the verdict in words', windows, async t => {
-    const port = String(await freePort())
-    await fakeBoard(t, port, 120_000, RACE_FAKE)
-    t.after(() => sweep(port))
-    const began = Date.now()
-    const said = await runAsync('--demo', '--port', port, '--anew')
-    assert.equal(said.status, 1, `${said.stdout} ${said.stderr}`)
-    assert.ok(Date.now() - began < 15_000, `at once, not after the wait: ${Date.now() - began} ms`)
-    assert.match(said.stderr, /is in use|before it was up/)
-    assert.deepEqual([earlyEndVerdict({ words: 'Port 4310 is in use: the board may be running already.', isAnew: false }), earlyEndVerdict({ words: 'Port 4310 is in use', isAnew: true }), earlyEndVerdict({ words: 'The board ended with code 1 before it was up', isAnew: false }), earlyEndVerdict({ words: '' })], ['race', 'fail', 'fail', 'fail'])
-  })
+// B1555: these two time an end "at once" (under the 20 s wait), so they run alone, after the cases side by side.
+test('F10, round 5: an early end that is no port race (the child dies before it is up) fails at once with the log\'s words, not after the 20 s wait', windows, async t => {
+  const port = String(await freePort())
+  t.after(() => sweep(port))
+  // The fallback route (the keeper as this script's child) hands the caller's env on; the test hook ends the board at once.
+  const began = Date.now()
+  const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_START_ROUTE: 'child', WORKER_BOARD_FAIL_START: '1' } })
+  assert.equal(said.status, 1, `${said.stdout} ${said.stderr}`)
+  assert.ok(Date.now() - began < 12_000, `at once, not after the wait: ${Date.now() - began} ms`)
+  assert.match(said.stderr, /WORKER_BOARD_FAIL_START is set|before it was up/)
+  assert.doesNotMatch(said.stderr, /did not answer on .* within 20 seconds/)
+})
+
+test('F10, round 4: under --anew a lost race IS a failure (the winner is the old board the cold restart kills next): 1 at once, with the log\'s words; the verdict in words', windows, async t => {
+  const port = String(await freePort())
+  await fakeBoard(t, port, 120_000, RACE_FAKE)
+  t.after(() => sweep(port))
+  const began = Date.now()
+  const said = await runAsync('--demo', '--port', port, '--anew')
+  assert.equal(said.status, 1, `${said.stdout} ${said.stderr}`)
+  assert.ok(Date.now() - began < 15_000, `at once, not after the wait: ${Date.now() - began} ms`)
+  assert.match(said.stderr, /is in use|before it was up/)
+  assert.deepEqual([earlyEndVerdict({ words: 'Port 4310 is in use: the board may be running already.', isAnew: false }), earlyEndVerdict({ words: 'Port 4310 is in use', isAnew: true }), earlyEndVerdict({ words: 'The board ended with code 1 before it was up', isAnew: false }), earlyEndVerdict({ words: '' })], ['race', 'fail', 'fail', 'fail'])
 })
