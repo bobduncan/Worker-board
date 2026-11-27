@@ -42,7 +42,7 @@ import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
-import { cpuLimiter, levelWho, logicalCores, powershell, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
+import { cpuLimiter, helperMask, levelWho, logicalCores, powershell, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { masksOf, modeFileOf, modeWriter, TOPOLOGY_SCRIPT, topologyOf, writesModeOf } from './src/cpuTopology.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
@@ -2847,12 +2847,15 @@ async function main(args) {
   // queue keeps today's behaviour; the CPU line says so as information.
   const heavyMode = writesModeOf({ config, isDemo, isShowOnly, historyFrom }) ? modeWriter({ file: modeFileOf(), owner: { pid: process.pid, port: config.port, project: config.project }, run: fn => loops.run('cpu-mode', fn) }) : null
   let coreMapNote = null
+  // S8: the work cores' mask (a decimal string, as cpu.mjs sets it), for Full's pass over what the chats started; null: Full fences nothing.
+  let workMask = null
   if (heavyMode !== null) {
     process.on('exit', () => heavyMode.stop())
     loops.run('cpu-topology', async () => {
       const found = await topologyOf({ file: join(HERE, 'data', 'cpu-topology.json'), logical: logicalCores(), read: () => powershell(TOPOLOGY_SCRIPT, '', 60_000) })
       const masks = found.topology ? masksOf(found.topology) : null
       if (masks === null) coreMapNote = `No core map (${found.none ?? 'no room beside your cores'}): heavy runs are not fenced.`
+      workMask = masks === null ? null : helperMask(masks.work, masks.low)
       await heavyMode.masks(masks)
     })
   }
@@ -2868,6 +2871,8 @@ async function main(args) {
     log: line => console.log(line),
     onLevel: state => heavyMode?.level(state),
     note: () => coreMapNote,
+    fence: () => workMask,
+    project: config.project,
   })
   if (cpu !== null && cpu.available) {
     const applyCpu = () => loops.run('cpu', () => cpu.apply()).then(() => heavyMode?.beat())
