@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { cpuLimiter, FULL_FENCE_MS, fullChanges, SET_SCRIPT, strandedProcesses } from '../src/cpu.mjs'
+import { cpuLimiter, fenceableKeys, FULL_FENCE_MS, fullChanges, inProject, isHeavyRun, SET_SCRIPT, strandedProcesses } from '../src/cpu.mjs'
 
 const A = 'aaaaaaaa-1111-2222-3333-444444444444'
 const CLI = 'D:\\Apps\\claude-code\\2.1.0\\claude.exe --output-format stream-json'
@@ -21,9 +21,11 @@ const NAME = { [IDLE]: 'Idle', [BELOW]: 'BelowNormal', [NORMAL]: 'Normal' }
 
 const desktop = { pid: 100, parent: 1, name: 'Claude.exe', commandLine: '"D:\\Apps\\Claude\\Claude.exe"', priority: NORMAL, created: 10 }
 const chat = { pid: 200, parent: 100, name: 'claude.exe', commandLine: `${CLI} --resume=${A}`, priority: NORMAL, created: 20 }
-const bash = { pid: 201, parent: 200, name: 'bash.exe', commandLine: null, priority: NORMAL, created: 21 }
+const bash = { pid: 201, parent: 200, name: 'bash.exe', commandLine: null, priority: NORMAL, created: 21, createdText: '133000000000000021' }
 const vitest = { pid: 202, parent: 201, name: 'node.exe', commandLine: 'node vitest run one.test.ts', priority: BELOW, created: 22 }
-const vite = { pid: 300, parent: 1, name: 'node.exe', commandLine: 'node node_modules/vite/bin/vite.js --port 5301', priority: NORMAL, created: 30 }
+const PROJECT = 'D:\\Projects\\game'
+const vite = { pid: 300, parent: 1, name: 'node.exe', commandLine: 'node D:\\Projects\\game\\worktree-3\\node_modules\\vite\\bin\\vite.js --port 5301', priority: NORMAL, created: 30 }
+const otherVite = { pid: 301, parent: 1, name: 'node.exe', commandLine: 'node E:\\shop\\node_modules\\vite\\bin\\vite.js', priority: NORMAL, created: 31 }
 const board = { pid: 400, parent: 1, name: 'node.exe', commandLine: 'node server.mjs', priority: NORMAL, created: 40 }
 const boardChild = { pid: 401, parent: 400, name: 'powershell.exe', commandLine: 'powershell -NoProfile', priority: BELOW, created: 41 }
 const game = { pid: 500, parent: 1, name: 'game.exe', commandLine: null, priority: NORMAL, created: 50 }
@@ -36,7 +38,7 @@ function fake(list) {
     state,
     calls,
     processes: {
-      list: async () => { calls.lists += 1; return [...state.values()].map(({ mask: _mask, eco: _eco, ...one }) => ({ ...one })) },
+      list: async () => { calls.lists += 1; if (calls.failLists > 0) { calls.failLists -= 1; throw new Error('Get-CimInstance timed out') } return [...state.values()].map(({ mask: _mask, eco: _eco, ...one }) => ({ ...one })) },
       masks: async pids => new Map(pids.filter(pid => state.has(pid)).map(pid => [pid, state.get(pid).mask])),
       set: async changes => {
         calls.sets.push(changes)
@@ -47,7 +49,8 @@ function fake(list) {
           one.mask = change.affinity
           one.eco = change.eco === true
         }
-        return changes.map(one => one.pid)
+        // Windows reports back only what it set: a process that is gone is not among them.
+        return changes.filter(one => state.has(one.pid)).map(one => one.pid)
       },
     },
   }
@@ -56,7 +59,7 @@ function fake(list) {
 async function limiterOn(t, windows, { level = 'full', clock, mask = WORK } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'cpu-s8-'))
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
-  return cpuLimiter({ file: join(dir, 'cpu.json'), fallback: level, platform: 'win32', cores: 24, sessions: async () => [A], processes: windows.processes, now: () => clock.now, spare: [board.pid], fence: () => mask })
+  return cpuLimiter({ file: join(dir, 'cpu.json'), fallback: level, platform: 'win32', cores: 24, sessions: async () => [A], processes: windows.processes, now: () => clock.now, spare: [board.pid], fence: () => mask, project: PROJECT })
 }
 const view = (windows, pid) => { const one = windows.state.get(pid); return [one.mask, NAME[one.priority], one.eco] }
 
@@ -76,7 +79,7 @@ test('S8: Full puts what the chats started and the project\'s tools on the work 
 })
 
 test('S8: one pass per 30 s, and each process is set once; a child born later is fenced by the next pass', async t => {
-  const windows = fake([desktop, chat, bash])
+  const windows = fake([desktop, chat, bash, board])
   const clock = { now: 1_000_000 }
   const cpu = await limiterOn(t, windows, { clock })
   await cpu.apply()
@@ -143,10 +146,11 @@ test('S8: a process Full fenced is never taken for one Low left behind (it is no
 
 test('S8: fullChanges: a restore gives Normal and efficiency off, the work cores to all but a chat; between restores only cores, only once', () => {
   const chosen = [chat, bash, vitest].map(one => ({ ...one, key: `${one.pid}@${one.created}` }))
-  assert.deepEqual(fullChanges(chosen, new Map(), 24, { fenceMask: WORK, isRestore: true }).changes.map(one => [one.pid, one.priority, one.affinity, one.eco]),
+  const fenceable = new Set(chosen.slice(1).map(one => one.key))
+  assert.deepEqual(fullChanges(chosen, new Map(), 24, { fenceMask: WORK, isRestore: true, fenceable }).changes.map(one => [one.pid, one.priority, one.affinity, one.eco]),
     [[chat.pid, 'Normal', ALL, false], [bash.pid, 'Normal', WORK, false], [vitest.pid, 'Normal', WORK, false]])
   const applied = new Map([[`${bash.pid}@${bash.created}`, 'fenced']])
-  assert.deepEqual(fullChanges(chosen, applied, 24, { fenceMask: WORK }).changes.map(one => [one.pid, one.priority, one.affinity, one.eco]), [[vitest.pid, null, WORK, false]])
+  assert.deepEqual(fullChanges(chosen, applied, 24, { fenceMask: WORK, fenceable }).changes.map(one => [one.pid, one.priority, one.affinity, one.eco]), [[vitest.pid, null, WORK, false]])
   assert.deepEqual(fullChanges(chosen, new Map(), 24, { fenceMask: null }).changes, [])
   assert.deepEqual(fullChanges(chosen, new Map(), 24, { fenceMask: null, isRestore: true }).changes.map(one => one.affinity), [ALL, ALL, ALL])
 })
@@ -160,4 +164,85 @@ test('S8: the server gives the limiter the work cores of the core map, only on t
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /fence: \(\) => workMask,/)
   assert.match(server, /if \(heavyMode !== null\) \{[^]*?workMask = masks === null \? null : BigInt\.asIntN\(64, masks\.work\)\.toString\(\)/)
+})
+
+test('S8 review 1: what the board itself started is never fenced, each change names the process\'s start, and the set script skips a PID given out again', async t => {
+  const windows = fake([desktop, chat, bash, board, boardChild])
+  const clock = { now: 1_000_000 }
+  const cpu = await limiterOn(t, windows, { clock })
+  await cpu.apply()
+  assert.deepEqual(view(windows, boardChild.pid), [ALL, 'BelowNormal', false], 'the board\'s own listing PowerShell is left alone')
+  const sets = windows.calls.sets.flat()
+  assert.ok(sets.every(change => change.pid !== boardChild.pid))
+  assert.equal(sets.find(change => change.pid === bash.pid).created, bash.createdText)
+  assert.match(SET_SCRIPT, /if \(\$c\.created -and \[math\]::Abs\(\[long\]\$p\.StartTime\.ToFileTimeUtc\(\) - \[long\]\$c\.created\) -gt 10000\) \{ continue \}/)
+  // Nothing new to fence: the next passes set nothing at all.
+  const before = windows.calls.sets.length
+  clock.now += FULL_FENCE_MS
+  await cpu.apply()
+  assert.equal(windows.calls.sets.length, before)
+})
+
+test('S8 review 2: a fence pass leaves an orphan Low left behind alone (that is the restore passes\' work, as before S8)', async t => {
+  const orphan = { pid: 700, parent: 9999, name: 'node.exe', commandLine: 'node x.mjs', priority: IDLE, created: 70 }
+  const windows = fake([desktop, chat, bash, board, orphan])
+  windows.state.get(orphan.pid).mask = LOW
+  const clock = { now: 1_000_000 }
+  const cpu = await limiterOn(t, windows, { clock })
+  await cpu.apply()
+  assert.deepEqual(view(windows, orphan.pid), [LOW, 'Idle', false])
+})
+
+test('S8 review 3: a pass counts from its start, so a failing listing is not tried again for 30 s', async t => {
+  const windows = fake([desktop, chat, bash, board])
+  windows.calls.failLists = 1
+  const clock = { now: 1_000_000 }
+  const cpu = await limiterOn(t, windows, { clock })
+  await cpu.apply()
+  clock.now += 10_000
+  await cpu.apply()
+  assert.equal(windows.calls.lists, 1)
+  clock.now += FULL_FENCE_MS
+  await cpu.apply()
+  assert.equal(windows.calls.lists, 2)
+  assert.deepEqual(view(windows, bash.pid), [WORK, 'Normal', false])
+})
+
+test('S8 review 4: a heavy run\'s tree (a gate, a check) is left to its own fence; the rest of the chat\'s tree is fenced', async t => {
+  const queue = { pid: 210, parent: 201, name: 'node.exe', commandLine: 'node tools/one-at-a-time.mjs test -- node tools/test.mjs', priority: BELOW, created: 23 }
+  const gateTests = { pid: 211, parent: 210, name: 'node.exe', commandLine: 'node --test test/startBoard.test.mjs', priority: BELOW, created: 24 }
+  const windows = fake([desktop, chat, bash, board, queue, gateTests])
+  const clock = { now: 1_000_000 }
+  const cpu = await limiterOn(t, windows, { clock })
+  await cpu.apply()
+  assert.deepEqual(view(windows, queue.pid), [ALL, 'BelowNormal', false])
+  assert.deepEqual(view(windows, gateTests.pid), [ALL, 'BelowNormal', false])
+  assert.deepEqual(view(windows, bash.pid), [WORK, 'Normal', false])
+  assert.equal(isHeavyRun(queue), true)
+})
+
+test('S8 review 5: a project tool found PC-wide is fenced only when its command line names the project', async t => {
+  const windows = fake([desktop, chat, bash, board, vite, otherVite])
+  const clock = { now: 1_000_000 }
+  const cpu = await limiterOn(t, windows, { clock })
+  await cpu.apply()
+  assert.deepEqual(view(windows, vite.pid), [WORK, 'Normal', false])
+  assert.deepEqual(view(windows, otherVite.pid), [ALL, 'Normal', false], 'another program\'s vite')
+  assert.equal(inProject('node D:/projects/GAME/x.mjs', PROJECT), true)
+  assert.equal(inProject('node D:\\Projects\\game\\x.mjs', PROJECT), true)
+  assert.equal(inProject('node D:\\Projects\\gameplay\\x.mjs', PROJECT), false, 'a folder that only starts like the project is another one')
+  assert.equal(inProject('"D:\\Projects\\game" --flag', PROJECT), true)
+  assert.equal(inProject('node x.mjs', ''), false)
+})
+
+test('S8: fenceableKeys leaves out a chat itself, the board\'s children, heavy runs and outside tools, each with what it started', () => {
+  const key = one => `${one.pid}@${one.created}`
+  const queue = { pid: 210, parent: 201, name: 'node.exe', commandLine: 'node tools/one-at-a-time.mjs x -- y', priority: BELOW, created: 23 }
+  const underQueue = { pid: 211, parent: 210, name: 'cmd.exe', commandLine: null, priority: BELOW, created: 24 }
+  const chosen = [
+    { ...chat, key: key(chat), parentKey: null }, { ...bash, key: key(bash), parentKey: key(chat) },
+    { ...queue, key: key(queue), parentKey: key(bash) }, { ...underQueue, key: key(underQueue), parentKey: key(queue) },
+    { ...boardChild, key: key(boardChild), parentKey: key(board) }, { ...otherVite, key: key(otherVite), parentKey: null }, { ...vite, key: key(vite), parentKey: null },
+  ]
+  assert.deepEqual([...fenceableKeys(chosen, { own: new Set([board.pid]), project: PROJECT })], [key(bash), key(vite)])
 })

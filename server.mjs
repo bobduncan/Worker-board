@@ -2782,6 +2782,7 @@ async function main(args) {
     onLevel: state => heavyMode?.level(state),
     note: () => coreMapNote,
     fence: () => workMask,
+    project: config.project,
   })
   if (cpu !== null && cpu.available) {
     const applyCpu = () => loops.run('cpu', () => cpu.apply()).then(() => heavyMode?.beat())
