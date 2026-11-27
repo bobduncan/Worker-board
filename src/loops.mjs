@@ -18,6 +18,9 @@ export const LOOP_WORDS = {
   'stuck-checks': 'running a stuck check again',
   measure: 'measuring the tasks',
   cpu: 'CPU for Claude',
+  // S4 (PC plan): the core map read at start, and the mode file the heavy-run queue reads.
+  'cpu-topology': 'reading the PC\'s core map',
+  'cpu-mode': 'writing the heavy-run queue\'s mode file',
   request: 'answering the page',
   // B446: after a chat's checked, and the pictures of an idea.
   guard: 'the goal guard',
