@@ -105,8 +105,9 @@ test('a worker that reports and ends its turn with background work running is to
     ].join('\n'))
   }
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'background', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
-  const env = { WORKER_BOARD_HOME: join(dir, 'pc') }
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'background', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), refreshSeconds: 5 }))
+  // B1555: the reconciler every 5 s (not the 30 s default) and the look every second; each wait below covers one more pass.
+  const env = { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_TICK_MS: '1000' }
   const told = async () => (await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8').catch(() => ''))
     .split('\n').filter(Boolean).map(text => JSON.parse(text)).filter(message => message.command === 'report-background')
   const first = await run(started, board, env)
@@ -120,7 +121,7 @@ test('a worker that reports and ends its turn with background work running is to
   await ask()
   await until(async () => { await ask(); return (await told()).length > 0 }, 'the line to Worker 1 in the outbox')
   // The same pass looked at the other two: they get none. Then wait for further passes: still one.
-  await new Promise(done => setTimeout(done, 3000))
+  await new Promise(done => setTimeout(done, 6000))
   const [line, ...more] = await told()
   assert.deepEqual(more, [])
   assert.equal(line.to, 'Worker 1')
@@ -130,6 +131,6 @@ test('a worker that reports and ends its turn with background work running is to
   await stop(first)
   await run(started, board, env)
   await ask()
-  await new Promise(done => setTimeout(done, 5000))
+  await new Promise(done => setTimeout(done, 6000))
   assert.equal((await told()).length, 1)
 })

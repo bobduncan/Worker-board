@@ -103,7 +103,8 @@ test('the app on another account: the board holds by itself (no hand-out, no wak
   const usage = join(appData, 'usage.json')
   await put(usage, JSON.stringify({ version: 2, samples: [{ t: NOW - MIN, org: 'org-1', u: { fh: 10, sd: 10 } }] }))
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'away', project, port, gamePort: 7330, gameRepo: '', appSessions: app, transcripts, usageHistory: usage }))
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'away', project, port, gamePort: 7330, gameRepo: '', appSessions: app, transcripts, usageHistory: usage, refreshSeconds: 5 }))
+  // B1555: the reconciler every 5 s (not the 30 s default), so the 6 s below covers a pass of it and the hand-out comes soon once back.
   await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_ACCOUNT_SETTLE_MS: '2000' })
   const outbox = async () => JSON.parse(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8').then(text => `[${text.trim().split('\n').filter(Boolean).join(',')}]`, () => '[]'))
   const base = `http://127.0.0.1:${port}`
