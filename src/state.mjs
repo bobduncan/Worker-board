@@ -1937,9 +1937,9 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const prefix = list.prefix ?? ''
   // Clear after each step: a chat the Workers mod cleared is read under the session its card moved it to (sources.mjs).
   const moved = new Map((Array.isArray(raw.moved) ? raw.moved : []).filter(pair => Array.isArray(pair) && pair.length === 2 && pair.every(id => typeof id === 'string')))
-  const apps = (Array.isArray(raw.appChatTexts) ? raw.appChatTexts : [])
-    .map(text => parseAppChat(textOr(text, '')))
-    .filter(chat => chat !== null)
+  // B1535: the board's read gives the chats parsed (`appChats`, kept by each file's stamp); a raw with the files' texts is parsed here.
+  const apps = (Array.isArray(raw.appChats) ? raw.appChats.filter(chat => chat !== null && typeof chat === 'object' && typeof chat.title === 'string' && typeof chat.cliSessionId === 'string')
+    : (Array.isArray(raw.appChatTexts) ? raw.appChatTexts : []).map(text => parseAppChat(textOr(text, ''))).filter(chat => chat !== null))
     // G2: and the id the app's file holds (`rawCliSessionId`): what a launch resumes, whatever the card chain says.
     .map(chat => (moved.has(chat.cliSessionId) ? { ...chat, cliSessionId: moved.get(chat.cliSessionId), rawCliSessionId: chat.cliSessionId } : chat))
   const movedBack = new Map([...moved].map(([from, to]) => [to, from]))
