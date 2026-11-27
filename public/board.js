@@ -715,8 +715,14 @@ function cpuView(cpu, pending = null) {
   const level = pending ?? cpu.level
   if (cpu.available !== true) return { level: null, disabled: true, label: 'CPU for Claude: not available here', count: '', title: 'The board sets the CPU for Claude on Windows only.', note: null }
   const processes = n => `${n} process${n === 1 ? '' : 'es'}`
-  const count = pending !== null ? '' : level === 'low' ? `${processes(cpu.count)} on ${cpu.lowCores} cores, lowest priority: tests and builds run slower` : 'full power'
-  const title = level === 'full' ? 'Claude runs at full power.' : `Applies to everything the project started, the board included: ${processes(cpu.count)} now.`
+  // S4 (F69's open part): who set the level and when, once the board knows it.
+  const at = Number.isFinite(cpu.since) ? new Date(cpu.since) : null
+  const today = at !== null && at.toDateString() === new Date().toDateString()
+  const day = at === null || today ? '' : `${at.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][at.getMonth()]} `
+  const set = pending === null && at !== null && typeof cpu.who === 'string' && cpu.who !== '' ? ` · set ${day}${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')} by ${cpu.who}` : ''
+  const count = pending !== null ? '' : `${level === 'low' ? `${processes(cpu.count)} on ${cpu.lowCores} cores, lowest priority: tests and builds run slower` : 'full power'}${set}`
+  const map = typeof cpu.coreMap === 'string' && cpu.coreMap !== '' ? ` ${cpu.coreMap}` : ''
+  const title = `${level === 'full' ? 'Claude runs at full power.' : `Applies to everything the project started, the board included: ${processes(cpu.count)} now.`}${map}`
   return { level, disabled: pending !== null, label: 'CPU for Claude', count, title, note: typeof cpu.fault === 'string' ? cpu.fault : null }
 }
 // cpu:end

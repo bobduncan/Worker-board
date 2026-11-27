@@ -93,7 +93,10 @@ and the briefings for the main chat and the workers.
    → the tests end with `fail 0`. They run at low priority (below normal) on half the PC's cores (`tools/test.mjs`), so
    games and programs get the CPU first. One heavy run at a time happens on the PC, across every chat, worktree and
    landing (2026-11-11; `HEAVY_RUN_SLOTS=2` allows two), first come first served: `npm test` waits its turn while
-   another run holds it (`tools/one-at-a-time.mjs`). `npm run demo -- --port 4311` shows the page with made-up data, if you
+   another run holds it (`tools/one-at-a-time.mjs`). A landing's gate is the light check (`npm test -- --gate`): it leaves the
+   slowest test files (`test/slow-files.json`) out unless the change touches their area, and the big suite
+   (`tools/big-suite.mjs`) runs every file when the PC is idle, at least every 4 hours and each night; `node
+   tools/big-suite.mjs --status` says how it stands. `npm run demo -- --port 4311` shows the page with made-up data, if you
    want to look first (Ctrl+C ends it).
 3. **The Workers mod (optional).** The board carries it, in `mods\workers` (B251). In the board's folder:
    ```

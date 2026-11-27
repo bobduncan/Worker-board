@@ -9,7 +9,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import test from 'node:test'
+import { describe, it as test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
@@ -107,7 +107,7 @@ async function boardAt(t, fiveHour, week = 10, settings = {}) {
   const usage = join(app, 'usage.json')
   await put(usage, JSON.stringify({ version: 2, samples: [{ t: NOW - MIN, org: 'org-1', u: { fh: fiveHour, sd: week } }] }))
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'five', project, port, gamePort: 7330, gameRepo: '', appSessions: app, transcripts, usageHistory: usage, ...settings }))
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'five', refreshSeconds: 5, project, port, gamePort: 7330, gameRepo: '', appSessions: app, transcripts, usageHistory: usage, ...settings }))
   await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
   const outbox = async () => JSON.parse(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8').then(text => `[${text.trim().split('\n').filter(Boolean).join(',')}]`, () => '[]'))
   const base = `http://127.0.0.1:${port}`
@@ -124,39 +124,42 @@ async function boardAt(t, fiveHour, week = 10, settings = {}) {
   return { outbox, state: () => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json()) }
 }
 
-test('the 5-hour limit at 96: B738 goes to nobody, Worker 4 hears nothing, and Workers 2, 3 and 5 are each told once to stop', { timeout: 300_000 }, async t => {
-  const { outbox, state } = await boardAt(t, 96)
-  await until(async () => (await outbox()).filter(one => one.command === 'five-hour-stop').length >= 3, 'the stop word to each of the three workers')
-  // Its looking loop runs every second here: it passes a few more times: nothing is said twice, and nothing is handed out.
-  await new Promise(done => setTimeout(done, 6000))
-  const sent = await outbox()
-  const stops = sent.filter(one => one.command === 'five-hour-stop')
-  assert.deepEqual(stops.map(one => one.to).sort(), WORKING)
-  assert.match(stops[0].text, /5-hour limit reached the stop line \(95%\)/)
-  assert.deepEqual(sent.filter(one => one.command === 'week-stop'), [])
-  assert.deepEqual(sent.filter(one => one.about === 'B738' || /B738/.test(one.text ?? '')), [])
-  assert.deepEqual(sent.filter(one => one.to === 'Worker 4'), [])
-  // B738 is ready all along (the 94 case hands it out): it is the stop line that holds it.
-  const seen = await state()
-  assert.deepEqual(seen.readyList.ready.map(one => one.id), ['B738'])
-  assert.equal(seen.reconciled.handOutHeld, true)
-})
+// B1554 (gate diet): each case starts a board of its own on a port of its own, so the three run side by side.
+describe("5-hour stop on a running board", { concurrency: 3 }, () => {
+  test('the 5-hour limit at 96: B738 goes to nobody, Worker 4 hears nothing, and Workers 2, 3 and 5 are each told once to stop', { timeout: 300_000 }, async t => {
+    const { outbox, state } = await boardAt(t, 96)
+    await until(async () => (await outbox()).filter(one => one.command === 'five-hour-stop').length >= 3, 'the stop word to each of the three workers')
+    // Its looking loop runs every second here: it passes a few more times: nothing is said twice, and nothing is handed out.
+    await new Promise(done => setTimeout(done, 6000))
+    const sent = await outbox()
+    const stops = sent.filter(one => one.command === 'five-hour-stop')
+    assert.deepEqual(stops.map(one => one.to).sort(), WORKING)
+    assert.match(stops[0].text, /5-hour limit reached the stop line \(95%\)/)
+    assert.deepEqual(sent.filter(one => one.command === 'week-stop'), [])
+    assert.deepEqual(sent.filter(one => one.about === 'B738' || /B738/.test(one.text ?? '')), [])
+    assert.deepEqual(sent.filter(one => one.to === 'Worker 4'), [])
+    // B738 is ready all along (the 94 case hands it out): it is the stop line that holds it.
+    const seen = await state()
+    assert.deepEqual(seen.readyList.ready.map(one => one.id), ['B738'])
+    assert.equal(seen.reconciled.handOutHeld, true)
+  })
 
-/** Handed out as always: B738 goes to Worker 4 and nobody is told to stop. */
-async function handsOut(t, ...args) {
-  const { outbox } = await boardAt(t, ...args)
-  // T8.5 step 6: B738 goes in Worker 4's hand-over (one envelope with its line).
-  await until(async () => (await outbox()).some(one => one.command === 'handover' && one.step === 'B738'), 'the hand-over of B738 in the outbox')
-  await new Promise(done => setTimeout(done, 3000))
-  const sent = await outbox()
-  assert.equal(sent.find(one => one.step === 'B738').to, 'Worker 4')
-  assert.deepEqual(sent.filter(one => one.command === 'five-hour-stop'), [])
-}
+  /** Handed out as always: B738 goes to Worker 4 and nobody is told to stop. */
+  async function handsOut(t, ...args) {
+    const { outbox } = await boardAt(t, ...args)
+    // T8.5 step 6: B738 goes in Worker 4's hand-over (one envelope with its line).
+    await until(async () => (await outbox()).some(one => one.command === 'handover' && one.step === 'B738'), 'the hand-over of B738 in the outbox')
+    await new Promise(done => setTimeout(done, 3000))
+    const sent = await outbox()
+    assert.equal(sent.find(one => one.step === 'B738').to, 'Worker 4')
+    assert.deepEqual(sent.filter(one => one.command === 'five-hour-stop'), [])
+  }
 
-test('the 5-hour limit at 94: B738 goes to Worker 4 as always, and nobody is told to stop', { timeout: 300_000 }, async t => {
-  await handsOut(t, 94)
-})
+  test('the 5-hour limit at 94: B738 goes to Worker 4 as always, and nobody is told to stop', { timeout: 300_000 }, async t => {
+    await handsOut(t, 94)
+  })
 
-test('the 5-hour limit at 96 with the stop line set to 97 in the settings: handed out as always', { timeout: 300_000 }, async t => {
-  await handsOut(t, 96, 10, { fiveHourStopAt: 97 })
+  test('the 5-hour limit at 96 with the stop line set to 97 in the settings: handed out as always', { timeout: 300_000 }, async t => {
+    await handsOut(t, 96, 10, { fiveHourStopAt: 97 })
+  })
 })

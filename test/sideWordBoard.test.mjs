@@ -130,7 +130,7 @@ test('over two looks and a restart: exactly one word to chat 1 by a hand, exactl
   await reportAll()
   const sides = async () => foldOutbox(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8')).filter(one => one.command === SIDE_WORD)
   const byWho = async who => (await sides()).filter(one => one.about === who)
-  const looks = () => new Promise(done => setTimeout(done, 2_500))
+  const looks = () => new Promise(done => setTimeout(done, 1_500))
 
   // The first look: one word for chat 1, one record for chat 3. Two more looks: no second.
   await until(async () => (await sides()).length >= 2, 'a record for each late wait')
