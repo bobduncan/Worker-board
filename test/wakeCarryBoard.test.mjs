@@ -11,6 +11,7 @@ import { describe, it as test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
+import { OPEN_FIRST_MS } from '../src/opener.mjs'
 import { foldOutbox } from '../src/store.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -53,12 +54,12 @@ async function stop(child) {
   await gone
 }
 
-async function until(check, what) {
-  for (const end = Date.now() + 60_000; Date.now() < end;) {
+async function until(check, what, ms = 60_000) {
+  for (const end = Date.now() + ms; Date.now() < end;) {
     if (await check()) return
     await new Promise(done => setTimeout(done, 200))
   }
-  throw new Error(`Not within 60 s: ${what}`)
+  throw new Error(`Not within ${ms / 1000} s: ${what}`)
 }
 
 const REFUSAL = '{"deny":"PreToolUse:mcp__ccd_session_mgmt__send_message hook error: Not run: in auto mode Claude Desktop doesn\'t run this tool when a plugin\'s own code calls it. Have Claude make the call."}'
@@ -150,8 +151,9 @@ describe("F17 wake carry on a running board", { concurrency: 1 }, () => {
     await new Promise(done => setTimeout(done, 3000))
     await json('/api/bridge/wakes-due', {})
     // Within 40 s (B1554: 20 s before; a board that starts beside nine others is slower; Main's report in this test goes stale after a minute; then Main no longer covers the list either way).
+    // Hotfix (2026-11-27, the big suite inside the fence): a courier call that comes after the 10 s pass (a slow start under load) has its word at the minute's pass: 75 s.
     let found = false
-    for (const end = Date.now() + 40_000; Date.now() < end && !found;) {
+    for (const end = Date.now() + 75_000; Date.now() < end && !found;) {
       found = (await words()).some(one => one.command === 'wake-carry' && one.about === 'Worker 2' && typeof one.of !== 'string')
       if (!found) await new Promise(done => setTimeout(done, 250))
     }
@@ -167,10 +169,11 @@ describe("F17 wake carry on a running board", { concurrency: 1 }, () => {
         // then this very call lists the new word already. Either is right: the test waits for the word, not for an empty first list.)
         await json('/api/bridge/wakes-due', {})
         let carried = []
+        // Hotfix (2026-11-27): up to two of the board's minutes, as below; the minute's pass may land just past a 60 s wait (it failed alone inside the fence).
         await until(async () => {
           carried = (await words()).filter(one => one.command === 'wake-carry')
           return carried.length > 0
-        }, 'a carry word for the wake word')
+        }, 'a carry word for the wake word', 130_000)
         assert.deepEqual([carried.length, carried[0].of, carried[0].about, carried[0].wakeText], [1, WAKE_WORD.id, 'Worker 2', 'The worker board holds words for you; they come in now.'])
         assert.equal(carried[0].to, 'the courier')
         // In this garden Worker 2 is no stopped chat: the outbox sweep closes the page's wake word, and the carry word follows it.
@@ -297,6 +300,10 @@ describe("F17 wake carry on a running board", { concurrency: 1 }, () => {
         const word = { id: 'c0c0c0c0c0c0c004', at: justNow, to: 'Main', command: 'wake-carry', about: 'Worker 2', forModel: true, spell: SPELL, session: 'local_w2', wakeText: 'x', text: 'Wake Worker 2 for the worker board: send_message with session_id "local_w2"', state: 'waiting' }
         const attempt = { path: 'message', at: justNow, by: 'Main', jobId: word.id, sentAt: null, runBefore: 1, verdict: null, verdictAt: null, why: null, step: null, carry: 'model' }
         const { json, claim, words, record } = await boardWith(t, { refused: true, lines: [word], attempts: [attempt], byModel: true })
+        // Hotfix (2026-11-27): a wake pass while Main reports busy rightly drops the word (Main can no longer carry it) and plans it anew;
+        // on a slow start (cases side by side, inside the fence) the pass 10 s after the start fell between the busy report and the check.
+        // So the case begins after that pass, with the minute's pass ~45 s away.
+        await new Promise(done => setTimeout(done, OPEN_FIRST_MS + 5000))
         assert.deepEqual((await claim()).filter(job => job.id === word.id), [], 'no hand takes it')
         // Main busy on its own turn: its take does not get the word.
         await json('/api/bridge/report', { chat: 'Main', session: 'main-id', report: { state: 'busy', since: Date.now(), seq: 2, run: 1, word: null, turn: Date.now() - 1000 } })
