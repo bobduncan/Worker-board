@@ -108,6 +108,9 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   // Landing 1 ships A off; a board copy that tests A (landing 2) turns it on.
   const launchFile = join(dir, 'launches.jsonl')
   const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_CARRY_BY_MODEL: byModel ? '1' : '0', WORKER_BOARD_OPEN_STUB: launchFile })
+  // Hotfix (2026-11-27): when the board said it listens (its first wake pass is OPEN_FIRST_MS after that), and a way to stop it early.
+  const readyAt = Date.now()
+  const stopBoard = () => Promise.all(started.map(stop))
   const base = `http://127.0.0.1:${port}`
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   const call = (path, body, headers = {}) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.27.1', ...headers }, body: JSON.stringify(body) })
@@ -128,7 +131,7 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   const token = /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
   const state = () => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
   const launches = () => readFile(launchFile, 'utf8').then(text => text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line)), () => [])
-  return { out, call, json, claim, words, record, state, launches }
+  return { out, call, json, claim, words, record, state, launches, readyAt, stopBoard }
 }
 
 /** The page's word to wake Worker 2 (a B577 wake word): a hand's job, but only while the app runs the hands' sends. */
@@ -145,13 +148,22 @@ const HELD = { B12: `Id: B12\nKind: step\nTitle: Plant the hedge\nState: in prog
 describe("F17 wake carry on a running board", { concurrency: 1 }, () => {
   // The one case that needs the wake pass 10 s after the start to find its courier call already made: it runs first and alone, as it did before the others ran side by side.
   test('chat 1\'s re-check 1: past the grace the holder that still has not started gets the courier\'s word', { timeout: 240_000 }, async t => {
-    const pause = { state: 'resuming', since: Date.now() - 4 * MIN, pausedSince: NOW - 60 * MIN, by: 'person' }
-    const { json, words } = await boardWith(t, { refused: true, pause, files: HELD })
-    // The board's state has read Main's report (it runs) before the courier calls.
-    await new Promise(done => setTimeout(done, 3000))
-    await json('/api/bridge/wakes-due', {})
+    // Hotfix (2026-11-27): the case holds only when the courier's call comes before the board's first wake pass (OPEN_FIRST_MS after its
+    // start); a call after it missed that pass, and its word did not come at the minute's pass either (round 2 alone inside the fence).
+    // So a start too slow for that gets a fresh board, up to three.
+    let board = null
+    for (let tries = 1; tries <= 3; tries += 1) {
+      if (board !== null) await board.stopBoard()
+      const pause = { state: 'resuming', since: Date.now() - 4 * MIN, pausedSince: NOW - 60 * MIN, by: 'person' }
+      board = await boardWith(t, { refused: true, pause, files: HELD })
+      // The board's state has read Main's report (it runs) before the courier calls.
+      await new Promise(done => setTimeout(done, 3000))
+      await board.json('/api/bridge/wakes-due', {})
+      if (Date.now() - board.readyAt < OPEN_FIRST_MS - 1000) break
+    }
+    const { words } = board
     // Within 40 s (B1554: 20 s before; a board that starts beside nine others is slower; Main's report in this test goes stale after a minute; then Main no longer covers the list either way).
-    // Hotfix (2026-11-27, the big suite inside the fence): a courier call that comes after the 10 s pass (a slow start under load) has its word at the minute's pass: 75 s.
+    // Hotfix: 75 s, for a pass that runs slowly under load.
     let found = false
     for (const end = Date.now() + 75_000; Date.now() < end && !found;) {
       found = (await words()).some(one => one.command === 'wake-carry' && one.about === 'Worker 2' && typeof one.of !== 'string')
