@@ -142,7 +142,7 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
     if (left > 0) await new Promise(done => setTimeout(done, left))
     assert.ok(Date.now() - upAt < 50_000, `the next wake pass is near: ${Date.now() - upAt} ms after the start`)
   }
-  return { out, call, json, claim, words, record, state, launches, pastFirstPasses }
+  return { out, call, json, claim, words, record, state, launches, pastFirstPasses, upAt }
 }
 
 /** The page's word to wake Worker 2 (a B577 wake word): a hand's job, but only while the app runs the hands' sends. */
@@ -157,18 +157,25 @@ const HELD = { B12: `Id: B12\nKind: step\nTitle: Plant the hedge\nState: in prog
 // minute), so they run side by side: the four that wait for the minute start first, and the file takes about as long as the longest of them, not the sum of all twenty.
 // The delivery pass runs at every refresh (the settings' 5 s here, not the 30 s of every day).
 describe("F17 wake carry on a running board", { concurrency: 1 }, () => {
-  // The one case that needs the wake pass 10 s after the start to find its courier call already made: it runs first and alone, as it did before the others ran side by side.
+  // The one case that needs a wake pass after its courier call (10 s after the start, else a minute): it runs first and alone, as it did before the others ran side by side.
   test('chat 1\'s re-check 1: past the grace the holder that still has not started gets the courier\'s word', { timeout: 240_000 }, async t => {
     const pause = { state: 'resuming', since: Date.now() - 4 * MIN, pausedSince: NOW - 60 * MIN, by: 'person' }
-    const { json, words } = await boardWith(t, { refused: true, pause, files: HELD })
+    const { json, words, upAt } = await boardWith(t, { refused: true, pause, files: HELD })
     // The board's state has read Main's report (it runs) before the courier calls.
     await new Promise(done => setTimeout(done, 3000))
     await json('/api/bridge/wakes-due', {})
-    // Within 40 s (B1554: 20 s before; a board that starts beside nine others is slower; Main's report in this test goes stale after a minute; then Main no longer covers the list either way).
+    // B1568: the word comes at the first wake pass after the courier's call: 10 s after the start, or, when a slow start put the call past
+    // that pass (it flaked so beside seven other files), the pass a minute after the start. Main keeps reporting meanwhile, so it runs and
+    // would cover the list: only the grace being past brings the word, also at the minute's pass.
     let found = false
-    for (const end = Date.now() + 40_000; Date.now() < end && !found;) {
+    for (let at = 0, said = Date.now(); Date.now() < upAt + 80_000 && !found; at += 1) {
       found = (await words()).some(one => one.command === 'wake-carry' && one.about === 'Worker 2' && typeof one.of !== 'string')
-      if (!found) await new Promise(done => setTimeout(done, 250))
+      if (found) break
+      await new Promise(done => setTimeout(done, 250))
+      if (Date.now() - said >= 5000) {
+        said = Date.now()
+        await json('/api/bridge/report', { chat: 'Main', session: 'main-id', report: { state: 'idle', since: Date.now(), seq: 2 + at, run: 1 } })
+      }
     }
     assert.ok(found, 'the courier\'s word for the holder, past the grace')
     assert.deepEqual((await words()).filter(one => one.command === 'wake-carry' && one.about === 'Worker 2').map(one => one.for), ['resume'])
