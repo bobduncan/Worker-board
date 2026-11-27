@@ -23,8 +23,20 @@ const COPIED = ['server.mjs', 'run-game.mjs', 'start-board.mjs', 'package.json',
 const windows = { skip: process.platform !== 'win32' ? 'Windows only' : cpus().length < 4 ? 'fewer than four cores' : false, timeout: 180_000 }
 const CORES = Math.min(64, cpus().length)
 const ALL = (1n << BigInt(CORES)) - 1n
-/** The last two cores, as CPU Low pins the chats (and what they start). */
-const LAST_TWO = ALL ^ ((1n << BigInt(CORES - 2)) - 1n)
+/** The two lowest cores of `mask`, or null when it has fewer than two. */
+const twoOf = mask => {
+  const bits = []
+  for (let core = 0n; core < BigInt(CORES) && bits.length < 2; core += 1n) if ((mask >> core) & 1n) bits.push(1n << core)
+  return bits.length === 2 ? bits[0] | bits[1] : null
+}
+/**
+ * Two cores, as CPU Low pins the chats (and what they start): the last two. Hotfix (2026-11-27): inside the heavy-run fence
+ * (HEAVY_RUN_MASK) the last two are the fence's low cores, which Full mode crowds with the chats' helpers (S8): there this test's Idle
+ * keeper did not even start its board in two minutes. So inside the fence two of the run's own cores stand in for them (the lowest
+ * two of its mask, never the low ones); the case is the same: Idle on two cores, then Normal.
+ */
+const FENCE = /^0x[0-9a-f]+$/i.test(process.env.HEAVY_RUN_MASK ?? '') ? BigInt(process.env.HEAVY_RUN_MASK) & ALL : 0n
+const LAST_TWO = (FENCE === 0n ? null : twoOf(FENCE)) ?? (ALL ^ ((1n << BigInt(CORES - 2)) - 1n))
 
 const freePort = () => new Promise(done => {
   const server = createServer().listen(0, '127.0.0.1', () => {

@@ -107,7 +107,7 @@ test('S9, the real case: node tools/test.mjs --gate in a branch leaves a slow fi
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'outside')
     const lock = join(root, 'heavy.lock')
     // No NODE_TEST_CONTEXT (node --test would report to this run instead of printing) and no held slot of the run around this one.
-    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_PID: _pid, ...plain } = process.env
+    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_PID: _pid, HEAVY_RUN_PRIORITY: _priority, HEAVY_RUN_MASK: _mask, HEAVY_RUN_CORES: _cores, ...plain } = process.env
     const gate = () => spawnSync(process.execPath, ['tools/test.mjs', '--gate'], { cwd: root, encoding: 'utf8', windowsHide: true, env: { ...plain, HEAVY_RUN_LOCK: lock } })
     const outside = gate()
     assert.equal(outside.status, 0, outside.stdout + outside.stderr)

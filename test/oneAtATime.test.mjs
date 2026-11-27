@@ -33,7 +33,8 @@ function newLock() {
  * HEAVY_RUN_FIRST (a landing's gate sets it, F14: the runs of this test are ordinary unless a case says otherwise).
  */
 function envFor(lock, extra = {}) {
-  const { HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, ...plain } = process.env
+  // Hotfix (2026-11-27): no fence of the run around this test (a gate inside the live fence gives HEAVY_RUN_PRIORITY, _MASK, _CORES).
+  const { HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, HEAVY_RUN_MASK: _mask, HEAVY_RUN_CORES: _cores, ...plain } = process.env
   // One slot unless a test asks for more: the older cases are about one run at a time.
   return { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50', HEAVY_RUN_SAY_MS: '200', HEAVY_RUN_SLOTS: '1', ...extra }
 }
