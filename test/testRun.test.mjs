@@ -41,7 +41,7 @@ test('2026-11-11: the run lowers itself to below normal before node --test start
     // what was started by then: this process must be low before node --test exists, so it inherits it
     lowered.push({ args, started: calls.length })
   }
-  const code = await runTests({ files: ['test/a.test.mjs'], cores: 24, start, setPriority, node: 'node.exe', env: {} })
+  const code = await runTests({ files: ['test/a.test.mjs'], cores: 24, start, setPriority, node: 'node.exe' })
   assert.equal(code, 0)
   assert.equal(LOW, os.constants.priority.PRIORITY_BELOW_NORMAL)
   assert.deepEqual(lowered, [{ args: [LOW], started: 0 }, { args: [4242, LOW], started: 1 }])
@@ -249,7 +249,7 @@ test('F68: a run asked for normal priority sets itself and node --test to normal
   const { start } = standIn(0)
   const set = []
   const { seen, stream } = sink()
-  const code = await runTests({ files: ['test/a.test.mjs'], priority: NORMAL, cores: 4, start, setPriority: (...args) => set.push(args), getPriority: pid => (pid === 4242 ? NORMAL : LOW), out: stream, err: stream, env: {} })
+  const code = await runTests({ files: ['test/a.test.mjs'], priority: NORMAL, cores: 4, start, setPriority: (...args) => set.push(args), getPriority: pid => (pid === 4242 ? NORMAL : LOW), out: stream, err: stream })
   assert.equal(code, 0)
   assert.equal(NORMAL, os.constants.priority.PRIORITY_NORMAL)
   assert.deepEqual(set, [[NORMAL], [4242, NORMAL]])
@@ -267,10 +267,10 @@ test('S5: inside a heavy run\'s fence the run never goes above the fence\'s prio
 
 test('F68: the full run says below normal; a priority that cannot be read says the asked one', async () => {
   const low = sink()
-  await runTests({ files: ['x'], cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => LOW, out: low.stream, err: low.stream, env: {} })
+  await runTests({ files: ['x'], cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => LOW, out: low.stream, err: low.stream })
   assert.equal(low.seen.text, 'test run: priority below normal\n')
   const unread = sink()
-  await runTests({ files: ['x'], priority: NORMAL, cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => { throw new Error('ESRCH') }, out: unread.stream, err: unread.stream, env: {} })
+  await runTests({ files: ['x'], priority: NORMAL, cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => { throw new Error('ESRCH') }, out: unread.stream, err: unread.stream })
   assert.equal(unread.seen.text, 'test run: priority normal\n')
   assert.deepEqual([LOW, NORMAL, os.constants.priority.PRIORITY_LOW, 3].map(priorityWord), ['below normal', 'normal', 'idle', 'nice 3'])
 })
