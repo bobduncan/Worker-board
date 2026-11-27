@@ -99,6 +99,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     stalls: Object.freeze((Array.isArray(state.stalls) ? state.stalls : []).map(stallOf).filter(one => one !== null).map(one => Object.freeze(one))),
     // board-fast-answer: the day's work-call figures (state.mjs `workCalls`), or null.
     workCalls: state.workCalls !== null && typeof state.workCalls === 'object' ? Object.freeze({ ...state.workCalls }) : null,
+    // B1535: what the slow work calls of the last 10 min waited on (callTrace.mjs `slowCause`, with the build's way), or null.
+    slowCause: state.slowCause !== null && typeof state.slowCause === 'object' && Number.isFinite(state.slowCause.calls) ? Object.freeze({ ...state.slowCause }) : null,
     lateCalls: Object.freeze((Array.isArray(state.lateCalls) ? state.lateCalls : []).filter(one => Number.isFinite(one?.at) && Number.isFinite(one?.ms)).map(one => Object.freeze({ at: one.at, ms: one.ms, ...(typeof one.popup === 'string' ? { popup: one.popup } : {}) }))),
     since: statesSince(timeline, lanes),
     repairs: Object.freeze([...repairs]),

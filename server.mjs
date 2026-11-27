@@ -68,7 +68,7 @@ import { checkGame, createGames, gameLauncher, pathKey } from './src/games.mjs'
 import { gapsNow, keptSinceJump, readAfterSleep } from './src/afterSleep.mjs'
 import { parseHistory } from './src/history.mjs'
 import { hearingLog, sentAtOf } from './src/hearing.mjs'
-import { callTracer } from './src/callTrace.mjs'
+import { callTracer, pcTop, slowCause } from './src/callTrace.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
 import { callFrom, workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
@@ -112,6 +112,7 @@ import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
 import { recapRoundDue } from './src/recapCard.mjs'
 import { buildState, fullStepOf, lightState } from './src/state.mjs'
+import { holdBuild, stateThread } from './src/stateThread.mjs'
 import { minuteKeeper, stabilityKeeper } from './src/stability.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
@@ -906,7 +907,10 @@ async function main(args) {
   // B1139 (X93): every chat work call cut into its parts, with the loop's and the file system's delay and the CPU, in a local file
   // (src/callTrace.mjs, data/call-trace.jsonl, the newest day): where a call waits between the chat's send and its answer.
   const traceFile = isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'call-trace.jsonl')
+  // B1535: on a slow call the PC's busiest programs are looked up (at most every 2 min), for the rule board-slow's cause.
+  const pcBusy = pcTop({ list: traceFile === null || process.platform !== 'win32' ? null : () => windowsProcesses.list(), now: clock })
   const tracer = traceFile === null ? null : callTracer({
+    onSlow: () => void pcBusy.look(),
     now: clock, statProbe: () => stat(join(HERE, 'data')), cpus: osCpus, boardCpu: () => process.cpuUsage(),
     jobsDuring: (from, to) => stalls.jobsDuring(from, to),
     append: text => appendFile(traceFile, text), read: () => readFile(traceFile, 'utf8'), rewrite: text => writeUnflushed(traceFile, text),
@@ -2668,6 +2672,24 @@ async function main(args) {
   // P7, the review: the none-ready episode (state.mjs `noWorkSeen`), in memory as planSeen: a restart starts it from the
   // longest-free worker's since again.
   let noWorkSeen = null
+  // B1535 (X93, chat 1's way A): the state is built in a thread of its own, so the loop answers every other call meanwhile; when
+  // the thread fails it builds in the loop as before, and the loops line says so once ("state-thread").
+  const builder = stateThread({
+    inLoop: (raw, options) => {
+      holdBuild()
+      return buildState(raw, options)
+    },
+    failed: error => loops.failed('state-thread', error),
+    recovered: () => loops.succeeded('state-thread'),
+    // Chat 1's core review: off for good is said on a line of its own.
+    offForGood: error => loops.failed('state-thread-off', error),
+    // Chat 1's core review: a new thread loads src/ from the folder; while the folder holds a newer server than this one (a landing or
+    // a self-update before its restart, src/version.mjs, read fresh before a start), the builds are made in the loop instead.
+    mayStart: async () => (await readVersion(gitRunner(), HERE, running).catch(error => {
+      loops.failed('state-thread-version', error)
+      return null
+    }))?.isServerNewer !== true,
+  })
   // F42: an answer built before a PC sleep is read again (src/afterSleep.mjs).
   const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
     rebuilds += 1
@@ -2681,7 +2703,10 @@ async function main(args) {
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
     keep.pause = raw.work?.pause ?? null
     const project = raw.project ?? config.project
-    const state = buildState(raw, {
+    // B1535: the build, in its thread (the loop runs on), or in the loop when the thread failed; the job's words say where it was made
+    // (named again after the build, as a thread may fail during it).
+    const buildJob = stalls.begin('job', builder.off() === null ? 'state build (thread)' : 'state build (loop)')
+    const state = await (async () => builder.build(raw, {
       lines: readLines(raw),
       outbox: outboxNow(store.outbox(), clock(), keep),
       // P7 (the review): every word, also long ago, timed as outboxNow times them, for the one status per step (src/stepStatus.mjs),
@@ -2716,7 +2741,13 @@ async function main(args) {
       noWorkSeen,
       now: built(clock()),
       config: { ...config, project },
+    }))().finally(() => {
+      buildJob.as(builder.lastWay() === 'loop' ? 'state build (loop)' : 'state build (thread)')
+      buildJob()
     })
+    // Chat 1's check of the core review fixes: a slow build is awaited here, never answered with the kept state (a caller that may take
+    // the kept state never waits for this read: keptState.mjs). A hang (stateThread.mjs LATE) fails this read, and the next is built
+    // in the loop.
     planSeen = state.planSeen ?? {}
     noWorkSeen = state.noWorkSeen ?? null
     // Only the board that runs the loops writes; a copy beside it reads what that one kept.
@@ -2731,7 +2762,9 @@ async function main(args) {
     // (the person deletes it once read).
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
-    return { ...state, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
+    // B1535: what the slow work calls of the last 10 min waited on, the build's way and the PC's busiest programs (the rule board-slow).
+    const cause = tracer === null ? null : slowCause(tracer.lines(), { from: clock() - 10 * 60_000, pc: pcBusy.latest() })
+    return { ...state, slowCause: cause === null ? null : { ...cause, build: builder.lastWay() ?? 'thread' }, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
       // T5.2 A7: the project keys config.json still holds while the project's settings file is in use (ignored: the amber line).
       settingsIgnored: isDemo || typeof config.settingsFile !== 'string' ? null : { file: basename(config.settingsFile), keys: config.settingsIgnored ?? [] }, check: checker?.view() ?? null, clicksUnsent: (await clicks.settle(one => movedOn(one, state, store.outbox()), clock()), await clicks.unsent()) }
   })), STATE_MS)

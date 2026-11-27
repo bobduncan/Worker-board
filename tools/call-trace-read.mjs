@@ -7,43 +7,10 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/** The parts of a call in the order they happen: each is the time from the mark before it to its own. */
-export const PARTS = ['lock', 'body', 'known', 'begin', 'fresh', 'ctx', 'action', 'decide', 'handout', 'answered']
+import { PARTS, partsOf, sharesOf, slowCalls } from '../src/callTrace.mjs'
 
-/** One line's parts in ms: `{ beforeBoard, lock, body, ... }` (a part without its mark is left out). PURE. */
-export function partsOf(line) {
-  const out = {}
-  if (Number.isFinite(line?.beforeBoard)) out.beforeBoard = line.beforeBoard
-  let last = 0
-  for (const part of PARTS) {
-    const at = line?.marks?.[part]
-    if (!Number.isFinite(at)) continue
-    out[part] = at - last
-    last = at
-  }
-  return out
-}
-
-/** The calls of `lines` (one per request id: its last arrival, which carries the answer the chat got) taking over `overMs` from their send. PURE. */
-export function slowCalls(lines, { overMs = 5000, from = -Infinity } = {}) {
-  const byRequest = new Map()
-  const loose = []
-  for (const line of lines) {
-    if (!Number.isFinite(line?.arrived) || line.arrived < from) continue
-    if (typeof line.request === 'string') byRequest.set(line.request, { ...line, arrivals: (byRequest.get(line.request)?.arrivals ?? 0) + 1 })
-    else loose.push({ ...line, arrivals: 1 })
-  }
-  return [...byRequest.values(), ...loose]
-    .filter(line => (Number.isFinite(line.total) ? line.total : line.marks?.answered ?? 0) > overMs)
-    .sort((a, b) => a.arrived - b.arrived)
-}
-
-/** The share of each part over the calls: `{ part: ms }` summed. PURE. */
-export function sharesOf(calls) {
-  const sum = {}
-  for (const call of calls) for (const [part, ms] of Object.entries(partsOf(call))) sum[part] = (sum[part] ?? 0) + ms
-  return sum
-}
+// B1535: the parts, the slow calls and their shares live in src/callTrace.mjs now (the rule board-slow reads them too).
+export { PARTS, partsOf, sharesOf, slowCalls }
 
 const s = ms => (Number.isFinite(ms) ? (ms / 1000).toFixed(1) : '-')
 const time = ms => new Date(ms).toLocaleTimeString('en-GB')

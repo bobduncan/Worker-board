@@ -211,3 +211,26 @@ test('B1502: a revalidate while a normal read of the same round runs starts no s
   assert.equal(read.last(), 1)
   assert.equal(count, 1)
 })
+
+test('B1535 (chat 1\'s core review): a revalidate asked while an older read runs starts its read once that one lands, once', async () => {
+  let now = 1000
+  let count = 0
+  const gates = []
+  const read = cached(() => new Promise(resolve => { count += 1; const mine = count; gates.push(() => resolve(mine)) }), 60_000, () => now)
+  const first = read()
+  // Asked twice while that read (begun at 1000) runs, at 1200: it may have missed what was asked for.
+  now = 1200
+  assert.equal(read.revalidate(), null)
+  assert.equal(read.revalidate(), null)
+  assert.equal(count, 1)
+  gates.shift()()
+  assert.equal(await first, 1)
+  await new Promise(done => setImmediate(done))
+  // Landed: one read in the background started, and the kept answer serves meanwhile.
+  assert.equal(count, 2)
+  assert.equal(await read(), 1)
+  gates.shift()()
+  await new Promise(done => setImmediate(done))
+  assert.equal(await read(), 2)
+  assert.equal(count, 2)
+})
