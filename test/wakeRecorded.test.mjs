@@ -8,9 +8,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  SLOW_START_WHY, VERDICTS, WAKE_VERDICT_MS, claim, emptyWakes, failedToSend, heard, isHandSend, isSlowStart, nextPath, outcomeOf, pass, sent, statusOf, textOfWakes,
+  SLOW_START_WHY, VERDICTS, WAKE_VERDICT_MS, claim, emptyWakes, failedToSend, heard, isSlowStart, nextPath, outcomeOf, pass, sent, statusOf, textOfWakes,
   triedWords, wakeJobId, wakeOf, wakesOfFile, wakeWords,
 } from '../src/wake.mjs'
+import { handWentAt, isHandSend, isSendThatWent, isSilentSend } from '../src/wakeCarry.mjs'
 
 const at = (day, h, m, s = 0) => new Date(2026, 10, day, h, m, s).getTime()
 const time = ms => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
@@ -39,6 +40,7 @@ test('the Advisor, 2026-11-27 09:49: the slow answer is a sent message (pending,
   assert.equal(answered.sentAt, at(27, 9, 49, 21))
   assert.equal(answered.slow, true)
   assert.equal(answered.why, null)
+  assert.equal(handWentAt(record), at(27, 9, 49, 21), 'the record reads it as a send that went (the lift of the refusal)')
   const status = statusOf(record, 'Advisor', spell)
   assert.equal(status.state, 'sent')
   assert.equal(status.slow, true)
@@ -88,7 +90,8 @@ test('Worker 4, 2026-11-26 14:03, altered to never report (chat 1\'s addition 1,
   })
   // Chat 1's decision 1: no B1279 carry word after a slow silence (the app itself said the session did not start): the launch, at once.
   assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: true, paths: PATHS, carry: true }), 'launch')
-  assert.equal(isHandSend(record.wakes.get('Worker 4').at(-1).attempts[0]), false, 'a slow send is no hand\'s send for the silent-send rule')
+  assert.equal(isSilentSend(record.wakes.get('Worker 4').at(-1).attempts[0]), false, 'a slow send earns no carry word')
+  assert.equal(isSendThatWent(record.wakes.get('Worker 4').at(-1).attempts[0]), true, 'but it went: it lifts the hand\'s refusal mark')
   assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: true, paths: PATHS }), 'launch')
   assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: false, paths: PATHS }), 'launch')
   const launch = claim(record, { chat: 'Worker 4', spell, path: 'launch', by: 'board', jobId: 'launch-w4', now: at(26, 14, 5, 30), runBefore: RUN_OLD, paths: ['launch'] })
@@ -139,25 +142,25 @@ test('the other recorded shapes keep their verdicts: a refusal (X191) and "not f
   assert.equal(late.slow, undefined)
 })
 
-test('a plain hand\'s send that went silent still gets its one carry word (B1279 stands for the sends the app did not judge); isHandSend is the one rule', () => {
+test('a plain hand\'s send that went silent still gets its one carry word (B1279 stands for the sends the app did not judge); the two concepts live in wakeCarry.mjs', () => {
   const record = emptyWakes()
   const spell = at(26, 14, 2, 51)
   claim(record, { chat: 'Worker 4', spell, path: 'message', by: 'Worker 1', jobId: 'p', now: at(26, 14, 3, 2), runBefore: RUN_OLD })
-  sent(record, 'Worker 4', 'p', at(26, 14, 3, 5))
   const [attempt] = record.wakes.get('Worker 4').at(-1).attempts
-  assert.equal(isHandSend(attempt), true)
+  assert.deepEqual([isHandSend(attempt), isSendThatWent(attempt), isSilentSend(attempt)], [true, false, false], 'claimed, not sent')
+  sent(record, 'Worker 4', 'p', at(26, 14, 3, 5))
+  assert.deepEqual([isSendThatWent(attempt), isSilentSend(attempt)], [true, false], 'went, no verdict yet')
   pass(record, at(26, 14, 3, 5) + WAKE_VERDICT_MS)
+  assert.equal(isSilentSend(attempt), true, 'went silent: it earns the carry word')
   assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: true, paths: PATHS, carry: true }), 'message')
   assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: true, paths: PATHS }), 'launch')
-  // Not a hand's send: a carried word, a refused send, one not sent, a launch.
-  assert.equal(isHandSend({ ...attempt, carry: 'courier' }), false)
-  assert.equal(isHandSend({ ...attempt, refused: true }), false)
-  assert.equal(isHandSend({ ...attempt, sentAt: null }), false)
-  assert.equal(isHandSend({ ...attempt, path: 'launch' }), false)
+  // Not a hand's send: a carried word, a refused send, a launch. A slow answer went, but is no silent send.
+  for (const other of [{ ...attempt, carry: 'courier' }, { ...attempt, refused: true }, { ...attempt, path: 'launch' }]) assert.deepEqual([isHandSend(other), isSendThatWent(other), isSilentSend(other)], [false, false, false])
+  assert.deepEqual([isSendThatWent({ ...attempt, slow: true }), isSilentSend({ ...attempt, slow: true })], [true, false])
   assert.deepEqual(VERDICTS, ['woke', 'failed'])
 })
 
-test('chat 1\'s review 4: a chat that woke by itself is its own outcome, never a message that arrived', () => {
+test('chat 1\'s review 4 and a: a chat that woke by itself (a carried word nobody held yet) is its own outcome; a hand\'s message whose ok is still on the way, or a word a carrier holds, is an arrival', () => {
   const record = emptyWakes()
   const spell = at(25, 20, 22, 42)
   // A courier word not taken yet when the chat's own report comes (`heard` marks it `self`).
@@ -165,11 +168,16 @@ test('chat 1\'s review 4: a chat that woke by itself is its own outcome, never a
   const selfWoke = heard(record, 'Worker 2', { state: 'busy', run: RUN_NEW, at: at(25, 21, 1) }, at(25, 21, 1))
   assert.equal(selfWoke.self, true)
   assert.equal(outcomeOf(record, 'Worker 2', selfWoke).outcome, 'self')
-  // A hand's message claimed and not sent yet when the report comes: the same.
+  // A courier word the courier already holds (`heldAt`): on its way, an arrival.
+  const held = claim(record, { chat: 'Worker 4', spell, path: 'message', by: 'the courier', jobId: 'k', now: at(25, 21, 0), runBefore: RUN_OLD, carry: 'courier' })
+  held.heldAt = at(25, 21, 0, 20)
+  const heldWoke = heard(record, 'Worker 4', { state: 'busy', run: RUN_NEW, at: at(25, 21, 0, 50) }, at(25, 21, 0, 50))
+  assert.deepEqual([heldWoke.self, heldWoke.carry, outcomeOf(record, 'Worker 4', heldWoke).outcome], [undefined, 'courier', 'arrived'])
+  // A hand's message claimed, its ok still on the way when the report comes (the mod posts its results after its round): an arrival.
   claim(record, { chat: 'Worker 3', spell, path: 'message', by: 'Worker 1', jobId: 'h', now: at(25, 21, 0), runBefore: RUN_OLD })
   const early = heard(record, 'Worker 3', { state: 'busy', run: RUN_NEW, at: at(25, 21, 0, 30) }, at(25, 21, 0, 30))
   assert.equal(early.verdict, 'woke')
-  assert.equal(outcomeOf(record, 'Worker 3', early).outcome, 'self')
+  assert.equal(outcomeOf(record, 'Worker 3', early).outcome, 'arrived')
   // A sent message's report: arrived.
   claim(record, { chat: 'Worker 5', spell, path: 'message', by: 'Worker 1', jobId: 's', now: at(25, 21, 0), runBefore: RUN_OLD })
   sent(record, 'Worker 5', 's', at(25, 21, 0, 5))

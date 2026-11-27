@@ -26,7 +26,7 @@ import { NOT_LISTED_WHY, NOT_SHOWN_WHY, OTHER_ACCOUNT_WHY, RESTART_WHY, cannotWa
 import { boardLanes, isWakeWord, wakeWordOf, wakerOrder } from './say.mjs'
 import { envelopesOf } from './work/handover.mjs'
 import { isHolding } from './work/pause.mjs'
-import { CARRY_SEND_MS, CARRY_VERDICT_MS, COURIER, COURIER_WAIT_MS, carriedChats, carrierOf, carryWord, isSendRefusal, noteHandRefused, plainWhy } from './wakeCarry.mjs'
+import { CARRY_SEND_MS, CARRY_VERDICT_MS, COURIER, COURIER_WAIT_MS, carriedChats, carrierOf, carryWord, isSendRefusal, isSilentSend, noteHandRefused, plainWhy } from './wakeCarry.mjs'
 import { moveInPlace, readKept, stampOf, writeUnflushed } from './write.mjs'
 
 /** A wake attempt sent this long ago without the woken chat's report is failed. */
@@ -66,12 +66,6 @@ export const SLOW_START = /gave no sign of starting[\s\S]{0,80}within \d{1,4}\s*
 export const isSlowStart = why => SLOW_START.test(String(why ?? ''))
 /** The words of such a send on the page and in the board.log. */
 export const SLOW_START_WHY = 'the app took longer than 20 s to start it'
-/**
- * A hand's own send that went (its mod's code call, not a carried word): the one rule for B1279's silent send and the record's send facts.
- * P2.1 (chat 1's review, decision 1): a slow-answered send is none here: the app itself said the chat did not start on it, so a second message
- * (the carry word) is pointless; after its two minutes the launch goes at once.
- */
-export const isHandSend = attempt => attempt.path === 'message' && attempt.carry == null && attempt.refused !== true && attempt.slow !== true && isTime(attempt.sentAt)
 
 /** A chat's CLI session id as the app's list holds it: a UUID, and nothing else ever reaches the launch (opener.mjs re-exports it). */
 export const isSessionId = session => typeof session === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session)
@@ -245,7 +239,8 @@ export function nextPath(record, { chat, spell, senderClaims, senderSince = -Inf
 }
 
 /** B1279: the spell's message tries are a hand's code sends only, each went (`sentAt`) and failed for want of a report. */
-const isSilentHandSend = messages => messages.length > 0 && messages.every(one => isHandSend(one) && one.verdict === 'failed')
+/** B1279: the spell's message tries are a hand's sends that went silent (wakeCarry.mjs `isSilentSend`: never the slow answer, decision 1 of 2026-11-27). */
+const isSilentHandSend = messages => messages.length > 0 && messages.every(isSilentSend)
 
 /**
  * B1279 (X205): whether this chat's spell waits for a carry word after a silent hand send (`nextPath` with `carry`), for the carry pass
@@ -397,7 +392,8 @@ export function heard(record, chat, report, now) {
   attempt.verdictAt = now
   // F17 review 5: a carried attempt not sent yet (its word waits for its carrier or the courier) did not wake it: the chat woke by itself,
   // with no carrier's credit and no carried take line (its envelope's own line is typed as usual).
-  if (attempt.carry != null && !isTime(attempt.sentAt)) {
+  // P2.1 (chat 1's review, a): a word a carrier already holds (`heldAt`) is on its way: not a wake by itself.
+  if (attempt.carry != null && !isTime(attempt.sentAt) && !isTime(attempt.heldAt)) {
     delete attempt.carry
     attempt.step = null
     attempt.self = true
@@ -564,9 +560,9 @@ export function outcomeOf(record, chat, attempt) {
   const from = isTime(attempt.sentAt) ? attempt.sentAt : attempt.at
   return {
     at: attempt.verdictAt, chat, spell: entry?.spell ?? null, path: attempt.path, by: attempt.by, carry: attempt.carry ?? null,
-    // P2.1 (chat 1's review, 4): a chat that woke by itself (`heard` marks a carried word not sent yet; a hand's message not sent yet is the same)
-    // is its own outcome, never a message that arrived: the retrospective counts arrivals by what the board did.
-    outcome: attempt.verdict !== 'woke' ? 'failed' : attempt.self === true || !isTime(attempt.sentAt) ? 'self' : 'arrived', slow: attempt.slow === true, afterMs: Math.max(0, attempt.verdictAt - from),
+    // P2.1 (chat 1's review, 4 and a): a chat that woke by itself (`heard`'s `self`: a carried word nobody held yet) is its own outcome, never a
+    // message that arrived. A hand's message whose ok is still on the way (the mod posts its results after its round) is an arrival.
+    outcome: attempt.verdict !== 'woke' ? 'failed' : attempt.self === true ? 'self' : 'arrived', slow: attempt.slow === true, afterMs: Math.max(0, attempt.verdictAt - from),
     why: attempt.verdict === 'failed' ? plainWhy(attempt.why) ?? null : null,
   }
 }

@@ -9490,12 +9490,15 @@ The hands route (server.mjs `handsDone`) settles a wake word whose failed result
 it is that hand's send that went (B1271's lift), as the hand's ok is.
 
 Chat 1's core review (2026-11-27): (1) after a slow answer with no report in the two minutes the launch goes at once: no B1279 carry word, since
-the app itself said the chat did not start on the message (`isHandSend`, the one rule for what counts as a hand's send: not carried, not refused,
-not slow, and sent). (2) `wake-nothing-runs` fires on no single snapshot: the courier must be silent for its window and ten minutes more by its
+the app itself said the chat did not start on the message. The two concepts live once, in wakeCarry.mjs: a hand's send that WENT
+(`isSendThatWent`: the hand's ok or the slow answer; it lifts the refusal mark and settles the word as typed, also when the answer comes after
+the chat already reported) and a send that went SILENT (`isSilentSend`: went, no report, never the slow answer; it earns B1279's carry word). (2) `wake-nothing-runs` fires on no single snapshot: the courier must be silent for its window and ten minutes more by its
 own call time, or, when it never called this board, the board must have run that long (NOTHING_RUNS_GRACE_MS); the Do stands first in the
 title and names both causes (open the app; if it is open, turn on the courier task of the signed-in account); a chat with no attempt at all is
-no launch-only failure (its own finding stands). (3) The finding's evidence is one line. (4) A chat that woke by itself before the board's
-message went (`heard`'s `self`, or a message never sent) is the outcome `self`, never an arrival; the retrospective's script counts it apart.
+no launch-only failure (its own finding stands). (3) The finding's evidence is one line. (4) A chat that woke by itself (`heard`'s `self`: a carried word
+nobody held yet) is the outcome `self`, never an arrival; a hand's message whose ok is still on the way, or a word a carrier holds, is an
+arrival; the retrospective's script counts `self` apart. (b) The one incident counts its quiet from the later of the courier's last call and
+the board's start, and names the day of a call that is not today's.
 (6) VERDICTS is the one list of an attempt's verdicts. Tests: test/wakeRecorded.test.mjs (the launch after a slow silence, a plain silent send
 still carried, self wakes), test/supervisor/wakeNothingRuns.test.mjs (the grace by the courier's time and the board's start, the Do, the
 evidence, the unreachable chat; the wiring from the record's courierAt through the state to the view and the rule), test/wakeOutcomesBoard.test.mjs

@@ -13,7 +13,7 @@
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
 import { linkGoneNames, wordLanesOf } from '../../modGone.mjs'
-import { COURIER_ALIVE_MS, courierAlive, isCarryWord, plainWhy } from '../../wakeCarry.mjs'
+import { COURIER_ALIVE_MS, courierAlive, isCarryWord, isHandSend, plainWhy } from '../../wakeCarry.mjs'
 import { SIDE_WORD } from '../../work/sideWord.mjs'
 import { RETIRED_WATCH_RULES, givenBackFrom, goOnWaitMs, isGoOnWord } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
@@ -1646,11 +1646,14 @@ export const NOTHING_RUNS_DO = 'open the Claude app; if it is open, turn on the 
 export const NOTHING_RUNS_GRACE_MS = COURIER_ALIVE_MS + 10 * MIN
 function wakeNothingRuns(view) {
   if (view.wakeNoHands !== true || courierAlive(view.wakeCourierAt, view.now)) return []
-  const quietSince = Number.isFinite(view.wakeCourierAt) ? view.wakeCourierAt : Number.isFinite(view.live?.startedAt) ? view.live.startedAt : null
+  // Review b: a courier call from before the board went down says nothing about now: the quiet counts from the later of its call and the board's start.
+  const marks = [view.wakeCourierAt, view.live?.startedAt].filter(Number.isFinite)
+  const quietSince = marks.length === 0 ? null : Math.max(...marks)
   if (quietSince === null || view.now - quietSince < NOTHING_RUNS_GRACE_MS) return []
   const needs = wakeLanesOf(view).filter(lane => lane.wake?.need === true && !listedByCheck(view, lane.name))
   if (needs.length === 0) return []
-  const courier = Number.isFinite(view.wakeCourierAt) ? `the courier last called ${clockOf(view.wakeCourierAt)}` : 'the courier has not called on this account'
+  const callWords = at => `the courier last called ${dayOfMs(at) === dayOfMs(view.now) ? clockOf(at) : `${dayOfMs(at)} ${clockOf(at)}`}`
+  const courier = Number.isFinite(view.wakeCourierAt) ? callWords(view.wakeCourierAt) : 'the courier has not called on this account'
   return [{
     rule: 'wake-nothing-runs', key: `wake-nothing-runs ${dayOfMs(view.now)}`, subject: 'board',
     // 2d: the Do first (a title is cut at 300 characters); 3: the evidence one line (the incident keeps one).
@@ -1659,8 +1662,8 @@ function wakeNothingRuns(view) {
   }]
 }
 const nothingRuns = view => wakeNothingRuns(view).length > 0
-/** P2.1: a wake whose tries are launches, or carried words (no hand's send went): the launch failing is the one fact, not the chat's. */
-const launchOnly = lane => Array.isArray(lane.wake?.attempts) && lane.wake.attempts.length > 0 && lane.wake.attempts.every(one => one.path === 'launch' || one.carry != null)
+/** P2.1: a wake tried without any hand's own send (wakeCarry.mjs `isHandSend`: launches, carried words): the launch failing is the one fact, not the chat's. */
+const launchOnly = lane => Array.isArray(lane.wake?.attempts) && lane.wake.attempts.length > 0 && !lane.wake.attempts.some(isHandSend)
 
 /** B763: the Workers mod's words for a clear it skipped because the person pauses (its chats.ts `clearWhy`). */
 const PAUSE_WHY = 'the person pauses the chats'

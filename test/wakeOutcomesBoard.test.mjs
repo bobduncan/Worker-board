@@ -184,6 +184,8 @@ test('a dead chat (chat 1\'s decision 1, wired): the slow answer is judged by th
   assert.match(jobs[0].id, /^wake:\d+:Worker 2$/)
   const answered = Date.now()
   await json('/api/bridge/hands-done', { chat: 'Worker 1', session: 'w1-id', results: [{ id: jobs[0].id, ok: false, why: SLOW_ANSWER }] })
+  // The courier calls before the verdict: a silent send would now earn its carry word (B1279); the slow one must not.
+  await json('/api/bridge/wakes-due', {})
   // Worker 2 never reports. The pass runs once a minute: the verdict comes within about three minutes of the answer.
   await until(async () => (await outcomes()).some(one => one.outcome === 'failed'), 'the failed outcome line', 200_000)
   const [line] = (await outcomes()).filter(one => one.outcome === 'failed')

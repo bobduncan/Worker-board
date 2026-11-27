@@ -76,6 +76,16 @@ const isTime = value => Number.isFinite(value)
 export const isSendRefusal = why => SEND_REFUSED.test(String(why ?? ''))
 /** The why as the record keeps it: the refusal in plain words, anything else as it came. */
 export const plainWhy = why => (isSendRefusal(why) ? SEND_REFUSED_WHY : why)
+/**
+ * P2.1 (chat 1's review, c: the two concepts in ONE place). A hand's own send (`isHandSend`): a message attempt a hand's code made (no carried
+ * word) that the app did not refuse. One that WENT (`isSendThatWent`): the app took it, by the hand's ok or by its slow 20-second answer
+ * (wake.mjs `isSlowStart`): it lifts the hand's refusal mark (B1271: `noteHandSent`, `handWentAt`) and its word settles as typed. One that went
+ * SILENT (`isSilentSend`): went and brought no report in the minutes: it earns B1279's one carry word, unless it was the slow answer (the app
+ * itself said the chat did not start on it: a second message is pointless, the launch goes at once).
+ */
+export const isHandSend = attempt => attempt?.path === 'message' && attempt.carry == null && attempt.refused !== true
+export const isSendThatWent = attempt => isHandSend(attempt) && isTime(attempt.sentAt)
+export const isSilentSend = attempt => isSendThatWent(attempt) && attempt.verdict === 'failed' && attempt.slow !== true
 
 /**
  * Whether the app refuses the hands' sends now, and since when: `{ since }` or null. The record's own fact (`sendsRefusedSince`, set by
@@ -159,7 +169,7 @@ export function handWentAt(record) {
   for (const entries of record?.wakes?.values?.() ?? []) {
     for (const entry of entries ?? []) {
       for (const one of entry.attempts ?? []) {
-        if (one.path !== 'message' || one.carry != null || one.refused === true || !isTime(one.sentAt)) continue
+        if (!isSendThatWent(one)) continue
         if (newest === null || one.sentAt > newest) newest = one.sentAt
       }
     }

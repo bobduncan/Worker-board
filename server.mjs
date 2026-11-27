@@ -122,10 +122,10 @@ import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/code
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, SLOW_START_WHY, WAKE_JOB, WORDS_LINE, claim as claimWake, outcomeOf as wakeOutcomeOf, emptyWakes, handMayTakeOver, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, SLOW_START_WHY, WAKE_JOB, WORDS_LINE, claim as claimWake, isSlowStart, outcomeOf as wakeOutcomeOf, emptyWakes, handMayTakeOver, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
-import { CARRY_BY_MODEL, COURIER, NO_HANDS_MS, isCarriedWord, noHandsOf, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, carryingOf, courierAlive, courierSends, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandRefusedAlone, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
+import { CARRY_BY_MODEL, COURIER, NO_HANDS_MS, isCarriedWord, isSendThatWent, noHandsOf, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, carryingOf, courierAlive, courierSends, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandRefusedAlone, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
 import { AGAIN_BY, FREE_KINDS, WAITS_KEEP_MS, lastGoodWaits, splitSeen, stuckTalksOf, waitsOf } from './src/waitLine.mjs'
 import { landingRestarts, lockHolder, STALE_LOCK_MS } from './src/landing.mjs'
 import { basesNow, faultsNow, patientReportCheck } from './src/work/check.mjs'
@@ -4411,15 +4411,15 @@ async function main(args) {
         if (failed.includes(id) && isSendRefusal(why[id]) && noteHandRefused(wakes, checked.chat, clock())) woke = true
         const done = sent.includes(id) || doubt.includes(id) ? wakeSent(wakes, chat, id, clock())
           : failed.includes(id) ? wakeFailedToSend(wakes, chat, id, why[id], clock()) : (wakeGivenBack(wakes, chat, id) ? true : null)
+        // P2.1 (chat 1's review, c): the app's 20-second answer is a send that went (wakeCarry.mjs `isSendThatWent`, wake.mjs `isSlowStart`): its
+        // verdict waits for the chat's report, it lifts this hand's refusal mark as the hand's ok does above, and its word settles as typed,
+        // also when the answer comes after the chat already reported (no pending attempt then: nothing else to do for it).
+        const slowAnswer = failed.includes(id) && isSlowStart(why[id])
+        if (slowAnswer) slow.add(id)
         if (done === null) continue
         woke = true
-        // P2.1: the app's 20-second answer is a sent message (wake.mjs `isSlowStart`): its verdict waits for the chat's report, and it is this
-        // hand's send that went (B1271: it lifts the hand's refusal mark, as the hand's ok does above).
-        if (done?.slow === true && noteHandSent(wakes, checked.chat, clock())) woke = true
-        if (failed.includes(id) && done?.slow === true) {
-          slow.add(id)
-          console.log(`Wake: the message to ${chat} went at ${timeOf(clock())} (${checked.chat}'s hands): ${SLOW_START_WHY}; the verdict waits for its own report.`)
-        }
+        if (failed.includes(id) && isSendThatWent(done) && noteHandSent(wakes, checked.chat, clock())) woke = true
+        if (slowAnswer) console.log(`Wake: the message to ${chat} went at ${timeOf(clock())} (${checked.chat}'s hands): ${SLOW_START_WHY}; the verdict waits for its own report.`)
         else if (failed.includes(id)) {
           noteOutcome(chat, done)
           console.log(`Wake: the message to ${chat} could not go at ${timeOf(clock())} (${checked.chat}'s hands): ${why[id] ?? 'not sent'}.`)

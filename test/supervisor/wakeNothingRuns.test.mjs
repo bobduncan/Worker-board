@@ -66,6 +66,12 @@ test('the courier called lately: nothing of this; the per-chat rule files as bef
   assert.deepEqual(rule('wake-nothing-runs').check(viewOf({ startedAt: NOW - 10 * MIN }), ctx), [])
   assert.deepEqual(rule('wake-nothing-runs').check(viewOf({ startedAt: null }), ctx), [], 'no start known: nothing')
   assert.equal(rule('wake-nothing-runs').check(viewOf({ startedAt: NOW - NOTHING_RUNS_GRACE_MS }), ctx).length, 1)
+  // Review b: the courier's last call was before the board went down: the quiet counts from the board's start, and the words give the day.
+  const DAY = 24 * 60 * MIN
+  assert.deepEqual(rule('wake-nothing-runs').check(viewOf({ courierAt: NOW - 2 * DAY, startedAt: NOW - 10 * MIN }), ctx), [], 'a young board files nothing on an old call')
+  const old = rule('wake-nothing-runs').check(viewOf({ courierAt: NOW - 2 * DAY, startedAt: NOW - NOTHING_RUNS_GRACE_MS }), ctx)
+  assert.equal(old.length, 1)
+  assert.match(old[0].text, /the courier last called 2026-11-23 14:00; /)
 })
 
 test('a hand runs (no "no hands"), or no chat needs a wake: nothing of this', () => {
