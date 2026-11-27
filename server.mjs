@@ -4387,6 +4387,8 @@ async function main(args) {
       // holds): sent, failed with why, or given back (B880: no try spent; B891: one in doubt may have gone, so it counts as sent).
       const wakeChatOf = id => WAKE_JOB.exec(id)?.[2] ?? store.outbox().find(one => one.id === id && ['start', 'wake'].includes(one.command))?.about ?? null
       let woke = false
+      // P2.1: the wake words whose failed result was the app's slow answer: they went (the record says sent), so the word settles as typed.
+      const slow = new Set()
       for (const id of [...sent, ...failed, ...back]) {
         // F17 review 16: the probe's answer: sent lifts the refusal, refused renews it; given back changes nothing.
         if (PROBE_JOB.test(id)) {
@@ -4412,7 +4414,10 @@ async function main(args) {
         if (done === null) continue
         woke = true
         // P2.1: the app's 20-second answer is a sent message (wake.mjs `isSlowStart`): its verdict waits for the chat's report.
-        if (failed.includes(id) && done?.slow === true) console.log(`Wake: the message to ${chat} went at ${timeOf(clock())} (${checked.chat}'s hands): ${SLOW_START_WHY}; the verdict waits for its own report.`)
+        if (failed.includes(id) && done?.slow === true) {
+          slow.add(id)
+          console.log(`Wake: the message to ${chat} went at ${timeOf(clock())} (${checked.chat}'s hands): ${SLOW_START_WHY}; the verdict waits for its own report.`)
+        }
         else if (failed.includes(id)) {
           noteOutcome(chat, done)
           console.log(`Wake: the message to ${chat} could not go at ${timeOf(clock())} (${checked.chat}'s hands): ${why[id] ?? 'not sent'}.`)
@@ -4454,7 +4459,7 @@ async function main(args) {
         byTo.get(message.to).push(message.id)
       }
       let changed = 0
-      for (const [to, ids] of byTo) changed += await store.settle(to, { typed: sent.filter(id => ids.includes(id)), failed: failed.filter(id => ids.includes(id)), why }, clock())
+      for (const [to, ids] of byTo) changed += await store.settle(to, { typed: [...sent, ...slow].filter(id => ids.includes(id)), failed: failed.filter(id => ids.includes(id) && !slow.has(id)), why }, clock())
       if (changed > 0) readState.reset()
       return { ok: true, result: { settled: changed } }
     }),

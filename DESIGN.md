@@ -9486,6 +9486,10 @@ Design note: `.claude/plans/2026-11-27-p2-failed-wakes-design.md`.
   path, by, carry, outcome arrived/failed, slow, afterMs, why), on the board that delivers only; the retrospective's script
   `.claude/overview/delivery-review/scripts/wakes/a.mjs` counts the wakes that arrived or failed and the launches that worked.
 
+The hands route (server.mjs `handsDone`) settles a wake word whose failed result was the slow answer as typed, not failed: the word went.
+
 Tests: test/wakeRecorded.test.mjs (the recorded Advisor, Main and Worker 4 cases, Worker 4 altered to never report, a launch that works,
 the refusal and "not found" shapes, the file), test/supervisor/wakeNothingRuns.test.mjs (the 11-25 case, the courier alive or stale, a
-hand's own failure beside it, the start-up check's chats); 16 mutants red.
+hand's own failure beside it, the start-up check's chats), test/wakeOutcomesBoard.test.mjs (chat 1's review: the wiring on a running board,
+a hand's slow answer through the hands route to the outcome line, the page's words, the word settled as delivered, the courier's call in
+the state and the file); 16 + 5 mutants red.
