@@ -136,7 +136,13 @@ test('a restart of the board keeps each chat\'s last state: free stays free, wor
 
   // The board stops and starts again after its reports went stale (longer than UNKNOWN_S).
   await stop(first.child)
-  await pause((UNKNOWN_S + 3) * 1000)
+  // B1554 (gate diet): the saved reports are aged by the file instead of waiting the time out: each `at` (when the board heard the report)
+  // is set back past UNKNOWN_S, so at the restart they are as stale as after a real pause (the board, the file and the two starts stay real).
+  const aged = JSON.parse(await readFile(join(board, 'data', 'reports.json'), 'utf8'))
+  for (const entry of Object.values(aged.reports)) {
+    for (const field of ['at', 'since', 'busyAt', 'restAt', 'workFrom']) if (Number.isFinite(entry[field])) entry[field] -= (UNKNOWN_S + 3) * 1000
+  }
+  await writeFile(join(board, 'data', 'reports.json'), `${JSON.stringify(aged)}\n`)
   const second = await start()
   const atStart = lanesOf(await stateOf(second.token))
   assert.deepEqual(atStart, { Lead: 'free', Digger: 'working' }, 'each lane reads as its chat last said, not unknown')

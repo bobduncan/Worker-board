@@ -125,7 +125,9 @@ $remote = 'origin'
 $trialRemote = 'local'
 $mainDir = $null
 $boards = @()
-$gateBoardCommand = 'npm test'
+# S9 (the PC plan, 2026-11-25): the gate is the light check (tools/test.mjs --gate): every test file but the slowest ones, except a slow
+# file whose area the branch changed or that a red big run put on probation; the big suite (tools/big-suite.mjs) runs them all.
+$gateBoardCommand = 'npm test -- --gate'
 $gateModCommand = ''
 # F39, review 8: the rerun alone goes through tools/test.mjs too (its per-test timeout and stall watchdog).
 # F68 (chat 1, 2026-11-25): through the one-at-a-time queue, first-class as the gate (HEAVY_RUN_FIRST), so a rerun never runs beside
@@ -256,7 +258,7 @@ function Initialize-Settings {
   } else {
     $script:boards = @(Get-DefaultBoards $script:mainDir $script:trialRemote)
   }
-  $script:gateBoardCommand = [string](Get-Setting 'gateBoard' 'npm test')
+  $script:gateBoardCommand = [string](Get-Setting 'gateBoard' 'npm test -- --gate')
   $script:gateModCommand = [string](Get-Setting 'gateMod' '')
   $script:gateFileCommand = [string](Get-Setting 'gateFile' 'node tools/one-at-a-time.mjs rerun -- node tools/test.mjs --priority=below-normal {file}')
   $script:claudeExeSetting = [string](Get-Setting 'claudeExe' '')
@@ -881,6 +883,17 @@ function Invoke-Gate {
       Refuse "the gate cannot start: the node_modules junction failed: $(Git-Line $link) (see $($script:gateLog))"
     }
     $linked = $true
+    # S9: the big suite's word at the gate's start (a red run, the files on probation), from the main checkout's tools.
+    $bigTool = Join-Path $mainDir 'tools\big-suite.mjs'
+    if (Test-Path -LiteralPath $bigTool) {
+      $big = Invoke-Native $node @($bigTool, '--status', '--quiet') '' 60
+      foreach ($bigLine in ($big.out -split "`r?`n")) {
+        if ($bigLine.Trim() -ne '') {
+          Say $bigLine
+          [System.IO.File]::AppendAllText($script:gateLog, "$bigLine`r`n")
+        }
+      }
+    }
     # The board's own tests.
     [System.IO.File]::AppendAllText($script:gateLog, "gate: $gateBoardCommand`r`n")
     $code = Invoke-GateCommand $gateBoardCommand $temp $script:gateLog

@@ -25,7 +25,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
 import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
-import { constants as osConstants, cpus as osCpus, setPriority } from 'node:os'
+import { constants as osConstants, cpus as osCpus, setPriority, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -43,13 +43,16 @@ import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
-import { cpuLimiter, logicalCores, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
+import { cpuLimiter, levelWho, logicalCores, powershell, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
+import { masksOf, modeFileOf, modeWriter, TOPOLOGY_SCRIPT, topologyOf, writesModeOf } from './src/cpuTopology.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
 import { fixHomeFile, homeFilesNow } from './src/homeFiles.mjs'
 import { assetsOf, backlogViewOf, chatFile, chatHomeOf, storedOfChatPath, chatsFolderOf, dataOf, localFile, picturesOf, resolveStored, routineFolderOf, storedOfWholePath, wordsPath } from './src/projectPaths.mjs'
 import { REFERENCE_BYTES, ideasFolder, referencesFolder, checkDesign, designActivity, designState, picturesActivity, inTurn, parseDesignSettings, promptFor } from './src/design.mjs'
 import { bugsState, fileBug, waitingFolder } from './src/bugs.mjs'
+import { stateFiles as bigSuiteFiles } from './src/bigSuite.mjs'
+import { BIG_SUITE_LOOK_MS, BIG_SUITE_STALE_MS, bigSuitePass } from './src/bigSuitePass.mjs'
 import { ideasFile, ideasOver, placeReferences } from './src/ideas.mjs'
 import { boardView, exitAt, keptStart, lastStopOf, stopWhy, writeStop } from './src/boardSelf.mjs'
 import { START_ANEW, keep, startEnv } from './src/keeper.mjs'
@@ -547,7 +550,8 @@ export function createBoard({
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/cpu') {
-        const done = await cpu(parsed)
+        // S4: who switched the level (F69's open part), from the call itself; a body's own `who` is not taken.
+        const done = await cpu({ ...parsed, who: levelWho(req.headers, parsed) })
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
       if (pathname === '/api/home-file') {
@@ -2496,6 +2500,61 @@ async function main(args) {
     await assetsQueue.pass()
   })
   if (assetsQueue !== null) setInterval(lookAtAssets, ASSETS_MS)
+  // S9 (the PC plan, the person's choice of 2026-11-25): the big suite runs every test file of main when the PC is idle, at least every
+  // 4 hours and once each night (src/bigSuite.mjs, tools/big-suite.mjs), while each go-live's gate is the light check. Only the PC's
+  // first board starts it (config `bigSuite` says otherwise), where the loops run; it files the fix step of a red run once.
+  // Core review: never a board in the temporary folder (the tests' copied boards, which may be first in a list of their own).
+  const runsBigSuite = !isDemo && !isShowOnly && historyFrom === undefined
+    && !resolve(HERE).toLowerCase().startsWith(resolve(tmpdir()).toLowerCase())
+    && (config.bigSuite ?? (firstBoard !== null && resolve(firstBoard).toLowerCase() === resolve(HERE).toLowerCase()))
+  if (runsBigSuite) {
+    // Core review: git gets a minute at most, so a pass never hangs on it.
+    const gitOf = args => new Promise(done => {
+      const child = spawn('git', args, { cwd: HERE, windowsHide: true })
+      let out = ''
+      const timer = setTimeout(() => {
+        child.kill()
+        done({ code: 1, out })
+      }, 60_000)
+      timer.unref()
+      child.stdout.on('data', chunk => { out += chunk })
+      child.on('error', () => {
+        clearTimeout(timer)
+        done({ code: 1, out })
+      })
+      child.on('close', code => {
+        clearTimeout(timer)
+        done({ code, out })
+      })
+    })
+    // One pass at a time (core review: a slow store or git must never let two passes file the same step).
+    const lookAtBigSuite = () => loops.single('big-suite', async () => {
+      if (!(await ownsLoops())) return
+      const heavy = await import('./tools/one-at-a-time.mjs')
+      const lock = heavy.lockPath()
+      await bigSuitePass({
+        lock, tool: heavy, landings: join(HERE, 'data', 'landings.jsonl'), filed: join(HERE, 'data', 'big-suite-filed.json'),
+        say: line => console.error(line),
+        mainHead: async () => {
+          const head = await gitOf(['rev-parse', 'refs/heads/main'])
+          return head.code === 0 ? head.out.trim() : null
+        },
+        commitsBetween: async (from, to) => {
+          const list = await gitOf(from === null ? ['rev-list', '--max-count=500', to] : ['rev-list', `${from}..${to}`])
+          return new Set(list.code === 0 ? list.out.split('\n').map(one => one.trim()).filter(Boolean) : [])
+        },
+        start: () => {
+          const log = openSync(bigSuiteFiles(lock).log, 'a')
+          const child = spawn(process.execPath, [join(HERE, 'tools', 'big-suite.mjs'), '--run', HERE], { detached: true, stdio: ['ignore', log, log], windowsHide: true, cwd: HERE })
+          child.on('error', error => console.error(`big suite: the runner could not start: ${error.message}`))
+          child.unref()
+          closeSync(log)
+        },
+        make: call => workAction(call, 'person'), read: () => readStore(workDir),
+      })
+    }, { staleMs: BIG_SUITE_STALE_MS })
+    setInterval(lookAtBigSuite, BIG_SUITE_LOOK_MS)
+  }
   // T5.2 P2: a stored path's place, through the table (today: `join(project, path)`; P3 moves the pictures and the store with it).
   const inProject = (project, path) => resolveStored({ ...config, project }, path, { boardDir: HERE })
   /** The picture readers' and writers' home: `root` the boundary, `abs` the table's answer for a stored path (src/pictures.mjs). */
@@ -2750,6 +2809,21 @@ async function main(args) {
     const listed = (await loops.run('chat-list', () => readState()))?.chats ?? []
     return [...new Set([...sessionsOfCards(cards), ...listed.filter(chat => !chat.isLeftover && typeof chat.session === 'string').map(chat => chat.session)])]
   }
+  // S4 (PC plan): the heavy-run queue's mode file (level, masks, since, who, owner, beat), written by the person's board alone
+  // (`heavyModeWriter: true`, chat 1's review): at start, on every level change and as a beat on every CPU pass; removed on a
+  // clean stop. Only that board reads the core map (once per PC, cached also when there is none). No map: no file, and the
+  // queue keeps today's behaviour; the CPU line says so as information.
+  const heavyMode = writesModeOf({ config, isDemo, isShowOnly, historyFrom }) ? modeWriter({ file: modeFileOf(), owner: { pid: process.pid, port: config.port, project: config.project }, run: fn => loops.run('cpu-mode', fn) }) : null
+  let coreMapNote = null
+  if (heavyMode !== null) {
+    process.on('exit', () => heavyMode.stop())
+    loops.run('cpu-topology', async () => {
+      const found = await topologyOf({ file: join(HERE, 'data', 'cpu-topology.json'), logical: logicalCores(), read: () => powershell(TOPOLOGY_SCRIPT, '', 60_000) })
+      const masks = found.topology ? masksOf(found.topology) : null
+      if (masks === null) coreMapNote = `No core map (${found.none ?? 'no room beside your cores'}): heavy runs are not fenced.`
+      await heavyMode.masks(masks)
+    })
+  }
   const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
     file: join(HERE, 'data', 'cpu.json'),
     fallback: isShowOnly ? 'full' : config.cpuLimit,
@@ -2760,9 +2834,11 @@ async function main(args) {
     // B440: the parent is the keeper only when there is one (it talks to the board); otherwise it may be a chat.
     spare: typeof process.send === 'function' ? [process.pid, process.ppid] : [process.pid],
     log: line => console.log(line),
+    onLevel: state => heavyMode?.level(state),
+    note: () => coreMapNote,
   })
   if (cpu !== null && cpu.available) {
-    const applyCpu = () => loops.run('cpu', () => cpu.apply())
+    const applyCpu = () => loops.run('cpu', () => cpu.apply()).then(() => heavyMode?.beat())
     applyCpu()
     setInterval(applyCpu, Math.max(5, config.refreshSeconds) * 1000)
   }
@@ -3570,7 +3646,7 @@ async function main(args) {
       if (isDemo || isShowOnly) return { ok: false, status: 409, why: 'This board keeps no setup.' }
       return setupAction(setupFile, body, { config, checks: providerChecks, now: clock() })
     }),
-    cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level)),
+    cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level, body?.who ?? null)),
     // T5.2 A6b: the person's click on a home file's line; the board never writes these by itself.
     homeFile: async body => {
       if (isDemo || isShowOnly || dataOf(config) === null) return { ok: false, status: 409, why: 'This board keeps no home files: its data is in the project folder.' }
