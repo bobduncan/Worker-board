@@ -971,7 +971,7 @@ test('P4: a landing says the slow new or changed test files of its gate (a repor
   world.config({ gateBoard: world.gate('board-pass-slow-new') })
   const slow = await world.land('feat2')
   assert.equal(slow.status, 0, slow.out)
-  assert.ok(lines(slow.out).includes('note: slow new or changed test files (over 5 s): test/alpha.test.mjs (7.2 s); give one line of reason for each in the step\'s report'), slow.out)
+  assert.ok(lines(slow.out).includes('note: slow new or changed test files (over 6 s): test/alpha.test.mjs (7.2 s); give one line of reason for each in the step\'s report'), slow.out)
   assert.equal(world.landings().at(-1).result, 'landed')
 })
 

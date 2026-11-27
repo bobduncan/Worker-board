@@ -520,14 +520,15 @@ test('P4, core review 5: only this run\'s own lines count, by its mark: a failin
   assert.equal([...gave.replace(` [${mark}]`, '').matchAll(gaveWayOf(mark))].length, 0, 'the words alone are no give-way')
   assert.match(`one-at-a-time: yield:big-suite runs now (waited 3 s) [${mark}]\n`, runsNowOf(mark))
   assert.doesNotMatch('one-at-a-time: yield:big-suite runs now (waited 3 s)\n', runsNowOf(mark))
-  // The real case: a red run whose failure text quotes those words (as the P4 queue tests do when they fail).
+  // The real case: a red run whose failure text quotes those words (as the P4 queue tests do when they fail), after the summary, where
+  // node 24 prints its "failing tests" list.
   const { dir, folder, env } = bigWorld([
+    "console.log('ℹ tests 9')",
+    "console.log('ℹ fail 1')",
     "console.log('✖ failing tests:')",
     "console.log('test at test\\\\a.test.mjs:1:1')",
     "console.log('one-at-a-time: yield:x gives way to a gate (its command starts over at its next turn)')",
     "console.log('one-at-a-time: yield:x runs now (waited 1 s)')",
-    "console.log('ℹ tests 9')",
-    "console.log('ℹ fail 1')",
     'process.exitCode = 1',
   ])
   try {
