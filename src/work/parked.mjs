@@ -13,6 +13,7 @@
 import { sinceMs, valueOf } from './item.mjs'
 import { isHeld } from './askHold.mjs'
 import { isKeptLook } from './keptLook.mjs'
+import { waitsOnOf } from './waitsOn.mjs'
 
 const MIN = 60_000
 /** A worker resting this long on an open ask of the step it holds in progress: the step moves to waiting on you. */
@@ -65,6 +66,21 @@ export function parkedAfter(item, items = null) {
   if (at < 0 || history.findLastIndex(line => WAIT_LINE.test(line)) > at) return null
   if (items !== null && openAskIds(items, idOf(item)).length > 0) return null
   return history[at].match(PARK_LINE)[1]
+}
+
+/**
+ * F74 (2026-11-27, the simplified design): the RECORD a held step waits on, or null: `blocked` (its `Blocked by` names a step not done or dropped;
+ * a blocker the store lacks is gone: no wait) or `chat` (a `Waits on` record, whoever it names). A wait that stands only in a checkpoint's words
+ * is none; the landing of its own branch is none (the go-live keeps its worker). `{ kind, words, on | who, what, since }`.
+ */
+export function waitOf(item, items) {
+  if (item === null || item === undefined) return null
+  const blockers = (valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []
+  const open = blockers.filter(id => { const other = items?.get?.(id); return other !== undefined && !['done', 'dropped'].includes(stateOf(other)) })
+  if (open.length > 0) return { kind: 'blocked', on: open, words: `waits for ${open.join(', ')}` }
+  const wait = waitsOnOf(item)
+  if (wait !== null) return { kind: 'chat', who: wait.who, what: wait.what, since: wait.since, words: `waits on ${wait.who} (${wait.what})` }
+  return null
 }
 
 /** The History words of a park. */

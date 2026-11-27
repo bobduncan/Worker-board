@@ -9462,3 +9462,40 @@ lock's `branch` (its `cwd` becomes the branch, `gate` keeps the folder), so b144
 that is unknown, leaves the run as it was, and a branch without a step id stays unmatched. The memory of the last pass keys the branch as
 it keys a folder. Tests: test/supervisor/testQueueWait.test.mjs (the reading, the rule at 130 minutes of quiet, the memory, the server's
 wiring); 4 mutants red.
+
+## F74: a waiting step is put down, the worker takes new work (2026-11-27, chat 3; the person's wish of 2026-11-26 and "Yes, simplify" of 2026-11-27)
+
+The person (2026-11-26): "after it's finished it should give priority to work that's almost completed vs completely new items, so it
+doesn't stall"; the live case: three ready World 2-4 maps waited from 09:08 with no worker while Worker 1 held a step blocked by two others for
+14 hours. Two core reviews of a two-step design (a worker holding a waiting step beside an active one) kept finding a worker switched mid-step:
+about fifteen board parts assume one step per worker. The person chose the simpler way: a worker holds ONE step, and a step that only waits is
+PUT DOWN. Design note: `.claude/plans/2026-11-27-f74-simple-design.md`; brief `.claude/overview/briefs/f74-simple.md`.
+
+- The put-down is the give-back the board already has (api.mjs `giveBackHeld`: the flow's server move taken or in progress to refined, Owner
+  cleared), with three differences (`putDown`): the step keeps its wait record, it gets the head line `Put down: <builder> · <stamp>`
+  (holderTimers.mjs `putDownLine`, `putDownOf`), and its History line says `given back by the board: Worker 1 put it down (waits for B1440)`
+  (`putDownWords`; GIVEN_BACK reads it as a give-back, so the next worker gets the continuation line from the branch and the checkpoint).
+- When: api.mjs `putDownWaiting`, after the holder's own `work block` (a step into Blocked by, or a chat into Waits on: parked.mjs `waitOf`,
+  the one reading of "only waits": a blocker not done, a chat's answer; no landing kind) and after its `work step` (the checkpoint), only with
+  a checkpoint that has a commit and a branch that is not none. Not put down: a step without its checkpoint (the answer says what to write and
+  that the board then puts it down), a record the main chat or the person wrote, and the go-live itself (no record: the landing keeps its
+  worker; a refused go-live is review). The answer tells the worker to remove its task folder with the board's one command
+  (tools/remove-task-folder.mjs): the next worker makes its own from the branch.
+- Held: the ready list holds the put-down step by its record (guards.mjs `readyHold`: an open Blocked by as today; new: a Waits on on an
+  ownerless step, "waits on chat 1 (its go to land)"). The wait ends by the blocker's done (api.mjs `unblockDependants`) or by the main chat,
+  the person or the step's builder clearing the Waits on (`unblock` admits the builder of a put-down step).
+- Then: handOut.mjs ranks it NEARLY_RANK (-0.5: after the checks of finished work, before the board's repairs and the focus goal), preferring
+  its builder when that one is idle at the give, else the first idle worker; never kept (also not for the blocker's owner, a follow-up today):
+  nothing stalls while the builder is busy. Nearly finished covers the real fix rounds too (`isNearlyFinished`: Fix of a root in review or done
+  whose History names the failed check or the send-back; a next try of an unbuilt or dropped root ranks as its chain); the person's pick rule
+  stands as the comment above `readyList` says, judged before the band. `givenBackRefusal` is not raised for a put-down: the builder is the one we
+  want back on it. The take removes the Put down line.
+- Unchanged: everything that reads "the worker's step" (the hand-over, the holder timers, pickHeld, Resume all, the limit words, the wake's
+  resume line, work next, the row, the mod's card): one step per worker.
+
+Tests: test/work/putDown.test.mjs (the record then the checkpoint puts it down and the worker is given the next ready step at once; the wait
+ends: ready first at NEARLY_RANK, the builder preferred when idle, else the first idle worker, never kept, another worker takes it and goes on
+from the checkpoint; a wait on a chat: put down at once, held by the record, the builder may clear it; not put down without a checkpoint, on
+the main chat's record, with a branch of none, nor for the go-live; the fix rounds and the pick rule; the words and their reading); the existing
+hand-over, holder-timer, Resume all, row and status tests unchanged. 13 mutants red (a 14th, the owner check in `putDownWaiting`, is also made
+by the give-back itself).

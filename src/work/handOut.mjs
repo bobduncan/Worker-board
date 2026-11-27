@@ -8,6 +8,7 @@
 import { heardTimeOf } from '../chatReport.mjs'
 import { chatEffort, effortOf, familyOf, modelOf } from './effort.mjs'
 import { UNDER_WAY, overlapIn, readyHold } from './guards.mjs'
+import { putDownOf } from './holderTimers.mjs'
 import { isFix, sinceMs, valueOf } from './item.mjs'
 import { barredFrom, isQaTask, notDueWhy } from './qaTask.mjs'
 
@@ -162,7 +163,7 @@ export function readyList(items, { now, focus = null, focusGoals = [], backup = 
     const isQa = isQaTask(item)
     const follow = pinned === null && !isQa ? followUpOf(item, items, { now, followUpMs: isKept ? followUpMs : Infinity, prefix }) : null
     const chain = fixChain(item, items)
-    const rank = isQa ? -1 : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : chain.some(one => inBackup.has(valueOf(one, 'Goal'))) ? BACKUP_RANK : 2
+    const base = isQa ? -1 : isFix(item) ? 0 : chain.some(one => inFocus.has(valueOf(one, 'Goal'))) ? 1 : chain.some(one => inBackup.has(valueOf(one, 'Goal'))) ? BACKUP_RANK : 2
     const added = addedStamp(item)
     // B691: a fix goes out as its root does: the person's pick (added or pinned) of any step down its chain is its own.
     // A dropped root has nothing left to make pass: its pick does not carry the fix.
@@ -170,15 +171,37 @@ export function readyList(items, { now, focus = null, focusGoals = [], backup = 
     // 2026-10-25, the controller in the person's place (principle 8): a task that is no fix, not of the focus goal and
     // not pinned waits for the person's pick, unless the settings' `handOutBeyondFocus` is true. The whole backlog is
     // not the board's to start. The Backlog tab's blocks: the person picks it with "Add to queue" (`Queued by`).
-    if (rank === 2 && pinned === null && !picked && !beyondFocus) {
+    if (base === 2 && pinned === null && !picked && !beyondFocus) {
       held.push({ id, why: CHOICE_WHY, choice: true })
       continue
     }
-    ready.push({ id, rank, keptFor: pinned ?? (isKept ? follow?.worker ?? null : null), keptUntil: isKept ? follow?.until ?? null : null, pinned, prefers: isKept ? null : follow?.worker ?? null, ...(added === null ? {} : { added }), ...(isQa ? { notBy: barredFrom(item, items) } : {}) })
+    // F74 (the person, 2026-11-26: "give priority to work that's almost completed"; 2026-11-27: "Yes, simplify"): after the pick rule, nearly
+    // finished work goes before the board's repairs: a step put down while it waited (holderTimers.mjs `putDownOf`), or a fix round of a built
+    // step (`isNearlyFinished`). A put-down step prefers its builder when that one is idle at the give, else the first idle worker: never kept.
+    const putDown = putDownOf(item)
+    const rank = base >= 0 && (putDown !== null || isNearlyFinished(item, items)) ? NEARLY_RANK : base
+    const builder = putDown === null || putDown.builder === '' ? null : bare(putDown.builder, prefix)
+    ready.push({ id, rank, keptFor: pinned ?? (isKept && putDown === null ? follow?.worker ?? null : null), keptUntil: isKept && putDown === null ? follow?.until ?? null : null, pinned, prefers: builder ?? (isKept ? null : follow?.worker ?? null), ...(added === null ? {} : { added }), ...(isQa ? { notBy: barredFrom(item, items) } : {}) })
   }
   // Within rank 2 the person's additions come first, in the order they were added (one without a readable stamp last of them).
   const addedOrder = one => (one.rank !== 2 || one.added === undefined ? Infinity : Number.isFinite(addedAt(items.get(one.id))) ? addedAt(items.get(one.id)) : Number.MAX_SAFE_INTEGER)
   return { ready: ready.sort((a, b) => a.rank - b.rank || addedOrder(a) - addedOrder(b) || byId(a.id, b.id)), held }
+}
+
+/** F74: the band of nearly finished work: after the checks of finished work (-1), before the board's repairs (0). */
+export const NEARLY_RANK = -0.5
+/**
+ * F74: a fix ROUND of a built step is nearly finished work: `Fix of` a root in review or done whose History says the result check failed and made
+ * this fix (api.mjs `checked`), or that the person sent it back for this next try (`acceptAnswer`). A next try of a step never built, or of a
+ * dropped root, is new work and ranks as its chain does (chat 1's review of 2026-11-27).
+ */
+export const isNearlyFinished = (item, items) => {
+  const rootId = String(valueOf(item, 'Fix of') ?? '').match(/\bB\d+\b/)?.[0] ?? null
+  const root = rootId === null ? undefined : items.get(rootId)
+  if (root === undefined || !['review', 'done'].includes(stateOf(root))) return false
+  const id = idOf(item)
+  const made = new RegExp(`(?:result check failed:.*\\bfix ${id}\\b|\\b(?:sent back|send back|next try)\\b.*\\b${id}\\b)`, 'i')
+  return (root.sections?.get('History') ?? []).some(line => made.test(String(line)))
 }
 
 /** The History line of the board's give (api.mjs `give`). */

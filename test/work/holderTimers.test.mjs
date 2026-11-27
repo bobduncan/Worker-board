@@ -247,7 +247,7 @@ test('the live shape, end to end: the line at 5, at 20 the step goes back on the
   assert.match(lines.at(-2), /server: in progress → refined \(given back by the board: Worker 1 did not resume it \(asked 10:05\)\)$/)
   assert.match(lines.at(-1), /server: unpinned from Worker 1: given back by the board$/)
   assert.deepEqual([one.outbox.outbox()[0].state, one.logged], ['dropped', []])
-  assert.deepEqual(continuationOf(back), { at: at(20), chat: 'Worker 1' })
+  assert.deepEqual(continuationOf(back), { at: at(20), chat: 'Worker 1', putDown: false })
   const items = (await readStore(one.dir)).items
   assert.deepEqual(givenBackFrom(items, 'Worker 1'), [{ id: 'B12', at: at(20) }])
   // The dropped worker: its later step, report and take are refused with the board's words, and it owes a clear as of the give-back.
@@ -293,7 +293,7 @@ test('the give-back path: waiting on you only for a holder gone from the list; t
   const gone = await server({ action: 'advance', id: 'B12', to: 'refined', giveBack: { chat: 'Worker 1', why: goneWords('Worker 1'), gone: true } }, at(30))
   assert.equal(gone.ok, true, gone.why)
   assert.match((await one.read('B12')).sections.get('History').at(-1), /server: waiting on you → refined \(given back by the board: Worker 1 left the list of chats\)$/)
-  assert.deepEqual(continuationOf(await one.read('B12')), { at: at(30), chat: 'Worker 1' })
+  assert.deepEqual(continuationOf(await one.read('B12')), { at: at(30), chat: 'Worker 1', putDown: false })
   // Without the give-back's own context the guard never holds: no other path moves a held step to refined.
   assert.equal((await server({ action: 'advance', id: 'B20', to: 'refined' }, at(31))).ok, false)
   // A refresh: the reconciler applies the server's moves whose guard holds; never the give-back, for any step in progress.
@@ -371,7 +371,7 @@ const givenBack = (more = {}) => held({ State: 'refined', Owner: '-', Refined: '
 test('the give-back\'s words: the History line the move will write, read back by every reader', () => {
   assert.equal(giveBackWords('Worker 1', at(5)), 'given back by the board: Worker 1 did not resume it (asked 10:05)')
   assert.equal(GIVEN_BACK.exec(backLine)?.[2], 'Worker 1')
-  assert.deepEqual(continuationOf(givenBack()), { at: BACK_AT, chat: 'Worker 1' })
+  assert.deepEqual(continuationOf(givenBack()), { at: BACK_AT, chat: 'Worker 1', putDown: false })
   // Once a worker took it again, it is no continuation any more.
   const retaken = givenBack()
   retaken.sections.get('History').push(`- ${stamp(at(25))} Worker 2: queued → taken`)

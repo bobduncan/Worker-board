@@ -9,6 +9,7 @@ import { REST_GUARD, workingOnOther } from './parked.mjs'
 import { fixesThrough, gitCheckPassed, needsResultCheck, resultCheckOf } from './resultCheck.mjs'
 import { refineAsksOf } from './stepAsks.mjs'
 import { rethinkWords } from './rethink.mjs'
+import { waitsOnOf } from './waitsOn.mjs'
 
 const idsIn = value => (value ?? '').match(/\b[A-Z]\d+\b/g) ?? []
 const asksOf = (item, ctx) => [...(ctx.store?.items?.values() ?? [])]
@@ -46,6 +47,8 @@ export function readyHold(item, ctx) {
   const open = blockersOpen(item, ctx)
   if (open.length > 0) return `blocked by ${open.map(id => `${id} (${items.has(id) ? valueOf(items.get(id), 'State') : 'not in the store'})`).join(', ')}`
   if (waitWords(item) !== null) return `waits for: ${waitWords(item)}`
+  // F74: a step put down while it waited on a chat (api.mjs `putDownWaiting`) keeps its record: held until the main chat, the person or its builder clears it.
+  if (valueOf(item, 'Owner') === null && waitsOnOf(item) !== null) return `waits on ${waitsOnOf(item).who} (${waitsOnOf(item).what})`
   const blocking = asksOf(item, ctx).filter(ask => isOpen(ask) && valueOf(ask, 'Blocking') === 'yes').map(ask => valueOf(ask, 'Id'))
   if (blocking.length > 0) return `waits for the answer to ${blocking.join(', ')}`
   const asks = refineAsksOf(items, item)

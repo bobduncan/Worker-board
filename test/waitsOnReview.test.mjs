@@ -47,8 +47,8 @@ function text(head, sections = {}) {
   return `${lines.join('\n')}\n`
 }
 const GO_ONS = [`- ${stamp(at(11, 24))} server: the board asked Worker 4 to go on (stopped since 11:19)`, `- ${stamp(at(11, 30))} server: the board asked Worker 4 to go on (stopped since 11:25)`]
-const b1081 = ({ waits = null, history = [], owner = 'Worker 4', state = 'in progress', branch = BRANCH } = {}) => text(
-  { Id: 'B1081', Kind: 'step', Title: 'Fix: the board makes a check task for a step whose fix is still open', Priority: 'fix', State: state, Owner: owner, Activity: 'Garden', Goal: 'G15', ...(waits === null ? {} : { 'Waits on': waits }), Since: stamp(at(10, 58)), Branch: branch, Checkpoint: `8522bc6c · gate green, branch pushed; wait for its go · ${stamp(WAIT_AT)}`, 'Taken for': '30 min', Refined: 'ready' },
+const b1081 = ({ waits = null, history = [], owner = 'Worker 4', state = 'in progress', branch = BRANCH, commit = '8522bc6c' } = {}) => text(
+  { Id: 'B1081', Kind: 'step', Title: 'Fix: the board makes a check task for a step whose fix is still open', Priority: 'fix', State: state, Owner: owner, Activity: 'Garden', Goal: 'G15', ...(waits === null ? {} : { 'Waits on': waits }), Since: stamp(at(10, 58)), Branch: branch, Checkpoint: `${commit} · gate green, branch pushed; wait for its go · ${stamp(WAIT_AT)}`, 'Taken for': '30 min', Refined: 'ready' },
   { History: [`- ${stamp(at(10, 58))} Worker 4: queued → taken`, `- ${stamp(at(10, 58))} Worker 4: taken → in progress`, `- ${stamp(WAIT_AT)} Worker 4: checkpoint 8522bc6c · gate green, branch pushed; wait for its go`, ...history] })
 
 /** The app's id of a chat: `local_` and a uuid (the fourth one for Worker 4). */
@@ -236,7 +236,7 @@ test('should-fix 5: no Late while the person pauses; a pause\'s time is no waiti
   // The answer to the record names the board's setting.
   const dir = await mkdtemp(join(tmpdir(), 'waits-min-'))
   t.after(() => cleanUp(dir))
-  await writeFile(join(dir, 'B1081.md'), b1081())
+  await writeFile(join(dir, 'B1081.md'), b1081({ commit: 'none' })) // F74: held, not put down
   await writeFile(join(dir, 'activities.json'), `${JSON.stringify({ preamble: [], activities: [{ name: 'Garden', steps: ['B1081'] }] }, null, 1)}\n`)
   const made = await workApi({ action: 'block', chat: 'Worker 4', id: 'B1081', on: 'chat 1', why: 'its go to land' }, { dir, now: WAIT_AT, prefix: '', roleOf, chats: NAMES, waitOnMinutes: 45 })
   assert.match(made.result.text, /no give-back for 45 min of its running time/)
@@ -245,7 +245,7 @@ test('should-fix 5: no Late while the person pauses; a pause\'s time is no waiti
 test('minor 6 and 7: unblock on=<who> must name the standing who (any case, with or without the prefix), b1080 is a step id, and the same who with the prefix keeps the since', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'waits-on-'))
   t.after(() => cleanUp(dir))
-  await writeFile(join(dir, 'B1081.md'), b1081())
+  await writeFile(join(dir, 'B1081.md'), b1081({ commit: 'none' })) // F74: held, not put down
   await writeFile(join(dir, 'B1080.md'), text({ Id: 'B1080', Kind: 'step', Title: 'Drop me', State: 'refined', Activity: 'Garden', Since: stamp(at(10, 0)) }))
   await writeFile(join(dir, 'activities.json'), `${JSON.stringify({ preamble: [], activities: [{ name: 'Garden', steps: ['B1080', 'B1081'] }] }, null, 1)}\n`)
   const ctx = (now, as) => ({ dir, now, prefix: PREFIX, roleOf, chats: NAMES.map(name => `${PREFIX}${name}`), ...(as === undefined ? {} : { as }) })

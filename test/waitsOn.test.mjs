@@ -46,11 +46,12 @@ function text(head, sections = {}) {
   return `${lines.join('\n')}\n`
 }
 /** B1081 as Worker 4 held it at 11:18: in progress, its branch pushed, its checkpoint "wait for its go"; `waits` adds the record. */
-const b1081 = ({ waits = null, history = [], owner = 'Worker 4', state = 'in progress' } = {}) => text(
-  { Id: 'B1081', Kind: 'step', Title: 'Fix: the board makes a check task for a step whose fix is still open', Priority: 'fix', State: state, Owner: owner, Activity: 'Garden', Goal: 'G15', ...(waits === null ? {} : { 'Waits on': waits }), Since: stamp(at(10, 58)), Branch: BRANCH, Checkpoint: `8522bc6c · gate green, branch pushed; tell chat 1 done, wait for its go, then land · ${stamp(WAIT_AT)}`, 'Taken for': '30 min', Refined: 'ready' },
+const b1081 = ({ waits = null, history = [], owner = 'Worker 4', state = 'in progress', commit = '8522bc6c' } = {}) => text(
+  { Id: 'B1081', Kind: 'step', Title: 'Fix: the board makes a check task for a step whose fix is still open', Priority: 'fix', State: state, Owner: owner, Activity: 'Garden', Goal: 'G15', ...(waits === null ? {} : { 'Waits on': waits }), Since: stamp(at(10, 58)), Branch: BRANCH, Checkpoint: `${commit} · gate green, branch pushed; tell chat 1 done, wait for its go, then land · ${stamp(WAIT_AT)}`, 'Taken for': '30 min', Refined: 'ready' },
   { History: [`- ${stamp(at(10, 58))} Worker 4: queued → taken`, `- ${stamp(at(10, 58))} Worker 4: taken → in progress`, `- ${stamp(WAIT_AT)} Worker 4: checkpoint 8522bc6c · gate green, branch pushed; tell chat 1 done, wait for its go, then land`, ...history] })
 
-/// The work API: the record.
+/// The work API: the record. F74 (2026-11-27): these tests keep the step HELD (a checkpoint without a commit is not put down); the
+/// put-down of a step whose checkpoint is in is test/work/putDown.test.mjs.
 async function storeDir(files) {
   const dir = await mkdtemp(join(tmpdir(), 'waits-on-'))
   for (const [id, body] of Object.entries(files)) await writeFile(join(dir, `${id}.md`), body)
@@ -64,7 +65,7 @@ const field = async (dir, id, key) => valueOf((await readStore(dir)).items.get(i
 const history = async (dir, id) => (await readStore(dir)).items.get(id).sections.get('History') ?? []
 
 test('the record: the holder writes a wait on a chat with work block (the live B1081 words); who is checked; the same who keeps the first since; a checkpoint reminds; the holder, the main chat and the person clear it, another worker not', async t => {
-  const dir = await storeDir({ B1081: b1081() })
+  const dir = await storeDir({ B1081: b1081({ commit: 'none' }) })
   t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   // Not the holder: refused; the holder, on no chat: refused with the way to say it.
   assert.equal((await chat(dir, 'Worker 5', { action: 'block', id: 'B1081', on: 'chat 1', why: 'its go to land' }, WAIT_AT)).status, 403)
@@ -98,14 +99,14 @@ test('the record: the holder writes a wait on a chat with work block (the live B
   assert.equal(await field(dir, 'B1081', 'Waits on'), WAITS_ON)
   // B1307 (chat 1's re-check a): the same why cut on a space at its 80th character is the same why: the clock stands.
   const CUT = `${'x'.repeat(79)} and more words after the cut`
-  const cutDir = await storeDir({ B1081: b1081() })
+  const cutDir = await storeDir({ B1081: b1081({ commit: 'none' }) })
   t.after(() => rm(cutDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   assert.equal((await chat(cutDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'chat 1', why: CUT }, WAIT_AT)).result.changed, true)
   const cutLine = await field(cutDir, 'B1081', 'Waits on')
   assert.equal((await chat(cutDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'chat 1', why: CUT }, WAIT_AT + 5 * MIN)).result.changed, false)
   assert.equal(await field(cutDir, 'B1081', 'Waits on'), cutLine)
   // B1307 (chat 1's re-check b): on a board chat a new why changes nothing, as before: only a side chat's wait is renewed.
-  const boardDir = await storeDir({ B1081: b1081() })
+  const boardDir = await storeDir({ B1081: b1081({ commit: 'none' }) })
   t.after(() => rm(boardDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   assert.equal((await chat(boardDir, 'Worker 4', { action: 'block', id: 'B1081', on: 'Worker 5', why: 'its review' }, WAIT_AT)).result.changed, true)
   const boardLine = await field(boardDir, 'B1081', 'Waits on')
@@ -113,7 +114,7 @@ test('the record: the holder writes a wait on a chat with work block (the live B
   assert.equal(await field(boardDir, 'B1081', 'Waits on'), boardLine)
   // A board chat by name is a who too (the list's names).
   // The forgotten record: a checkpoint while it stands reminds the holder.
-  const saved = await chat(dir, 'Worker 4', { action: 'step', id: 'B1081', commit: '03ac0c10', next: 'main merged in and pushed; waiting for chat 1\'s go' }, at(11, 24))
+  const saved = await chat(dir, 'Worker 4', { action: 'step', id: 'B1081', commit: 'none', next: 'main merged in and pushed; waiting for chat 1\'s go' }, at(11, 24))
   assert.equal(saved.ok, true, saved.why)
   assert.match(saved.result.text, /You still wait on chat 1 since 11:18 \(its go to land\): work unblock B1081 once it gave its answer\./)
   // Clearing: another worker and the partner may not; the main chat may (with on=<who>).

@@ -16,6 +16,7 @@ import { afterPause, checkpointOf } from './pause.mjs'
 import { waitsOnOf } from './waitsOn.mjs'
 import { assetProgressAt, assetWaitOf } from './assetWait.mjs'
 import { sinceMs, valueOf } from './item.mjs'
+import { stamp } from './migrate.mjs'
 import { isKeptLook } from './keptLook.mjs'
 
 const MIN = 60_000
@@ -87,7 +88,27 @@ export const giveBackWords = (chat, askedAt) => `given back by the board: ${chat
 /** The same for a holder gone from the list of chats (repair.mjs owner-gone): `given back by the board: Worker N left the list of chats`. */
 export const goneWords = chat => `given back by the board: ${chat} left the list of chats`
 /** That History line (either), read back: `[, stamp, chat]`. */
-export const GIVEN_BACK = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s+server: .*?\bgiven back by the board: (.+?) (?:did not resume it|left the list of chats)\b/
+export const GIVEN_BACK = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s+server: .*?\bgiven back by the board: (.+?) (?:did not resume it|left the list of chats|put it down)\b/
+/**
+ * F74 (the person's "Yes, simplify", 2026-11-27; the goal of 2026-11-26: "after it's finished it should give priority to work that's almost
+ * completed"): the board PUT a held step DOWN: its holder recorded that it only waits (a blocker not done, a chat's answer) and wrote its
+ * checkpoint, so the step went back to refined by the give-back move with its wait record kept, and the worker took new work. The History
+ * words (GIVEN_BACK reads them as a give-back: the next worker continues from the checkpoint), the head line `Put down: <builder> · <stamp>`
+ * (removed at the next take; the ready list ranks the step nearly finished and prefers its builder while it stands), and its reading.
+ */
+export const putDownWords = (chat, waits) => `given back by the board: ${chat} put it down (${waits})`
+const PUT_DOWN_SEP = ' · '
+export const putDownLine = (chat, now) => `${chat}${PUT_DOWN_SEP}${stamp(now)}`
+/** The head line read back: `{ builder, at }`, or null. */
+export function putDownOf(item) {
+  const value = valueOf(item, 'Put down')
+  if (typeof value !== 'string' || value.trim() === '') return null
+  const at = value.lastIndexOf(PUT_DOWN_SEP)
+  if (at < 0) return { builder: value.trim(), at: null }
+  const when = sinceMs(value.slice(at + PUT_DOWN_SEP.length).trim())
+  return { builder: value.slice(0, at).trim(), at: finite(when) ? when : null }
+}
+const PUT_IT_DOWN = /\bput it down\b/
 /** A History line that took a step: "queued → taken", "queued → in progress" (`[, stamp, who]`). */
 const TAKE_LINE = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s+([^:]{1,80}): queued → (?:taken|in progress)\b/
 
@@ -96,7 +117,7 @@ export function givenBackOf(item) {
   const found = []
   for (const line of historyOf(item)) {
     const hit = GIVEN_BACK.exec(line)
-    if (hit !== null) found.push({ at: sinceMs(hit[1]), chat: hit[2].trim() })
+    if (hit !== null) found.push({ at: sinceMs(hit[1]), chat: hit[2].trim(), putDown: PUT_IT_DOWN.test(line) })
   }
   return found
 }
@@ -131,7 +152,8 @@ export function continuationLine(item, { localOnly = false } = {}) {
  */
 export function givenBackRefusal(item, who, prefix = '') {
   const back = givenBackOf(item).filter(one => plain(one.chat, prefix) === plain(who, prefix)).at(-1) ?? null
-  if (back === null) return null
+  // F74: a step its worker put down is the one we want back with it: no refusal.
+  if (back === null || back.putDown === true) return null
   const state = valueOf(item, 'State')
   if (isMine(item, who, prefix) && ['queued', 'taken', 'in progress', 'waiting on you', 'review'].includes(state)) return null
   return `${valueOf(item, 'Id')} was given back by the board at ${finite(back.at) ? hourMinute(back.at) : 'a time not known'}: stop that work and run work next`
