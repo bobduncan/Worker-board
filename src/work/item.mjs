@@ -146,8 +146,9 @@ export function valueOf(item, key) {
 /**
  * B1571 (X263): the steps that still hold a step: those its `Blocked by` names (and, with `fields`, its `Waits for` too)
  * that are in the store and not done or dropped (one in review still holds; an id the store does not hold does not),
- * each once, in the order named. One rule for the stale-checkpoint rule, the health summary's planned wait and a lane's
- * held step (`blockedBy`).
+ * each once, in the order named. The board's one rule for "blocked by a step not done and not dropped" (an id the store
+ * lacks counts as gone): the stale-checkpoint rule, the health summary's planned wait, a lane's held step (`blockedBy`)
+ * and the waiting-workers check read it; never a copy of its own.
  */
 export function openBlockersOf(item, items, fields = ['Blocked by']) {
   const named = fields.flatMap(field => String(valueOf(item, field) ?? '').match(/\bB\d+\b/g) ?? [])
