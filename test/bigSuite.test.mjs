@@ -461,6 +461,27 @@ test('S9, core review, the real case: steps.run starts one-at-a-time with test.m
   }
 })
 
+test('B1567: steps.run hands the suite no board marks: a board starts it from its own process, and a test's keeper would read WORKER_BOARD_CHILD as its own', { timeout: 60_000 }, async () => {
+  const { dir, lock } = world()
+  try {
+    const folder = join(dir, 'board-big-suite-env')
+    mkdirSync(join(folder, 'tools'), { recursive: true })
+    writeFileSync(join(folder, 'tools', 'one-at-a-time.mjs'), readFileSync(HELPER, 'utf8'))
+    writeFileSync(join(folder, 'tools', 'test.mjs'), "console.log('marks: ' + ['WORKER_BOARD_CHILD', 'WORKER_BOARD_KEY', 'WORKER_BOARD_TOKEN'].map(name => String(process.env[name])).join(' '))
+console.log('kept: ' + process.env.B1567_KEPT)
+console.log('ℹ fail 0')
+")
+    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, ...plain } = process.env
+    const steps = bigSuiteSteps(dir, { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50', WORKER_BOARD_CHILD: '1', WORKER_BOARD_KEY: 'k'.repeat(32), WORKER_BOARD_TOKEN: 'a'.repeat(64), B1567_KEPT: 'yes' })
+    const ran = await steps.run(folder, RERUN_LABEL, { upgrade: () => false, only: ['test/x.test.mjs'] })
+    assert.equal(ran.code, 0, ran.output)
+    assert.match(ran.output, /^marks: undefined undefined undefined$/m)
+    assert.match(ran.output, /^kept: yes$/m, 'the rest of the env goes on')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('S9, core review: at most RERUNS_MAX failing files run again alone (the rest stay red), and a run counts from when it took its slot', async () => {
   const { dir, files } = world()
   try {
