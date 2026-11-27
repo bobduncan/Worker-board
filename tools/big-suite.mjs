@@ -19,6 +19,7 @@ import {
 } from '../src/bigSuite.mjs'
 import { asRepoPath } from '../src/lightCheck.mjs'
 import { failingFiles, gatePassed } from '../src/landing.mjs'
+import { startEnv } from '../src/keeper.mjs'
 import * as tool from './one-at-a-time.mjs'
 
 /** The exit code one-at-a-time gives a run it stopped at its hold cap (S3): such a run could not run, it is no red of main. */
@@ -122,7 +123,9 @@ export function bigSuiteSteps(repo, env = process.env) {
       return new Promise((resolve) => {
         rotateLog(files.log)
         appendFileSync(files.log, `\n===== big suite ${label} in ${folder} at ${new Date().toISOString()} =====\n`)
-        const child = spawn(process.execPath, [path.join(folder, 'tools', 'one-at-a-time.mjs'), label, '--', 'node', 'tools/test.mjs', ...only], { cwd: folder, env, windowsHide: true })
+        // B1567: the board starts this runner from its own process, so `env` holds what a keeper hands its board (WORKER_BOARD_CHILD,
+        // its key and token): a test's board or keeper would take them for its own (a keeper that never starts its board, F24b).
+        const child = spawn(process.execPath, [path.join(folder, 'tools', 'one-at-a-time.mjs'), label, '--', 'node', 'tools/test.mjs', ...only], { cwd: folder, env: startEnv(env), windowsHide: true })
         let output = ''
         let ranAt = null
         const take = (chunk) => {
