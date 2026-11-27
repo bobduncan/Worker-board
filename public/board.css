@@ -3622,3 +3622,6 @@ ul.retro-list { list-style: disc; }
 .retro-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
 .retro-table th, .retro-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #2c2b3a; }
 @media (max-width: 420px) { .retro-view { padding: 20px 12px; } }
+/* A "this week" cell the retrospective marked [+] (better) or [-] (worse): the board's own green and red. */
+.retro-table td.retro-better { color: var(--working); font-weight: 600; }
+.retro-table td.retro-worse { color: var(--warn); font-weight: 600; }

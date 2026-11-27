@@ -123,3 +123,17 @@ test('retro: the server asks once: the button\'s route is a page route under the
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8')
   assert.match(html, /data-tab="spending">Spending<\/button>\s*<button class="tab" type="button" data-tab="retro">Retrospective<\/button>/)
 })
+
+test('retro page: a cell marked [+] is better, [-] worse, and the mark is not shown; a cell without one stays plain', async () => {
+  const script = await readFile(new URL('../public/retro.js', import.meta.url), 'utf8')
+  const context = {}
+  vm.runInNewContext(`${script.slice(script.indexOf('// retro:start'), script.indexOf('// retro:end'))}\nthis.markOf = markOf`, context)
+  assert.deepEqual({ ...context.markOf('41 [+]') }, { text: '41', mark: 'better' })
+  assert.deepEqual({ ...context.markOf('8 of 15 [-]') }, { text: '8 of 15', mark: 'worse' })
+  assert.deepEqual({ ...context.markOf('22 min') }, { text: '22 min', mark: null })
+  assert.deepEqual({ ...context.markOf('a [+] in the middle') }, { text: 'a [+] in the middle', mark: null })
+  assert.match(script, /node\('td', mark === null \? '' : `retro-\$\{mark\}`\)/)
+  const css = await readFile(new URL('../public/board.css', import.meta.url), 'utf8')
+  assert.match(css, /\.retro-table td\.retro-better \{ color: var\(--working\)/)
+  assert.match(css, /\.retro-table td\.retro-worse \{ color: var\(--warn\)/)
+})

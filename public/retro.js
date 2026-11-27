@@ -66,6 +66,14 @@
     }
     return blocks
   }
+  /**
+   * A table cell's mark (chat 1, the person's wish, 2026-11-27): a "this week" cell ends with [+] when the number got better and
+   * [-] when it got worse. `{ text, mark }`: the text without the mark, and 'better', 'worse' or null.
+   */
+  function markOf(cell) {
+    const found = /^(.*?)\s*\[([+-])\]\s*$/.exec(String(cell))
+    return found === null ? { text: String(cell), mark: null } : { text: found[1], mark: found[2] === '+' ? 'better' : 'worse' }
+  }
   /** The button and its line for the run's state (`run` from /api/retro): `{ label, disabled, line }`. */
   function buttonOf(run, now = Date.now()) {
     const cost = 'A run costs a few percent of the weekly limit.'
@@ -99,7 +107,12 @@
         const wrap = node('div', 'retro-table-scroll'), table = node('table', 'retro-table'), head = node('thead'), body = node('tbody'), tr = node('tr')
         for (const cell of block.head) tr.append(inline(node('th'), cell))
         head.append(tr)
-        for (const row of block.rows) { const line = node('tr'); for (const cell of row) line.append(inline(node('td'), cell)); body.append(line) }
+        for (const row of block.rows) {
+          const line = node('tr')
+          // A cell marked [+] or [-] is coloured better or worse; the mark itself is not shown.
+          for (const cell of row) { const { text, mark } = markOf(cell); line.append(inline(node('td', mark === null ? '' : `retro-${mark}`), text)) }
+          body.append(line)
+        }
         table.append(head, body); wrap.append(table); target.append(wrap)
       }
     }
