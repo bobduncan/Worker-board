@@ -100,7 +100,7 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
   await writeStore(work, migrateBacklog('## Garden\n- [ ] B12 Plant the hedge (for Digger; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'recap', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), refreshSeconds: 5 }))
-  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc') })
+  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_TICK_MS: '1000' })
 
   const base = `http://127.0.0.1:${port}`
   const page = await fetch(`${base}/`).then(reply => reply.text())
