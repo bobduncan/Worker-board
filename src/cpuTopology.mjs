@@ -14,11 +14,11 @@ import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { affinityMask, lowCores } from './cpu.mjs'
 import { writeAtomic } from './write.mjs'
 
-/** The person's choices (2026-11-25): two performance cores kept free in Full; Low on two threads, as today. */
+/** The person's choice (2026-11-25): two performance cores kept free in Full. Low's cores are the limiter's own (cpu.mjs). */
 export const PERSON_CORES = 2
-export const LOW_THREADS = 2
 
 /** The PowerShell that reads the CPU sets: `group,logical,core,efficiencyClass;` per logical processor. */
 export const TOPOLOGY_SCRIPT = [
@@ -66,9 +66,10 @@ const maskOfList = list => list.reduce((mask, one) => mask | (1n << BigInt(one.l
  * The masks of a topology, or null when it has none: one processor group, at most 64 logical processors, and room for
  * work beside the person's cores. `person`: every thread of the first `personCores` performance cores (one on a PC with
  * two or fewer, so the work is never left the efficiency cores alone); `work`: the rest; `low`: what the board's Low
- * really uses (cpu.mjs `affinityMask`: the last `lowThreads` logical processors). Masks are BigInts; `hexOf` writes them.
+ * uses, taken from the limiter itself (cpu.mjs `affinityMask` and `lowCores`: one rule, one place). Masks are BigInts;
+ * `hexOf` writes them.
  */
-export function masksOf(topology, { personCores = PERSON_CORES, lowThreads = LOW_THREADS } = {}) {
+export function masksOf(topology, { personCores = PERSON_CORES } = {}) {
   const rows = validTopology(topology)
   if (rows === null || rows.length > 64 || rows.some(one => one.group !== 0 || one.logical >= 64)) return null
   const sorted = [...rows].sort((a, b) => a.logical - b.logical)
@@ -79,12 +80,11 @@ export function masksOf(topology, { personCores = PERSON_CORES, lowThreads = LOW
   const personList = performance.filter(one => kept.has(one.core))
   const workList = sorted.filter(one => !personList.includes(one))
   if (workList.length === 0) return null
-  const lowList = sorted.slice(-Math.min(lowThreads, sorted.length))
   return {
     person: maskOfList(personList),
     work: maskOfList(workList),
-    low: maskOfList(lowList),
-    threads: { person: personList.length, work: workList.length, low: lowList.length, all: sorted.length },
+    low: BigInt.asUintN(64, BigInt(affinityMask(sorted.length, 'low'))),
+    threads: { person: personList.length, work: workList.length, low: lowCores(sorted.length), all: sorted.length },
   }
 }
 

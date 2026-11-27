@@ -9,6 +9,13 @@
 // Its worktree gets the main checkout's node_modules as a junction, as land.ps1's gate does, and loses it first, with rmdir (never a
 // recursive delete through it); then `git worktree remove` without force, and only while the main checkout's node_modules still
 // holds its marker package.
+//
+// B1573 (X264): the worktree is made at main's head when the run queues, but a run may wait hours for the PC. So the run's command is
+// this file's `--slot` mode: once one-at-a-time gives the run its slot, it reads main's head of the main checkout, checks it out
+// (detached) in the worktree and says `big suite: tests main at <commit>` before test.mjs starts. The run keeps its place in the queue;
+// its record, its reruns alone and the probation all go by the commit that line names (none: the run could not run). The folder keeps
+// the name of the commit it was made at (lost() and the clean-up go by that one), and the node_modules junction stays (no checkout
+// touches an ignored folder).
 import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { appendFileSync, existsSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
@@ -21,6 +28,7 @@ import {
 } from '../src/bigSuite.mjs'
 import { asRepoPath } from '../src/lightCheck.mjs'
 import { failingFiles, gatePassed } from '../src/landing.mjs'
+import { startEnv } from '../src/keeper.mjs'
 import * as tool from './one-at-a-time.mjs'
 import { boardFolders, stopInside } from './test.mjs'
 
@@ -51,9 +59,42 @@ export const RUNS_NOW = /one-at-a-time: .+ runs now/
 const escaped = mark => mark.replace(/[^0-9a-f]/gi, '')
 export const runsNowOf = mark => new RegExp(`^one-at-a-time: .+ runs now \\(waited \\d+ s\\) \\[${escaped(mark)}\\]\\r?$`, 'm')
 export const gaveWayOf = mark => new RegExp(`^one-at-a-time: .+ gives way to a gate .*\\[${escaped(mark)}\\]\\r?\\n`, 'gm')
+/** B1573: the line the `--slot` mode prints once it checked out main's newest commit in the run's worktree. */
+export const TESTS_LINE = /^big suite: tests main at ([0-9a-f]{7,40})\s*$/m
+/** The commit a big run tested, from its TESTS_LINE; null when the run never got that far. PURE. */
+export const testedCommit = output => TESTS_LINE.exec(String(output ?? ''))?.[1] ?? null
+const SELF = fileURLToPath(import.meta.url)
 export { RERUN_LABEL }
 
 export const git = (args, cwd) => spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true })
+
+/** The first line a git call said (its error when it could not start). */
+const firstLine = out => String(out.stderr || out.stdout || out.error?.message || '').trim().split('\n')[0]
+
+/**
+ * B1573: the `--slot` mode, run by one-at-a-time inside the big run's slot: checks out main's head of `repo` (detached) in `folder`,
+ * prints TESTS_LINE, then runs `command` there with this process's stdio. Resolves to its exit code; 127 (no TESTS_LINE) when main
+ * cannot be read or checked out.
+ */
+export function slotRun(repo, folder, command, say = line => console.log(line)) {
+  const head = git(['rev-parse', 'refs/heads/main'], repo)
+  if (head.status !== 0) {
+    say(`big suite: could not read main of ${repo}: ${firstLine(head)}`)
+    return Promise.resolve(127)
+  }
+  const commit = head.stdout.trim()
+  const moved = git(['checkout', '--quiet', '--detach', commit], folder)
+  if (moved.status !== 0) {
+    say(`big suite: could not check out main at ${commit.slice(0, 7)}: ${firstLine(moved)}`)
+    return Promise.resolve(127)
+  }
+  say(`big suite: tests main at ${commit}`)
+  return new Promise((resolve) => {
+    const child = spawn(command[0], command.slice(1), { cwd: folder, stdio: 'inherit', windowsHide: true })
+    child.on('error', () => resolve(127))
+    child.on('close', code => resolve(code ?? 1))
+  })
+}
 
 /**
  * A test file as the light check names it (core review: node prints `test at test\a.test.mjs` on Windows, and a `location:` line may give
@@ -127,17 +168,23 @@ export function bigSuiteSteps(repo, env = process.env) {
     },
     /**
      * Runs the suite in `folder` with `label` (`only` the test files, none for every file); resolves to `{ code, output, ranAt }`, `ranAt`
-     * when it took its slot. `upgrade()` true stops an idle run that still waits in the idle room (and only then: core review).
+     * when it took its slot. `upgrade()` true stops an idle run that still waits in the idle room (and only then: core review). `slot`
+     * (B1573): the run first checks out main's newest commit in its slot (the big run; a rerun alone keeps the commit tested).
      */
-    run(folder, label, { upgrade, only = [] }) {
+    run(folder, label, { upgrade, only = [], slot = false }) {
       return new Promise((resolve) => {
         rotateLog(files.log)
         appendFileSync(files.log, `\n===== big suite ${label} in ${folder} at ${new Date().toISOString()} =====\n`)
         // P4: every big run is safe to kill and run again (HEAVY_RUN_YIELD), so it gives way to a gate, the idle one too; its own mark.
+        // B1573: a run that gave way starts over with its whole command, so the `--slot` mode reads main's head again at its next turn.
+        // B1567: the board starts this runner from its own process, so `env` holds what a keeper hands its board (WORKER_BOARD_CHILD,
+        // its key and token): a test's board or keeper would take them for its own (a keeper that never starts its board, F24b).
         const mark = randomBytes(8).toString('hex')
         const runsNow = runsNowOf(mark)
         const gaveWay = gaveWayOf(mark)
-        const child = spawn(process.execPath, [path.join(folder, 'tools', 'one-at-a-time.mjs'), label, '--', 'node', 'tools/test.mjs', ...only], { cwd: folder, env: { ...env, HEAVY_RUN_YIELD: '1', HEAVY_RUN_MARK: mark }, windowsHide: true })
+        const tests = ['node', 'tools/test.mjs', ...only]
+        const command = slot ? ['node', SELF, '--slot', repo, '--', ...tests] : tests
+        const child = spawn(process.execPath, [path.join(folder, 'tools', 'one-at-a-time.mjs'), label, '--', ...command], { cwd: folder, env: { ...startEnv(env), HEAVY_RUN_YIELD: '1', HEAVY_RUN_MARK: mark }, windowsHide: true })
         let output = ''
         let ranAt = null
         const take = (chunk) => {
@@ -225,18 +272,20 @@ export function bigSuiteSteps(repo, env = process.env) {
 }
 
 /**
- * One big run of main's head: the runner file renewed before each phase (a runner that lost it stops at once; it removes the folder it
+ * One big run of main's head (B1573: its newest at the moment the run took its slot): the runner file renewed before each phase (a runner that lost it stops at once; it removes the folder it
  * made unless the new runner plays the same commit), the run in its worktree, each failing file run again alone once (core review: as
  * land.ps1 does; one that passes alone is flaky, not red), the verdict recorded, the folder removed. Resolves to what it recorded, or
  * null when nothing ran (no main, another runner).
  */
 export async function playOnce({ files, steps, now = Date.now }) {
-  const commit = steps.mainHead()
-  if (!commit) return null
+  // The commit the folder is made at (its name; lost() and the clean-up go by it); the run records the one it tested (B1573).
+  const queued = steps.mainHead()
+  if (!queued) return null
   if (!touchRunner(files.runner)) return null
-  const folder = path.join(os.tmpdir(), `${RUN_FOLDER}${commit.slice(0, 9)}`)
+  let commit = queued
+  const folder = path.join(os.tmpdir(), `${RUN_FOLDER}${queued.slice(0, 9)}`)
   const lost = () => {
-    if (steps.mainHead() !== commit) {
+    if (steps.mainHead() !== queued) {
       try {
         steps.cleanUp(folder)
       } catch (error) {
@@ -250,17 +299,21 @@ export async function playOnce({ files, steps, now = Date.now }) {
   let verdict = { outcome: 'could not run', failed: [], why: null }
   let { label, idleUntil } = labelFor({ results: readJson(files.results), now: started })
   try {
-    steps.prepare(folder, commit)
+    steps.prepare(folder, queued)
     if (!touchRunner(files.runner)) return lost()
-    let ran = await steps.run(folder, label, { upgrade: () => label === IDLE_LABEL && now() >= idleUntil })
+    let ran = await steps.run(folder, label, { upgrade: () => label === IDLE_LABEL && now() >= idleUntil, slot: true })
     if (ran.upgraded) {
       label = ORDINARY_LABEL
       if (!touchRunner(files.runner)) return lost()
-      ran = await steps.run(folder, label, { upgrade: () => false })
+      ran = await steps.run(folder, label, { upgrade: () => false, slot: true })
     }
     // Core review: a run counts from when it took its slot (an idle run that waited from 23:00 and ran at 01:10 is the night run).
     if (Number.isFinite(ran.ranAt)) began = ran.ranAt
     verdict = verdictOf(ran.output, ran.code, folder)
+    // B1573: the commit it tested; a run that names none never counts as a run of the queued commit.
+    const tested = testedCommit(ran.output)
+    if (tested) commit = tested
+    else if (verdict.outcome !== 'could not run') throw new Error('the run named no commit it tested (no "big suite: tests main at" line)')
     if (verdict.outcome === 'failed' && !verdict.stalled && verdict.failed.length > 0) {
       const again = []
       const flaky = []
@@ -327,6 +380,11 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const lines = statusLines(results, Date.now())
     for (const line of lines) console.log(line)
     if (lines.length === 0 && !argv.includes('--quiet')) console.log(results.last ? `big suite: ${results.last.outcome} on main at ${String(results.last.commit).slice(0, 7)} (${results.last.at})` : 'big suite: no run yet')
+  } else if (argv[0] === '--slot') {
+    const at = argv.indexOf('--')
+    slotRun(argv[1], process.cwd(), at > 0 ? argv.slice(at + 1) : []).then((code) => {
+      process.exitCode = code
+    })
   } else if (argv.includes('--run')) {
     const repo = argv[argv.indexOf('--run') + 1]
     runner(repo).then((run) => {

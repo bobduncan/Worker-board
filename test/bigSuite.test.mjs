@@ -14,7 +14,7 @@ import {
   readJson, recordRun, stateFiles, statusLines, touchRunner,
 } from '../src/bigSuite.mjs'
 import { BIG_SUITE_STALE_MS, NOT_RUN_STEP_AFTER, RETRY_MS, bigSuitePass, owedOf } from '../src/bigSuitePass.mjs'
-import { RERUNS_MAX, RERUN_LABEL, RUNS_NOW, STOPPED, bigSuiteSteps, gaveWayOf, playOnce, repoTestPath, runner, runsNowOf, stalledFiles, verdictOf, waitsInRoom } from '../tools/big-suite.mjs'
+import { RERUNS_MAX, RERUN_LABEL, RUNS_NOW, STOPPED, bigSuiteSteps, gaveWayOf, playOnce, repoTestPath, runner, runsNowOf, slotRun, stalledFiles, testedCommit, verdictOf, waitsInRoom } from '../tools/big-suite.mjs'
 import * as tool from '../tools/one-at-a-time.mjs'
 
 const HOUR = 60 * 60 * 1000
@@ -143,8 +143,10 @@ const world = () => {
   const lock = join(dir, 'heavy.lock')
   return { dir, lock, files: stateFiles(lock) }
 }
-const GREEN = 'ℹ tests 1\nℹ fail 0\n'
-const red = (...files) => `✖ failing tests:\n${files.map(file => `test at ${file}:1:1`).join('\n')}\nℹ tests 9\nℹ fail ${files.length}\n`
+// B1573: a big run says the commit it tested once it has its slot (the fakes test main's head, c1abcdef0000).
+const TESTED = 'big suite: tests main at c1abcdef0000\n'
+const GREEN = `${TESTED}ℹ tests 1\nℹ fail 0\n`
+const red = (...files) => `${TESTED}✖ failing tests:\n${files.map(file => `test at ${file}:1:1`).join('\n')}\nℹ tests 9\nℹ fail ${files.length}\n`
 const fakeSteps = (calls, over = {}) => ({
   mainHead: () => 'c1abcdef0000',
   prepare: (folder, commit) => calls.push(`prepare ${commit}`),
@@ -511,6 +513,24 @@ test('P4, the real case: a big run that holds the slot gives way to a gate, star
   }
 })
 
+test('B1567: steps.run hands the suite no board marks: a board starts it from its own process, and a keeper under test would read WORKER_BOARD_CHILD as its own', { timeout: 60_000 }, async () => {
+  const { dir, lock } = world()
+  try {
+    const folder = join(dir, 'board-big-suite-env')
+    mkdirSync(join(folder, 'tools'), { recursive: true })
+    writeFileSync(join(folder, 'tools', 'one-at-a-time.mjs'), readFileSync(HELPER, 'utf8'))
+    writeFileSync(join(folder, 'tools', 'test.mjs'), "console.log('marks: ' + ['WORKER_BOARD_CHILD', 'WORKER_BOARD_KEY', 'WORKER_BOARD_TOKEN'].map(name => String(process.env[name])).join(' '))\nconsole.log('kept: ' + process.env.B1567_KEPT)\nconsole.log('ℹ fail 0')\n")
+    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, ...plain } = process.env
+    const steps = bigSuiteSteps(dir, { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50', WORKER_BOARD_CHILD: '1', WORKER_BOARD_KEY: 'k'.repeat(32), WORKER_BOARD_TOKEN: 'a'.repeat(64), B1567_KEPT: 'yes' })
+    const ran = await steps.run(folder, RERUN_LABEL, { upgrade: () => false, only: ['test/x.test.mjs'] })
+    assert.equal(ran.code, 0, ran.output)
+    assert.match(ran.output, /^marks: undefined undefined undefined$/m)
+    assert.match(ran.output, /^kept: yes$/m, 'the rest of the env goes on')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('P4, core review 5: only this run\'s own lines count, by its mark: a failing test that quotes a helper\'s "gives way" or "runs now" words keeps the run red', { timeout: 60_000 }, async () => {
   const mark = 'ab12cd34ef567890'
   const gave = `one-at-a-time: yield:big-suite gives way to a gate (its command starts over at its next turn) [${mark}]\n`
@@ -780,4 +800,146 @@ test('S9, verifier: the server\'s pass is one at a time with a hung time above i
   assert.match(server, /const lookAtBigSuite = \(\) => loops\.single\('big-suite'/)
   assert.match(server, /\}, \{ staleMs: BIG_SUITE_STALE_MS \}\)\n\s*setInterval\(lookAtBigSuite, BIG_SUITE_LOOK_MS\)/)
   assert.ok(BIG_SUITE_STALE_MS > 10 * 60000)
+})
+
+test('B1573 (X264): a run queued at main A that gets its slot after main moved to B tests, records and reruns B; main unmoved records A; a run naming no commit could not run', async () => {
+  const { dir, files } = world()
+  const A = 'a1a1a1a1a1a1'
+  const B = 'b2b2b2b2b2b2'
+  try {
+    ours(files)
+    const calls = []
+    const moved = await playOnce({
+      files,
+      steps: fakeSteps(calls, {
+        mainHead: (() => { let n = 0; return () => (n++ === 0 ? A : B) })(),
+        prepare: (folder, commit) => calls.push(`prepare ${commit}`),
+        run: async (folder, label, { only = [], slot = false } = {}) => {
+          calls.push(`run ${only.length > 0 ? only.join(' ') : label}${slot ? ' in its slot' : ''}`)
+          if (only.length > 0) return { code: 1, output: `✖ failing tests:\ntest at ${only[0]}:1:1\nℹ tests 1\nℹ fail 1\n` }
+          return { code: 1, output: `big suite: tests main at ${B}\n✖ failing tests:\ntest at test/a.test.mjs:1:1\nℹ tests 9\nℹ fail 1\n` }
+        },
+      }),
+    })
+    assert.deepEqual(calls, [`prepare ${A}`, `run ${ORDINARY_LABEL} in its slot`, 'run test/a.test.mjs', 'cleanUp'], 'the folder is made at A; only the big run checks out in its slot, the rerun alone stays on what it tested')
+    assert.equal(moved.commit, B)
+    const results = readJson(files.results)
+    assert.equal(results.last.commit, B, 'the record names the commit tested, not the one queued')
+    assert.equal(results.redSince, B)
+    assert.equal(results.probation['test/a.test.mjs'].commit, B)
+    // a green run of B: lastGreen is B
+    const green = await playOnce({ files, steps: fakeSteps([], { mainHead: () => A, run: async () => ({ code: 0, output: `big suite: tests main at ${B}\nℹ tests 1\nℹ fail 0\n` }) }) })
+    assert.deepEqual([green.outcome, readJson(files.results).lastGreen], ['passed', B])
+    // main unmoved: A, as before
+    const same = await playOnce({ files, steps: fakeSteps([], { mainHead: () => A, run: async () => ({ code: 0, output: `big suite: tests main at ${A}\nℹ tests 1\nℹ fail 0\n` }) }) })
+    assert.equal(readJson(files.results).last.commit, A)
+    assert.equal(same.commit, A)
+    // a green summary with no line naming the commit: never a green of the queued commit
+    const blind = await playOnce({ files, steps: fakeSteps([], { mainHead: () => B, run: async () => ({ code: 0, output: 'ℹ tests 1\nℹ fail 0\n' }) }) })
+    assert.equal(blind.outcome, 'could not run')
+    assert.match(blind.why, /named no commit it tested/)
+    assert.equal(readJson(files.results).lastGreen, A, 'the last green stays the one before')
+    assert.equal(testedCommit('one-at-a-time: x runs now\nbig suite: tests main at 0123456789abcdef0123456789abcdef01234567\n'), '0123456789abcdef0123456789abcdef01234567')
+    assert.equal(testedCommit('no line'), null)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('B1573, the real case (Windows): a worktree made at A runs in its slot at main\'s newest B, junction whole, and its clean-up removes the junction first', { skip: process.platform !== 'win32' && 'junctions are Windows\'', timeout: 60_000 }, async () => {
+  const { dir, lock } = world()
+  const repo = join(dir, 'repo')
+  try {
+    mkdirSync(join(repo, 'node_modules', 'happy-dom'), { recursive: true })
+    mkdirSync(join(repo, 'tools'), { recursive: true })
+    writeFileSync(join(repo, 'node_modules', 'happy-dom', 'marker.txt'), 'keep me')
+    writeFileSync(join(repo, '.gitignore'), 'node_modules\n')
+    writeFileSync(join(repo, 'tools', 'one-at-a-time.mjs'), readFileSync(HELPER, 'utf8'))
+    const testFile = version => `import { readFileSync } from 'node:fs'\nconsole.log('version ${version}')\nconsole.log('junction: ' + readFileSync('node_modules/happy-dom/marker.txt', 'utf8'))\nconsole.log('ℹ tests 1')\nconsole.log('ℹ fail 0')\n`
+    const git = (...args) => spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, encoding: 'utf8', windowsHide: true })
+    const commit = (version) => {
+      writeFileSync(join(repo, 'tools', 'test.mjs'), testFile(version))
+      git('add', '-A')
+      assert.equal(git('commit', '-q', '-m', version).status, 0)
+    }
+    assert.equal(git('init', '-q', '-b', 'main').status, 0)
+    commit('A')
+    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, HEAVY_RUN_MASK: _mask, HEAVY_RUN_CORES: _cores, ...plain } = process.env
+    const steps = bigSuiteSteps(repo, { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50' })
+    const A = steps.mainHead()
+    const folder = join(dir, 'board-big-suite-slot')
+    steps.prepare(folder, A)
+    // main moves while the run waits for the PC
+    commit('B')
+    const B = steps.mainHead()
+    assert.notEqual(A, B)
+    const ran = await steps.run(folder, ORDINARY_LABEL, { upgrade: () => false, slot: true })
+    assert.equal(ran.code, 0, ran.output)
+    assert.equal(testedCommit(ran.output), B, ran.output)
+    assert.match(ran.output, /^version B$/m, 'the tests of B ran')
+    assert.match(ran.output, /^junction: keep me$/m, 'the junction still reaches the checkout\'s node_modules')
+    assert.equal(verdictOf(ran.output, ran.code, folder).outcome, 'passed')
+    assert.equal(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: folder, encoding: 'utf8', windowsHide: true }).stdout.trim(), B)
+    // a rerun alone keeps B, also when main moved again meanwhile
+    commit('C')
+    const again = await steps.run(folder, RERUN_LABEL, { upgrade: () => false, only: ['test/x.test.mjs'] })
+    assert.match(again.output, /^version B$/m)
+    // main unreadable: no line, so the run could not run
+    const said = []
+    assert.equal(await slotRun(join(dir, 'no-repo'), folder, ['node', '-e', '0'], line => said.push(line)), 127)
+    assert.equal(testedCommit(said.join('\n')), null)
+    steps.cleanUp(folder)
+    assert.equal(existsSync(folder), false, 'the worktree is gone')
+    assert.equal(readFileSync(join(repo, 'node_modules', 'happy-dom', 'marker.txt'), 'utf8'), 'keep me', 'the target of the junction is whole')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('P4 with B1573 (chat 1, 2026-11-27), the real case (Windows): a big run in its slot at A gives way to a gate, main moves to B meanwhile, and the run starts over with --slot: it tests, says and records B', { skip: process.platform !== 'win32' && 'junctions are Windows\'', timeout: 90_000 }, async () => {
+  const { dir, env } = bigWorld([])
+  const repo = join(dir, 'repo')
+  const starts = join(dir, 'starts.txt')
+  try {
+    mkdirSync(join(repo, 'node_modules', 'happy-dom'), { recursive: true })
+    mkdirSync(join(repo, 'tools'), { recursive: true })
+    writeFileSync(join(repo, 'node_modules', 'happy-dom', 'marker.txt'), 'keep me')
+    writeFileSync(join(repo, '.gitignore'), 'node_modules\n')
+    writeFileSync(join(repo, 'tools', 'one-at-a-time.mjs'), readFileSync(HELPER, 'utf8'))
+    // A says half of a red run and holds the slot; B passes at once.
+    const testFile = version => version === 'A'
+      ? "import { appendFileSync } from 'node:fs'\nappendFileSync(process.env.P4_STARTS, 'A')\nconsole.log('version A')\nconsole.log('ℹ fail 3')\nsetTimeout(() => {}, 60000)\n"
+      : "import { appendFileSync } from 'node:fs'\nappendFileSync(process.env.P4_STARTS, 'B')\nconsole.log('version B')\nconsole.log('ℹ tests 1')\nconsole.log('ℹ fail 0')\n"
+    const git = (...args) => spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, encoding: 'utf8', windowsHide: true })
+    const commit = (version) => {
+      writeFileSync(join(repo, 'tools', 'test.mjs'), testFile(version))
+      git('add', '-A')
+      assert.equal(git('commit', '-q', '-m', version).status, 0)
+    }
+    assert.equal(git('init', '-q', '-b', 'main').status, 0)
+    commit('A')
+    const steps = bigSuiteSteps(repo, { ...env, P4_STARTS: starts })
+    const A = steps.mainHead()
+    const folder = join(dir, 'board-big-suite-slot')
+    steps.prepare(folder, A)
+    const running = steps.run(folder, ORDINARY_LABEL, { upgrade: () => false, slot: true })
+    await untilFile(starts, text => text === 'A')
+    // main moves while the run holds the slot; then a gate comes
+    commit('B')
+    const B = steps.mainHead()
+    assert.notEqual(A, B)
+    assert.equal(aGate(env).status, 0)
+    const ran = await running
+    assert.equal(ran.code, 0, ran.output)
+    assert.equal(readFileSync(starts, 'utf8'), 'AB', 'it gave way at A and started over at B')
+    assert.equal(testedCommit(ran.output), B, ran.output)
+    assert.doesNotMatch(ran.output, /version A|fail 3|tests main at [0-9a-f]+\s[\s\S]*tests main at/, 'nothing of the stopped half, one tested commit')
+    assert.equal(verdictOf(ran.output, ran.code, folder).outcome, 'passed')
+    assert.equal(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: folder, encoding: 'utf8', windowsHide: true }).stdout.trim(), B)
+    steps.cleanUp(folder)
+    assert.equal(existsSync(folder), false, 'the worktree is gone')
+    assert.equal(readFileSync(join(repo, 'node_modules', 'happy-dom', 'marker.txt'), 'utf8'), 'keep me', 'the target of the junction is whole')
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  }
 })

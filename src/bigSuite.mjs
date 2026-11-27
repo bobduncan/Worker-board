@@ -4,6 +4,8 @@
 // check until two green big runs in a row (probation). Its state lies beside the PC's test lock (tools/one-at-a-time.mjs lockPath), so
 // every worktree's light check reads the same probation. The runner (tools/big-suite.mjs) keeps the game slow tier's two runner
 // rules (S3): it is alive past its age while its run waits in the idle room or holds a slot, and it renews its file before each phase.
+// B1573 (X264): a run tests main's newest commit at the moment it takes its slot, not the one it queued at (an idle run may wait
+// hours), and every result here names that tested commit.
 
 import { readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
