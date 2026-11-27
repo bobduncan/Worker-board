@@ -141,7 +141,7 @@ async function boardWith(t, { refused, lines = [], attempts = [], refusedAt = NO
   /** B1568: the page's Check button, and its end: the check ends with a wake pass (a check already running ends with one too). */
   const checkNow = async () => {
     const asked = Date.now()
-    const reply = await fetch(`${base}/api/check`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': token }, body: '{}' })
+    const reply = await fetch(`${base}/api/check`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Token': token, Origin: base }, body: '{}' })
     assert.equal(reply.status, 200, await reply.text())
     // A check that was running when asked began before `asked`: then wait for the one after it, or that one's end.
     await until(async () => {
