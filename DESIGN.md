@@ -9499,3 +9499,21 @@ from the checkpoint; a wait on a chat: put down at once, held by the record, the
 the main chat's record, with a branch of none, nor for the go-live; the fix rounds and the pick rule; the words and their reading); the existing
 hand-over, holder-timer, Resume all, row and status tests unchanged. 13 mutants red (a 14th, the owner check in `putDownWaiting`, is also made
 by the give-back itself).
+
+### Chat 1's core review of the put-down (d7f9599e, 2026-11-27): three blockers, eight should-fixes
+
+The one judgement is parked.mjs `putDownCheck`: the record (`waitOf`), its writer (`recordWriterOf`: the newest "blocked by B<n>" or "waits on"
+History line; only the holder's own record puts down, never the main chat's or another chat's), the go-live words (`isGoLiveWait`:
+landedWait.mjs LANDING_WHAT, "its go to land": the go-live keeps its worker, chat 1's landing ends that wait), the landing lock (its branch
+under land.ps1: no put-down), and a fresh checkpoint (a commit, written since this holder's take: `lastTakenAt`, on a branch). The push is
+the caller's check: the work context's `isPushed` (the server's git) and the hand-over's; a commit not on the remote keeps the step and the
+answer says what to push. api.mjs `putDownWaiting` answers `{ done, words }`: a hint ("it stays yours until ...") is no put-down, and the
+answer after a put-down says the record once and the put-down once (`putDownAnswer`, the step as it stands now). The retried record that
+changes nothing still puts down once the checkpoint came, and the hand-over's pass puts down an idle holder's waiting step too
+(handoverBoard.mjs `putDownDue`: steps already waiting when this went live, the live B1442). A put-down keeps the person's pin; it bars
+nobody (handover.mjs `notOfferedAgain` skips the put-down line, as `givenBackRefusal` does) and shows no amber "did not resume" (`givenBackFrom`
+skips it); a put-down step keeps counting its Touches (guards.mjs `overlapIn`: "same files as B1442, put down (nearly finished: it comes
+first)"); its worktree is left for the sweep once unused since (worktrees.mjs `isLeftBack`, whatever the builder's process does); a put-down
+step that waits on a chat keeps its Late card and its side word in its builder's name (state.mjs `isWaitingHeld`). The send-back's fix round
+is read from the fix's own History ("made by your Send back in Q<n>"). Tests: test/work/putDown.test.mjs, 14 cases including a real lane
+state for the Late; 15 more mutants red.

@@ -1932,6 +1932,8 @@ async function main(args) {
         return done
       },
       dir: workDir, now: clock(), prefix: state.chatPrefix ?? '', roleOf: chat => roles.get(chat) ?? null,
+      // F74: the put-down's checks (api.mjs `putDownWaiting`): the branch a landing runs for now, and whether a commit is on the remote.
+      landingNow: () => runningLanding({ dir: join(HERE, 'data'), now: clock() }), isPushed,
       // One question per task (2026-10-31): the step a chat's card names at that moment (the lane's task), for an ask that names none.
       cardStepOf: chat => [...lanes, ...(state.advisor ? [state.advisor] : []), ...(state.advisorHelper ? [state.advisorHelper] : [])].find(lane => lane.name === chat)?.task?.stepId ?? null,
       routingPolicy: config.routing,

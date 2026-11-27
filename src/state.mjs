@@ -76,7 +76,7 @@ import { standardOf } from './work/standard.mjs'
 import { rolloutPlan } from './work/modRollout.mjs'
 import { chatsByRole } from './oldMods.mjs'
 import { clearingOf, decide, envelopesOf, holdingOf, lastClearWhyOf, laneWords, onSequence } from './work/handover.mjs'
-import { givenBackFrom } from './work/holderTimers.mjs'
+import { givenBackFrom, putDownOf } from './work/holderTimers.mjs'
 import { rethinkTopicsOf } from './work/rethinkTopic.mjs'
 import { rethinkFocusOf } from './work/rethinkFocus.mjs'
 import { countsOf, sinceClock, statusOf } from './chatStatus.mjs'
@@ -2587,13 +2587,17 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   // stays with its holder (no give-back). `[{ chat, id, who, what, since, minutes, text }]`.
   // Read from each held step's record (not the lane, which may read unknown or off for a while); none while the person pauses, and the
   // pause's time is no waiting (`afterPause`, as the holder timers count).
+  /** F74: a step held taken or in progress, or put down by the board (refined, its builder named): its wait on a chat is live. */
+  const isWaitingHeld = item => ['taken', 'in progress'].includes(item.head.get('State')) || (item.head.get('State') === 'refined' && putDownOf(item) !== null)
   const lateWaits = !workOk || isHolding(pauseRecord) ? [] : [...raw.work.items.values()]
-    .filter(item => item.head.get('Kind') === 'step' && ['taken', 'in progress'].includes(item.head.get('State')) && waitsOnOf(item) !== null)
+    // F74: a step the board put down while it waits on a chat keeps its Late (and its side word), in its builder's name.
+    .filter(item => item.head.get('Kind') === 'step' && isWaitingHeld(item) && waitsOnOf(item) !== null)
     .map(item => {
       const bare = name => String(name ?? '').replace(prefix, '').trim().toLowerCase()
-      const lane = sequenced.find(one => !one.isLeftover && bare(one.name) === bare(item.head.get('Owner')))
-      return lane === undefined ? null : lateWaitOf({
-        chat: lane.name, wait: waitsOnOf(item), stepId: item.head.get('Id'),
+      const who = item.head.get('Owner') ?? putDownOf(item)?.builder ?? null
+      const lane = who === null ? undefined : sequenced.find(one => !one.isLeftover && bare(one.name) === bare(who))
+      return who === null ? null : lateWaitOf({
+        chat: lane?.name ?? who, wait: waitsOnOf(item), stepId: item.head.get('Id'),
         runningMs: from => { const since = afterPause(pauseRecord, from); return now - since - offMsOf(gaps, now)(since) },
         limitMs: (Number.isInteger(config.waitOnMinutes) ? config.waitOnMinutes : 90) * MIN,
       })
@@ -2627,7 +2631,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
   const sideCardsKept = lateSides.filter(one => one.late.id !== null && sideKeepOf(one) !== null).map(({ late }) => ({ id: late.id, who: late.who, chat: late.chat, wait: late.wait }))
   const sideWordsClose = !workOk || isHolding(pauseRecord) ? [] : sideClosesOf({
     words: sideWords, isFull: limitFull, runningMs: sideRunningMs,
-    liveKeys: new Set([...raw.work.items.values()].filter(item => item.head.get('Kind') === 'step' && ['taken', 'in progress'].includes(item.head.get('State')) && waitsOnOf(item) !== null).map(item => sideKeyOf(item.head.get('Id'), waitsOnOf(item)))),
+    liveKeys: new Set([...raw.work.items.values()].filter(item => item.head.get('Kind') === 'step' && isWaitingHeld(item) && waitsOnOf(item) !== null).map(item => sideKeyOf(item.head.get('Id'), waitsOnOf(item)))),
   })
   const lateCards = lateSides.filter(one => !one.side.hold).map(({ late, side }) => (side.note === null ? late : { ...late, note: side.note }))
   // The asset wait (2026-11-11): a request of a holder for its step past the provider's time limit for a job (work/assetWait.mjs

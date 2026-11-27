@@ -12,7 +12,7 @@
 
 import { modAtLeast, handedBackOf } from '../clearOwed.mjs'
 import { match } from './handOut.mjs'
-import { GIVEN_BACK, GIVE_BACK_MINUTES, RESUME_KIND, RESUME_MINUTES, continuationLine, continuationOf, holderTimers, markerStep } from './holderTimers.mjs'
+import { GIVEN_BACK, GIVE_BACK_MINUTES, RESUME_KIND, RESUME_MINUTES, continuationLine, continuationOf, holderTimers, isPutDownLine, markerStep } from './holderTimers.mjs'
 import { sinceMs, valueOf } from './item.mjs'
 import { reportCheckFailedOf } from './resultCheck.mjs'
 import { holdEndOf } from './pause.mjs'
@@ -261,7 +261,8 @@ export function notOfferedAgain(items, name, prefix = '') {
   for (const item of items.values()) {
     if (kindOf(item) !== 'step') continue
     for (const line of historyOf(item)) {
-      const hit = back.exec(line) ?? GIVEN_BACK.exec(line)
+      // F74: a put-down bars nobody: its builder is the one we want back on it (holderTimers.mjs `isPutDownLine`).
+      const hit = back.exec(line) ?? (isPutDownLine(line) ? null : GIVEN_BACK.exec(line))
       if (hit !== null && plain(hit[2], prefix) === plain(name, prefix) && sinceMs(hit[1]) >= since) ids.add(valueOf(item, 'Id'))
     }
   }

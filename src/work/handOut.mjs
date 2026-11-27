@@ -119,7 +119,8 @@ function staleQaWhy(item, items, now) {
  * (rank -1, T9.1.1: the person, 2026-10-27, "checks go before new steps"), then a fix (rank 0), then a
  * task of the focus goal (1), then a task of the backup focus (1.5: `backup` and the goals under it, `backupGoals`; the person,
  * 2026-11-24, "i prefer to pick up fix items from the backlog before focusing on the backup focus"), then the rest (2): the tasks the person added to the queue (`added`, its stamp) in the
- * order they were added, then the others by id; ranks -1, 0, 1 and 1.5 each by id. With the worker it is kept for (`keptFor`: its
+ * order they were added, then the others by id; ranks -1, -0.5 (F74: nearly finished work, a step put down while it waited or a fix round of
+ * a built step, NEARLY_RANK), 0, 1 and 1.5 each by id. With the worker it is kept for (`keptFor`: its
  * pin, else, with `followUpMs` above 0, the worker it is a follow-up of, until `keptUntil`), its pin (`pinned`), and
  * (`followUpMs` 0, the default: a preference only) the worker it goes to when that one is idle at the give (`prefers`).
  * A task of rank 2 neither pinned nor added is held for the person's choice (`choice: true`, CHOICE_WHY) unless
@@ -155,7 +156,7 @@ export function readyList(items, { now, focus = null, focusGoals = [], backup = 
     const overlap = overlapIn(items, item, COUNTS_FOR_TOUCHES)
     if (overlap !== null) {
       // F5 review 12: the words say where that step stands: given, waiting on the person, or under way.
-      held.push({ id, why: `waits: same files as ${overlap.id}, ${overlap.state === 'queued' ? 'given' : overlap.state === 'waiting on you' ? 'which waits for you' : 'under way'}`, overlap: overlap.id })
+      held.push({ id, why: `waits: same files as ${overlap.id}, ${overlap.state === 'queued' ? 'given' : overlap.state === 'waiting on you' ? 'which waits for you' : overlap.state === 'put down' ? 'put down (nearly finished: it comes first)' : 'under way'}`, overlap: overlap.id })
       continue
     }
     const pinned = valueOf(item, 'Pinned') === null ? null : bare(valueOf(item, 'Pinned'), prefix)
@@ -200,8 +201,9 @@ export const isNearlyFinished = (item, items) => {
   const root = rootId === null ? undefined : items.get(rootId)
   if (root === undefined || !['review', 'done'].includes(stateOf(root))) return false
   const id = idOf(item)
-  const made = new RegExp(`(?:result check failed:.*\\bfix ${id}\\b|\\b(?:sent back|send back|next try)\\b.*\\b${id}\\b)`, 'i')
-  return (root.sections?.get('History') ?? []).some(line => made.test(String(line)))
+  const made = new RegExp(`result check failed:.*\\bfix ${id}\\b`, 'i')
+  // The person's Send back writes its words on the FIX (api.mjs `acceptAnswer`: "made by your Send back in Q<n>"), the check's on the root.
+  return (root.sections?.get('History') ?? []).some(line => made.test(String(line))) || (item.sections?.get('History') ?? []).some(line => /\bmade by .*\bSend back\b/i.test(String(line)))
 }
 
 /** The History line of the board's give (api.mjs `give`). */

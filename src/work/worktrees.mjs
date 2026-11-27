@@ -364,6 +364,9 @@ const hours = ms => `${Math.round(ms / (60 * MIN))} h`
  * and the worktree was not used since the give-back: no step holds it, and it goes after RECENT_MS unused, merged or not
  * (its branch keeps the commits), so the next worker can check the branch out. `runs` unknown (null): nothing changes.
  */
+/** Signals change 3 and F74: a give-back's worktree is left once its worker's process is gone, a put-down's at once (its builder works on). */
+export const isLeftBack = (back, runs) => back !== null && back !== undefined && Number.isFinite(back.at) && (back.putDown === true || runs(back.chat) === false)
+
 export async function findLeftovers({ repos, project = '', items = [], run, fs = FILES, now = Date.now(), keep = [], platform = process.platform, runs = () => null }) {
   const steps = [...(items instanceof Map ? items.values() : items)]
     .filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && OPEN_STATES.includes(valueOf(item, 'State')) && typeof valueOf(item, 'Id') === 'string')
@@ -371,7 +374,8 @@ export async function findLeftovers({ repos, project = '', items = [], run, fs =
   const givenBack = [...(items instanceof Map ? items.values() : items)]
     .filter(item => (valueOf(item, 'Kind') ?? 'step') === 'step' && typeof valueOf(item, 'Id') === 'string')
     .map(item => ({ item, back: givenBackOf(item).at(-1) ?? null }))
-    .filter(one => one.back !== null && Number.isFinite(one.back.at) && runs(one.back.chat) === false)
+    // F74: a put-down's builder runs on (its next step): its worktree is left once unused since the put-down, whatever `runs` says.
+    .filter(one => isLeftBack(one.back, runs))
   const leftBy = (path, branch) => givenBack.find(({ item }) => namesStep(nameOf(path), valueOf(item, 'Id')) || (branch !== null && ownBranch(valueOf(item, 'Branch')) === branch))?.back ?? null
   // B751: a worktree named for a step that is done or dropped is that step's, wherever it lies.
   const closed = [...(items instanceof Map ? items.values() : items)]

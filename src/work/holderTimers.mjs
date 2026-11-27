@@ -109,6 +109,8 @@ export function putDownOf(item) {
   return { builder: value.slice(0, at).trim(), at: finite(when) ? when : null }
 }
 const PUT_IT_DOWN = /\bput it down\b/
+/** Whether a History line is the put-down's (every reader that treats a give-back as "did not resume" skips it). */
+export const isPutDownLine = line => PUT_IT_DOWN.test(String(line ?? ''))
 /** A History line that took a step: "queued → taken", "queued → in progress" (`[, stamp, who]`). */
 const TAKE_LINE = /^-\s+(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)\s+([^:]{1,80}): queued → (?:taken|in progress)\b/
 
@@ -123,7 +125,7 @@ export function givenBackOf(item) {
 }
 
 /** When a step was last taken (any taker), or -Infinity. */
-const lastTakenAt = item => Math.max(-Infinity, ...historyOf(item).map(line => TAKE_LINE.exec(line)).filter(Boolean).map(hit => sinceMs(hit[1])).filter(finite))
+export const lastTakenAt = item => Math.max(-Infinity, ...historyOf(item).map(line => TAKE_LINE.exec(line)).filter(Boolean).map(hit => sinceMs(hit[1])).filter(finite))
 
 /**
  * The give-back the step's next hand-out continues from, or null: its newest give-back, when no take came after it.
@@ -174,7 +176,8 @@ export function givenBackFrom(items, name, prefix = '') {
   const found = []
   for (const item of items.values()) {
     for (const back of givenBackOf(item)) {
-      if (plain(back.chat, prefix) === plain(name, prefix) && finite(back.at) && back.at >= since) found.push({ id: valueOf(item, 'Id'), at: back.at })
+      // F74: a put-down is a planned event, no "did not resume": no amber for it.
+      if (back.putDown !== true && plain(back.chat, prefix) === plain(name, prefix) && finite(back.at) && back.at >= since) found.push({ id: valueOf(item, 'Id'), at: back.at })
     }
   }
   return found.sort((a, b) => a.at - b.at)

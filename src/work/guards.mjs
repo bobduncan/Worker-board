@@ -10,6 +10,7 @@ import { fixesThrough, gitCheckPassed, needsResultCheck, resultCheckOf } from '.
 import { refineAsksOf } from './stepAsks.mjs'
 import { rethinkWords } from './rethink.mjs'
 import { waitsOnOf } from './waitsOn.mjs'
+import { putDownOf } from './holderTimers.mjs'
 
 const idsIn = value => (value ?? '').match(/\b[A-Z]\d+\b/g) ?? []
 const asksOf = (item, ctx) => [...(ctx.store?.items?.values() ?? [])]
@@ -159,10 +160,12 @@ export function overlapIn(items, item, states = UNDER_WAY) {
   const mine = touchesOf(item)
   if (mine.length === 0) return null
   for (const other of items.values()) {
-    if (other === item || valueOf(other, 'Id') === valueOf(item, 'Id') || !states.includes(valueOf(other, 'State'))) continue
+    // F74: a step the board put down (refined, its builder named) still holds its files: new work on them waits for it, not the other way round.
+    const isPutDown = valueOf(other, 'State') === 'refined' && putDownOf(other) !== null
+    if (other === item || valueOf(other, 'Id') === valueOf(item, 'Id') || (!states.includes(valueOf(other, 'State')) && !isPutDown)) continue
     for (const theirs of touchesOf(other)) {
       const own = mine.find(one => covers(one, theirs))
-      if (own !== undefined) return { id: valueOf(other, 'Id'), state: valueOf(other, 'State'), mine: named(own), theirs: named(theirs) }
+      if (own !== undefined) return { id: valueOf(other, 'Id'), state: isPutDown ? 'put down' : valueOf(other, 'State'), mine: named(own), theirs: named(theirs) }
     }
   }
   return null
