@@ -25,7 +25,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, rmSync } from 'node:fs'
 import { appendFile, copyFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
-import { constants as osConstants, cpus as osCpus, setPriority, tmpdir } from 'node:os'
+import { constants as osConstants, cpus as osCpus, homedir, setPriority, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -42,6 +42,7 @@ import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
+import { listRetros, mayRun, readRetro, retroFolderOf, retroWords, runView } from './src/retro.mjs'
 import { cpuLimiter, levelWho, logicalCores, powershell, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { masksOf, modeFileOf, modeWriter, TOPOLOGY_SCRIPT, topologyOf, writesModeOf } from './src/cpuTopology.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
@@ -221,6 +222,8 @@ const FILES = {
   '/board.css': ['board.css', 'text/css; charset=utf-8'],
   '/board.js': ['board.js', 'text/javascript; charset=utf-8'],
   '/spending.js': ['spending.js', 'text/javascript; charset=utf-8'],
+  // The Retrospective tab (chat 1's brief, 2026-11-27): its own script, as the Spending tab's.
+  '/retro.js': ['retro.js', 'text/javascript; charset=utf-8'],
 }
 // B348: the help tour's six pictures, by name only. B375: drawings of the board (tools/help-pictures.mjs), as SVG.
 for (const name of ['1-install', '2-initialise', '3-talk', '4-go', '5-workers', '6-check']) {
@@ -335,6 +338,8 @@ export const POST_ROUTES = Object.freeze({
   // Asset providers, part D: the new board's first-run setup (src/providers/setup.mjs).
   '/api/setup': { kind: 'json', guard: 'lock' },
   '/api/game': { kind: 'json', guard: 'free', why: 'starts or stops a game process of this board\'s own; writes nothing of the project' },
+  // The Retrospective tab's button: one word to the main chat into the outbox, and data/retro-run.json.
+  '/api/retro-run': { kind: 'json', guard: 'lock' },
   '/api/cpu': { kind: 'json', guard: 'free', why: 'the CPU level kept in this board folder\'s own data, not the project\'s' },
   // B767: the setup check's Allow: the missing tool rules into the project's own settings, on the person's click.
   '/api/code-jobs': { kind: 'json', guard: 'lock' },
@@ -393,6 +398,9 @@ export function createBoard({
   demoFeedback = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeWork = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   cpu = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  retro = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  retroPage = async () => ({ ok: false, status: 404, why: 'Not here.' }),
+  retroRun = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   codeJobs = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   homeFile = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   settings = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -548,6 +556,11 @@ export function createBoard({
         const done = await work(parsed)
         return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
       }
+      if (pathname === '/api/retro-run') {
+        // Who asked, as for the CPU level: a chat by name or session, else the board page, else a script.
+        const done = await retroRun({ ...parsed, by: levelWho(req.headers, parsed) })
+        return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+      }
       if (pathname === '/api/cpu') {
         // S4: who switched the level (F69's open part), from the call itself; a body's own `who` is not taken.
         const done = await cpu({ ...parsed, who: levelWho(req.headers, parsed) })
@@ -663,6 +676,17 @@ export function createBoard({
       if (!mayUse) return refuse(res, 403, "Only the board's own page may read.")
       const card = await askCard(searchParams.get('id') ?? '')
       return card === null ? refuse(res, 404, 'No such ask.') : json(res, card)
+    }
+    // The Retrospective tab: the list of pages with the button's state, and one page's text by its date.
+    if (pathname === '/api/retro') {
+      if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
+      const done = await retro()
+      return done.ok ? json(res, done.result) : refuse(res, done.status, done.why)
+    }
+    if (pathname === '/api/retro-page') {
+      if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
+      const done = await retroPage(searchParams.get('date') ?? '')
+      return done.ok ? send(res, 200, 'text/plain; charset=utf-8', done.result) : refuse(res, done.status, done.why)
     }
     if (pathname === '/api/picture') {
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
@@ -2842,6 +2866,48 @@ async function main(args) {
     setInterval(applyCpu, Math.max(5, config.refreshSeconds) * 1000)
   }
 
+  /**
+   * The Retrospective tab (chat 1's brief, 2026-11-27): the pages of the project's weekly retrospective and the button that asks
+   * the main chat to run one now. The word waits in the outbox as every board word, and is delivered or woken as they are; what
+   * the board knows of the run is kept in data/retro-run.json, the button's state comes from it, the word and the pages.
+   */
+  const RETRO_RUN = join(HERE, 'data', 'retro-run.json')
+  const RETRO_SKILL = join(homedir(), '.claude', 'scheduled-tasks', 'lava-weekly-retrospective', 'SKILL.md')
+  const retroFolder = () => (config.project ? retroFolderOf(config.project) : null)
+  const readRetroRun = async () => readFile(RETRO_RUN, 'utf8').then(text => JSON.parse(text), error => (error?.code === 'ENOENT' ? null : Promise.reject(error)))
+  const retroNow = async () => {
+    const folder = retroFolder()
+    const pages = folder === null ? [] : await listRetros(folder)
+    const run = await readRetroRun()
+    const outbox = store.outbox()
+    // The word may leave the outbox some time after it was taken: when it was taken is kept with the run.
+    const word = run === null ? null : outbox.find(one => one.id === run.wordId) ?? null
+    if (run !== null && word?.takenAt && run.takenAt !== word.takenAt) await writeAtomic(RETRO_RUN, `${JSON.stringify({ ...run, takenAt: word.takenAt })}\n`)
+    return { pages: pages.map(({ date, oneLine, at }) => ({ date, oneLine, at })), run: runView({ run: run === null ? null : { ...run, takenAt: word?.takenAt ?? run.takenAt }, pages, outbox, now: clock() }) }
+  }
+  const retroActions = () => ({
+    retro: async () => ({ ok: true, result: await retroNow() }),
+    retroPage: async date => {
+      const folder = retroFolder()
+      const text = folder === null ? null : await readRetro(folder, date)
+      return text === null ? { ok: false, status: 404, why: 'No retrospective of that date.' } : { ok: true, result: text }
+    },
+    retroRun: async body => {
+      if (isDemo || isShowOnly || historyFrom !== undefined) return { ok: false, status: 409, why: 'This board runs no retrospective: use the board that delivers.' }
+      const state = await readState()
+      const main = state.restart?.main ?? null
+      if (main === null) return { ok: false, status: 409, why: 'No main chat on the board to run it.' }
+      const now = await retroNow()
+      if (!mayRun(now.run)) return { ok: false, status: 409, why: `A retrospective is ${now.run.state === 'requested' ? 'asked for' : 'running'} already, since ${timeOf(now.run.since)}.` }
+      const message = { id: randomBytes(8).toString('hex'), at: clock(), ...retroWords(main, RETRO_SKILL), state: 'waiting' }
+      await store.say(message)
+      await mkdir(dirname(RETRO_RUN), { recursive: true })
+      await writeAtomic(RETRO_RUN, `${JSON.stringify({ requestedAt: message.at, by: typeof body?.by === 'string' ? body.by : null, to: main, wordId: message.id })}\n`)
+      readState.reset()
+      return { ok: true, result: await retroNow() }
+    },
+  })
+
   /** The person's words to a chat (POST /api/say), also for the board's own "resume" after Resume all. */
   let sayNow = null
   // B361: the settings panel's "Approve rebuilds by itself" and the other settings, one change at a time.
@@ -3633,6 +3699,7 @@ async function main(args) {
       if (isDemo || isShowOnly) return { ok: false, status: 409, why: 'This board keeps no setup.' }
       return setupAction(setupFile, body, { config, checks: providerChecks, now: clock() })
     }),
+    ...retroActions(),
     cpu: async body => (cpu === null ? { ok: false, status: 409, why: 'This board sets no CPU: it is the demo, or it shows the history of another board.' } : cpu.set(body?.level, body?.who ?? null)),
     // T5.2 A6b: the person's click on a home file's line; the board never writes these by itself.
     homeFile: async body => {

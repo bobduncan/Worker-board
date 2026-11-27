@@ -3595,3 +3595,30 @@ body.is-in-setup { overflow: hidden; }
   .goals-roadmap-list { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 }
 .goals-tools small { order: 5; }
+
+/* The Retrospective tab (public/retro.js): the button, the weeks newest first, one page opened as text. Quiet tones only: amber,
+   gold, orange and red ask for attention. */
+.retro-view { padding: 28px clamp(16px, 4vw, 64px); overflow: auto; }
+#retro-content { max-width: 900px; margin: 0 auto; padding-bottom: 40px; }
+.retro-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.retro-title { font-size: 26px; margin: 0; flex: 1 1 auto; }
+.retro-head .retro-muted { flex-basis: 100%; }
+.retro-run { padding: 9px 14px; border: 1px solid #4a5a78; border-radius: 8px; color: #e9eef8; background: #24304a; cursor: pointer; font-weight: 600; }
+.retro-run:disabled { opacity: .55; cursor: default; }
+.retro-muted { color: #a5a9b8; font-size: 12px; line-height: 1.6; margin: 6px 0; }
+.retro-weeks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.retro-week { background: #1c1c28; border: 1px solid #363545; border-radius: 10px; }
+.retro-week.is-newest { border-color: #4a5a78; }
+.retro-week-open { display: grid; gap: 4px; width: 100%; text-align: left; padding: 14px 18px; background: none; border: 0; color: #e9e8f1; cursor: pointer; font: inherit; }
+.retro-one-line { color: #c9cbd6; font-size: 13px; line-height: 1.5; }
+.retro-page { padding: 0 18px; }
+.retro-page:not(:empty) { padding: 4px 18px 16px; border-top: 1px solid #2c2b3a; }
+.retro-heading { margin: 16px 0 6px; font-size: 15px; color: #f0edf8; }
+.retro-paragraph, .retro-list { font-size: 13px; line-height: 1.65; color: #d6d6e0; margin: 6px 0; }
+.retro-list { padding-left: 22px; }
+ol.retro-list { list-style: decimal; }
+ul.retro-list { list-style: disc; }
+.retro-table-scroll { overflow-x: auto; }
+.retro-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
+.retro-table th, .retro-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #2c2b3a; }
+@media (max-width: 420px) { .retro-view { padding: 20px 12px; } }

@@ -12351,6 +12351,7 @@ function tabOfAddress(hash) {
   if (hash === '#bugs') return 'bugs'
   if (hash === '#vision') return 'vision'
   if (hash === '#spending') return 'spending'
+  if (hash === '#retro') return 'retro'
   if (hash === '#settings') return 'settings'
   return null
 }
@@ -23860,6 +23861,9 @@ function show(tab) {
   $('view-bugs').hidden = tab !== 'bugs'
   $('view-vision').hidden = tab !== 'vision'
   if ($('view-spending')) $('view-spending').hidden = tab !== 'spending'
+  // The Retrospective tab (public/retro.js): it reads its pages when it is shown, and while it stays open.
+  if ($('view-retro')) $('view-retro').hidden = tab !== 'retro'
+  if (tab === 'retro') window.BoardRetro?.open(TOKEN)
   $('view-settings').hidden = tab !== 'settings'
   // The address says which tab is open, so a reload stays on it. A link to a step's details is left as it is.
   // B149: so is a worker's link to a picture or to the game, until it is followed.

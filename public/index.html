@@ -8,6 +8,7 @@
   <title>Worker board</title>
   <link rel="stylesheet" href="/board.css">
   <script src="/spending.js" defer></script>
+  <script src="/retro.js" defer></script>
   <script src="/board.js" defer></script>
 </head>
 <body>
@@ -29,6 +30,7 @@
       <button class="tab" type="button" data-tab="coordinate">Backlog</button>
       <button class="tab" type="button" data-group="new">New</button>
       <button class="tab" type="button" data-tab="spending">Spending</button>
+      <button class="tab" type="button" data-tab="retro">Retrospective</button>
     </div>
     <span class="grow"></span>
     <button class="waits-button" id="waits-for-you" type="button" title="Open Needs your attention on the Overview" hidden></button>
@@ -122,6 +124,7 @@
   </div>
 
   <div class="view spending-view" id="view-spending" hidden><main id="spending-content" aria-live="polite"></main></div>
+  <div class="view retro-view" id="view-retro" hidden><main id="retro-content" aria-live="polite"></main></div>
   <div class="view" id="view-overview" data-mode="simple">
     <main class="overview">
       <header class="head">
