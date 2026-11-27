@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { counterRows, latenessStats, loadStats, quantile, samplerScript, tickLoop } from '../../tools/perf/lag-probe.mjs'
-import { CASES, MASKS, caseOf, folderOf, loadCommand, queuedCaseArgs, tableOf } from '../../tools/perf/matrix.mjs'
+import { CASES, MASKS, caseOf, folderOf, loadCommand, queuedCaseArgs, tableOf, unfenceSelf, withoutFence } from '../../tools/perf/matrix.mjs'
 import { gateResults, gatesOf, groupOf, parseRuns, perDay, readAll, report, shareOf, stepShare, unionMs } from '../../tools/perf/run-share.mjs'
 import { clipArgs, edgeArgs, frameStats, serveProbe } from '../../tools/perf/video-probe/video-probe.mjs'
 import { lockPath } from '../../tools/one-at-a-time.mjs'
@@ -76,9 +76,16 @@ test('video probe: dropped frames and the gaps between shown frames; the server 
 
 test('matrix: the cases a-h, a pinned load starts under start /AFFINITY with its mask (Low at Idle), each case queued as an ordinary run', () => {
   assert.deepEqual(CASES.map(one => one.id), ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'])
-  assert.deepEqual(MASKS, { work: 'FFFFF0', eCores: 'FF0000', low: 'C00000' })
+  assert.deepEqual(MASKS, { all: 'FFFFFF', work: 'FFFFF0', eCores: 'FF0000', low: 'C00000' })
   assert.equal(loadCommand(caseOf('a')), null)
-  assert.equal(loadCommand(caseOf('b')), 'npm run test:screens')
+  // Since S5 the queue fences the case's run: "as before the fence" is every core, said by its own mask.
+  assert.equal(loadCommand(caseOf('b')), 'start "" /B /WAIT /AFFINITY FFFFFF cmd /d /s /c "npm run test:screens"')
+  assert.equal(loadCommand(caseOf('f')), 'start "" /B /WAIT /AFFINITY FFFFFF cmd /d /s /c "npm test"')
+  assert.deepEqual(withoutFence({ HEAVY_RUN_MASK: '0xF', HEAVY_RUN_CORES: '2', HEAVY_RUN_PRIORITY: 'Idle', PATH: 'p' }), { PATH: 'p' })
+  assert.equal(unfenceSelf({ platform: 'linux' }), 'not Windows')
+  let script = ''
+  assert.equal(unfenceSelf({ platform: 'win32', run: text => { script = text; return { status: 0 } } }), null)
+  assert.match(script, /ProcessorAffinity = \[IntPtr\]\[long\]\d+; \$p\.PriorityClass = 'Normal'/)
   assert.equal(loadCommand(caseOf('c')), 'start "" /B /WAIT /AFFINITY FFFFF0 cmd /d /s /c "npm run test:screens"')
   assert.equal(loadCommand(caseOf('d')), 'start "" /B /WAIT /AFFINITY FF0000 cmd /d /s /c "npm run test:screens"')
   assert.equal(loadCommand(caseOf('g')), 'start "" /B /WAIT /AFFINITY FFFFF0 cmd /d /s /c "npm test"')

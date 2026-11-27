@@ -11,6 +11,7 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpus } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -23,6 +24,7 @@ const BOARD = resolve(HERE, '..', '..')
 
 /** The masks of this PC (24 logical processors: 0-15 the 8 P-cores with their threads, 16-23 the E-cores). */
 export const MASKS = Object.freeze({
+  all: 'FFFFFF', // every logical processor: the loads "as before the fence" (S5 fences every queued run since 2026-11-27)
   work: 'FFFFF0', // LP4-23: all but the person's two P-cores
   eCores: 'FF0000', // LP16-23
   low: 'C00000', // LP22-23: the board's Low level (cpu.mjs), at Idle
@@ -34,11 +36,11 @@ export const MASKS = Object.freeze({
  */
 export const CASES = Object.freeze([
   { id: 'a', what: 'idle', load: null },
-  { id: 'b', what: 'game screen check as today (all cores, below normal)', load: { in: 'game', command: 'npm run test:screens' } },
+  { id: 'b', what: 'game screen check as today (all cores, below normal)', load: { in: 'game', command: 'npm run test:screens' }, mask: MASKS.all },
   { id: 'c', what: 'the same pinned to LP4-23', load: { in: 'game', command: 'npm run test:screens' }, mask: MASKS.work },
   { id: 'd', what: 'the same pinned to the E-cores LP16-23', load: { in: 'game', command: 'npm run test:screens' }, mask: MASKS.eCores },
-  { id: 'e', what: 'the card screen check (B1517)', load: { in: 'card', command: 'npm run test:screens' } },
-  { id: 'f', what: 'a board gate as today', load: { in: 'board', command: 'npm test' } },
+  { id: 'e', what: 'the card screen check (B1517)', load: { in: 'card', command: 'npm run test:screens' }, mask: MASKS.all },
+  { id: 'f', what: 'a board gate as before the fence (all cores)', load: { in: 'board', command: 'npm test' }, mask: MASKS.all },
   { id: 'g', what: 'a board gate pinned to LP4-23', load: { in: 'board', command: 'npm test' }, mask: MASKS.work },
   // h runs the screen check's own command, not npm run test:screens: the game's queue helper starts its command at below
   // normal (startLow, B1520), which would lift the Idle that Low sets.
@@ -73,6 +75,22 @@ export function folderOf(one, folders) {
   return folders[one.load.in] ?? null
 }
 
+/** The words a fenced queue run hands its command (S5): a case's load starts from none of them, as before the fence. */
+export const FENCE_WORDS = ['HEAVY_RUN_MASK', 'HEAVY_RUN_CORES', 'HEAVY_RUN_PRIORITY']
+export const withoutFence = env => Object.fromEntries(Object.entries(env).filter(([name]) => !FENCE_WORDS.includes(name)))
+
+/**
+ * Since S5 the queue fences the run that holds the slot, so a case starts on the work cores at below normal. The probe stands in
+ * for the person's own program, which runs on every core at Normal: the case puts itself back there before it measures (each
+ * load then gets its own cores by its mask). Windows only; a refusal leaves it as it is and says so.
+ */
+export function unfenceSelf({ platform = process.platform, run = script => spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true }) } = {}) {
+  if (platform !== 'win32') return 'not Windows'
+  const all = BigInt.asIntN(64, (1n << BigInt(Math.min(64, cpus().length))) - 1n)
+  const done = run(`$p = Get-Process -Id ${process.pid}; $p.ProcessorAffinity = [IntPtr][long]${all}; $p.PriorityClass = 'Normal'`)
+  return done.status === 0 ? null : `the case could not leave the fence (${String(done.stderr ?? '').trim().split(/\r?\n/)[0]})`
+}
+
 /** Runs one case (the caller holds the queue's slot): the line of its numbers. */
 export async function runCase(one, { folders = {}, video = false, probeS = PROBE_S, warmS = WARM_S, env = process.env } = {}) {
   const at = new Date().toISOString()
@@ -85,7 +103,7 @@ export async function runCase(one, { folders = {}, video = false, probeS = PROBE
   if (!cwd || !existsSync(cwd)) return { ...line, why: `no folder for the ${one.load.in} load (--${one.load.in})` }
   const began = Date.now()
   // HEAVY_RUN_HELD: the load's own heavy run is part of this case's slot, as a gate's screen check is part of the gate.
-  const child = spawn('cmd.exe', ['/d', '/s', '/c', loadCommand(one)], { cwd, windowsHide: true, windowsVerbatimArguments: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...env, HEAVY_RUN_HELD: '1' } })
+  const child = spawn('cmd.exe', ['/d', '/s', '/c', loadCommand(one)], { cwd, windowsHide: true, windowsVerbatimArguments: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...withoutFence(env), HEAVY_RUN_HELD: '1' } })
   let tail = ''
   const keep = data => (tail = `${tail}${data}`.slice(-4000))
   child.stdout.on('data', keep)
@@ -136,6 +154,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } else if (argOf(argv, '--case') !== undefined) {
     const one = caseOf(argOf(argv, '--case'))
     if (one === null) throw new Error(`There is no case ${argOf(argv, '--case')}.`)
+    const stillFenced = unfenceSelf()
+    if (stillFenced) console.log(`case ${one.id}: ${stillFenced}`)
     const line = await runCase(one, { folders, video: argv.includes('--video'), probeS: Number(argOf(argv, '--probe') ?? PROBE_S) })
     appendFileSync(out, `${JSON.stringify(line)}\n`)
     console.log(JSON.stringify(line))
