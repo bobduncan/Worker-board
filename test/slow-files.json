@@ -36,6 +36,16 @@
       "src/say.mjs",
       "src/work/handover.mjs"
     ],
+    "test/wakeOutcomesBoard.test.mjs": [
+      "@board",
+      "src/wake.mjs",
+      "src/wakeCarry.mjs",
+      "src/hands.mjs",
+      "src/store.mjs",
+      "src/opener.mjs",
+      "src/supervisor/view.mjs",
+      "src/supervisor/rules/watch.mjs"
+    ],
     "test/wakeCarryBoard.test.mjs": [
       "@board",
       "src/wake.mjs",

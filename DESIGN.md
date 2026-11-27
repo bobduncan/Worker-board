@@ -9486,7 +9486,21 @@ Design note: `.claude/plans/2026-11-27-p2-failed-wakes-design.md`.
   path, by, carry, outcome arrived/failed, slow, afterMs, why), on the board that delivers only; the retrospective's script
   `.claude/overview/delivery-review/scripts/wakes/a.mjs` counts the wakes that arrived or failed and the launches that worked.
 
-The hands route (server.mjs `handsDone`) settles a wake word whose failed result was the slow answer as typed, not failed: the word went.
+The hands route (server.mjs `handsDone`) settles a wake word whose failed result was the slow answer as typed, not failed: the word went, and
+it is that hand's send that went (B1271's lift), as the hand's ok is.
+
+Chat 1's core review (2026-11-27): (1) after a slow answer with no report in the two minutes the launch goes at once: no B1279 carry word, since
+the app itself said the chat did not start on the message (`isHandSend`, the one rule for what counts as a hand's send: not carried, not refused,
+not slow, and sent). (2) `wake-nothing-runs` fires on no single snapshot: the courier must be silent for its window and ten minutes more by its
+own call time, or, when it never called this board, the board must have run that long (NOTHING_RUNS_GRACE_MS); the Do stands first in the
+title and names both causes (open the app; if it is open, turn on the courier task of the signed-in account); a chat with no attempt at all is
+no launch-only failure (its own finding stands). (3) The finding's evidence is one line. (4) A chat that woke by itself before the board's
+message went (`heard`'s `self`, or a message never sent) is the outcome `self`, never an arrival; the retrospective's script counts it apart.
+(6) VERDICTS is the one list of an attempt's verdicts. Tests: test/wakeRecorded.test.mjs (the launch after a slow silence, a plain silent send
+still carried, self wakes), test/supervisor/wakeNothingRuns.test.mjs (the grace by the courier's time and the board's start, the Do, the
+evidence, the unreachable chat; the wiring from the record's courierAt through the state to the view and the rule), test/wakeOutcomesBoard.test.mjs
+(a dead chat on a running board: the failed outcome line by the clock and the launch that follows, no carry word; the hand's send fact);
+8 more mutants red.
 
 Tests: test/wakeRecorded.test.mjs (the recorded Advisor, Main and Worker 4 cases, Worker 4 altered to never report, a launch that works,
 the refusal and "not found" shapes, the file), test/supervisor/wakeNothingRuns.test.mjs (the 11-25 case, the courier alive or stale, a

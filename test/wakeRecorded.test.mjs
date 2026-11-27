@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  SLOW_START_WHY, WAKE_VERDICT_MS, claim, emptyWakes, failedToSend, heard, isSlowStart, nextPath, outcomeOf, pass, sent, statusOf, textOfWakes,
+  SLOW_START_WHY, VERDICTS, WAKE_VERDICT_MS, claim, emptyWakes, failedToSend, heard, isHandSend, isSlowStart, nextPath, outcomeOf, pass, sent, statusOf, textOfWakes,
   triedWords, wakeJobId, wakeOf, wakesOfFile, wakeWords,
 } from '../src/wake.mjs'
 
@@ -72,7 +72,7 @@ test('Main, 2026-11-26 10:04: the same with the launch the board made at 10:05:2
   assert.equal(record.wakes.get('Main').at(-1).attempts.length, 1, 'no launch in the record')
 })
 
-test('Worker 4, 2026-11-26 14:03, altered to never report (chat 1\'s addition 1): after the 2 minutes the message fails as any sent message and the normal way follows: one carry word, then the launch, then the final verdict', () => {
+test('Worker 4, 2026-11-26 14:03, altered to never report (chat 1\'s addition 1, its decision 1): after the 2 minutes the message fails as any sent message and the launch follows at once (no carry word: the app said the chat did not start), then the final verdict', () => {
   const record = emptyWakes()
   const spell = at(26, 14, 2, 51)
   const job = wakeJobId(spell, 'Worker 4')
@@ -86,8 +86,9 @@ test('Worker 4, 2026-11-26 14:03, altered to never report (chat 1\'s addition 1)
   assert.deepEqual(outcomeOf(record, 'Worker 4', failed[0].attempt), {
     at: at(26, 14, 5, 22), chat: 'Worker 4', spell, path: 'message', by: 'Worker 1', carry: null, outcome: 'failed', slow: true, afterMs: WAKE_VERDICT_MS, why: 'no report within 2 minutes of the message',
   })
-  // The normal way after a hand's silent send (B1279): one carry word while the hands may send, else the launch.
-  assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: true, paths: PATHS, carry: true }), 'message')
+  // Chat 1's decision 1: no B1279 carry word after a slow silence (the app itself said the session did not start): the launch, at once.
+  assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: true, paths: PATHS, carry: true }), 'launch')
+  assert.equal(isHandSend(record.wakes.get('Worker 4').at(-1).attempts[0]), false, 'a slow send is no hand\'s send for the silent-send rule')
   assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: true, paths: PATHS }), 'launch')
   assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: false, paths: PATHS }), 'launch')
   const launch = claim(record, { chat: 'Worker 4', spell, path: 'launch', by: 'board', jobId: 'launch-w4', now: at(26, 14, 5, 30), runBefore: RUN_OLD, paths: ['launch'] })
@@ -136,6 +137,43 @@ test('the other recorded shapes keep their verdicts: a refusal (X191) and "not f
   const late = failedToSend(record, 'Worker 3', 's', SLOW_ANSWER('Worker 3'), at(5, 20, 40, 22))
   assert.equal(late.verdict, 'failed', 'a second answer after the hand\'s ok is the hand\'s failure, as before')
   assert.equal(late.slow, undefined)
+})
+
+test('a plain hand\'s send that went silent still gets its one carry word (B1279 stands for the sends the app did not judge); isHandSend is the one rule', () => {
+  const record = emptyWakes()
+  const spell = at(26, 14, 2, 51)
+  claim(record, { chat: 'Worker 4', spell, path: 'message', by: 'Worker 1', jobId: 'p', now: at(26, 14, 3, 2), runBefore: RUN_OLD })
+  sent(record, 'Worker 4', 'p', at(26, 14, 3, 5))
+  const [attempt] = record.wakes.get('Worker 4').at(-1).attempts
+  assert.equal(isHandSend(attempt), true)
+  pass(record, at(26, 14, 3, 5) + WAKE_VERDICT_MS)
+  assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: true, paths: PATHS, carry: true }), 'message')
+  assert.equal(nextPath(record, { chat: 'Worker 4', spell, senderClaims: true, paths: PATHS }), 'launch')
+  // Not a hand's send: a carried word, a refused send, one not sent, a launch.
+  assert.equal(isHandSend({ ...attempt, carry: 'courier' }), false)
+  assert.equal(isHandSend({ ...attempt, refused: true }), false)
+  assert.equal(isHandSend({ ...attempt, sentAt: null }), false)
+  assert.equal(isHandSend({ ...attempt, path: 'launch' }), false)
+  assert.deepEqual(VERDICTS, ['woke', 'failed'])
+})
+
+test('chat 1\'s review 4: a chat that woke by itself is its own outcome, never a message that arrived', () => {
+  const record = emptyWakes()
+  const spell = at(25, 20, 22, 42)
+  // A courier word not taken yet when the chat's own report comes (`heard` marks it `self`).
+  claim(record, { chat: 'Worker 2', spell, path: 'message', by: 'the courier', jobId: 'c', now: at(25, 21, 0), runBefore: RUN_OLD, carry: 'courier' })
+  const selfWoke = heard(record, 'Worker 2', { state: 'busy', run: RUN_NEW, at: at(25, 21, 1) }, at(25, 21, 1))
+  assert.equal(selfWoke.self, true)
+  assert.equal(outcomeOf(record, 'Worker 2', selfWoke).outcome, 'self')
+  // A hand's message claimed and not sent yet when the report comes: the same.
+  claim(record, { chat: 'Worker 3', spell, path: 'message', by: 'Worker 1', jobId: 'h', now: at(25, 21, 0), runBefore: RUN_OLD })
+  const early = heard(record, 'Worker 3', { state: 'busy', run: RUN_NEW, at: at(25, 21, 0, 30) }, at(25, 21, 0, 30))
+  assert.equal(early.verdict, 'woke')
+  assert.equal(outcomeOf(record, 'Worker 3', early).outcome, 'self')
+  // A sent message's report: arrived.
+  claim(record, { chat: 'Worker 5', spell, path: 'message', by: 'Worker 1', jobId: 's', now: at(25, 21, 0), runBefore: RUN_OLD })
+  sent(record, 'Worker 5', 's', at(25, 21, 0, 5))
+  assert.equal(outcomeOf(record, 'Worker 5', heard(record, 'Worker 5', { state: 'busy', run: RUN_NEW, at: at(25, 21, 0, 40) }, at(25, 21, 0, 40))).outcome, 'arrived')
 })
 
 test('the file keeps the slow mark', () => {

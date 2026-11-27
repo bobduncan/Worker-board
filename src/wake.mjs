@@ -53,6 +53,8 @@ export const WORDS_LINE = 'The worker board holds words for you: run work next'
 export const takeLine = step => `take ${step} in this turn: run work next`
 /** The states of a wake still on its way: the hand-over's net does not run for them (decision 10). */
 export const WAKE_PENDING = ['waiting-sender', 'on-its-way', 'sent', 'launched']
+/** The verdicts an attempt can have (null while pending): one list for the record, the file and the outcome line. */
+export const VERDICTS = ['woke', 'failed']
 /**
  * P2.1 (chat 3, 2026-11-27; 9 of the 10 message failures of 11-25..11-27): the app's send answers "not delivered: that session gave no sign
  * of starting on it within 20s" for a chat whose process must first start; the chat came up 40-60 s after every such message (the lane log:
@@ -64,6 +66,12 @@ export const SLOW_START = /gave no sign of starting[\s\S]{0,80}within \d{1,4}\s*
 export const isSlowStart = why => SLOW_START.test(String(why ?? ''))
 /** The words of such a send on the page and in the board.log. */
 export const SLOW_START_WHY = 'the app took longer than 20 s to start it'
+/**
+ * A hand's own send that went (its mod's code call, not a carried word): the one rule for B1279's silent send and the record's send facts.
+ * P2.1 (chat 1's review, decision 1): a slow-answered send is none here: the app itself said the chat did not start on it, so a second message
+ * (the carry word) is pointless; after its two minutes the launch goes at once.
+ */
+export const isHandSend = attempt => attempt.path === 'message' && attempt.carry == null && attempt.refused !== true && attempt.slow !== true && isTime(attempt.sentAt)
 
 /** A chat's CLI session id as the app's list holds it: a UUID, and nothing else ever reaches the launch (opener.mjs re-exports it). */
 export const isSessionId = session => typeof session === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session)
@@ -237,7 +245,7 @@ export function nextPath(record, { chat, spell, senderClaims, senderSince = -Inf
 }
 
 /** B1279: the spell's message tries are a hand's code sends only, each went (`sentAt`) and failed for want of a report. */
-const isSilentHandSend = messages => messages.length > 0 && messages.every(one => one.carry == null && isTime(one.sentAt) && one.verdict === 'failed')
+const isSilentHandSend = messages => messages.length > 0 && messages.every(one => isHandSend(one) && one.verdict === 'failed')
 
 /**
  * B1279 (X205): whether this chat's spell waits for a carry word after a silent hand send (`nextPath` with `carry`), for the carry pass
@@ -551,12 +559,14 @@ export function wakeOf(record, need, { senderClaims = false, senderSince = -Infi
  * outcome, slow, afterMs, why }`; `afterMs` from the send (or the claim) to the verdict. Null for an attempt without a verdict.
  */
 export function outcomeOf(record, chat, attempt) {
-  if (attempt === null || attempt === undefined || !['woke', 'failed'].includes(attempt.verdict) || !isTime(attempt.verdictAt)) return null
+  if (attempt === null || attempt === undefined || !VERDICTS.includes(attempt.verdict) || !isTime(attempt.verdictAt)) return null
   const entry = entriesOf(record, chat).find(one => one.attempts.includes(attempt)) ?? null
   const from = isTime(attempt.sentAt) ? attempt.sentAt : attempt.at
   return {
     at: attempt.verdictAt, chat, spell: entry?.spell ?? null, path: attempt.path, by: attempt.by, carry: attempt.carry ?? null,
-    outcome: attempt.verdict === 'woke' ? 'arrived' : 'failed', slow: attempt.slow === true, afterMs: Math.max(0, attempt.verdictAt - from),
+    // P2.1 (chat 1's review, 4): a chat that woke by itself (`heard` marks a carried word not sent yet; a hand's message not sent yet is the same)
+    // is its own outcome, never a message that arrived: the retrospective counts arrivals by what the board did.
+    outcome: attempt.verdict !== 'woke' ? 'failed' : attempt.self === true || !isTime(attempt.sentAt) ? 'self' : 'arrived', slow: attempt.slow === true, afterMs: Math.max(0, attempt.verdictAt - from),
     why: attempt.verdict === 'failed' ? plainWhy(attempt.why) ?? null : null,
   }
 }
@@ -849,7 +859,7 @@ export function lastLaunchOf(record, now = Date.now()) {
   let newest = null
   for (const entries of record?.wakes?.values() ?? []) {
     for (const attempt of (entries ?? []).flatMap(entry => entry.attempts ?? [])) {
-      if (attempt.path !== 'launch' || !['woke', 'failed'].includes(attempt.verdict) || attempt.why === LAUNCH_CUT_WHY) continue
+      if (attempt.path !== 'launch' || !VERDICTS.includes(attempt.verdict) || attempt.why === LAUNCH_CUT_WHY) continue
       const at = isTime(attempt.verdictAt) ? attempt.verdictAt : attempt.at
       if (!isTime(at) || now - at > LAST_LAUNCH_MS) continue
       if (attempt.verdict === 'failed' && isTime(record.heardRunAt) && record.heardRunAt > at) continue
@@ -890,7 +900,7 @@ const WHYS = /^.{1,200}$/s
 function savedAttempt(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
   if (!['message', 'launch'].includes(value.path) || !isTime(value.at) || typeof value.by !== 'string' || typeof value.jobId !== 'string') return null
-  if (!(value.sentAt === null || isTime(value.sentAt)) || !(value.verdict === null || ['woke', 'failed'].includes(value.verdict))) return null
+  if (!(value.sentAt === null || isTime(value.sentAt)) || !(value.verdict === null || VERDICTS.includes(value.verdict))) return null
   if (!(value.verdictAt === null || isTime(value.verdictAt)) || !(value.why === null || (typeof value.why === 'string' && WHYS.test(value.why)))) return null
   if (!(value.runBefore === null || isTime(value.runBefore) || (typeof value.runBefore === 'string' && value.runBefore.length <= 64))) return null
   const { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt } = value

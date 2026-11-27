@@ -13,7 +13,7 @@
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
 import { linkGoneNames, wordLanesOf } from '../../modGone.mjs'
-import { courierAlive, isCarryWord, plainWhy } from '../../wakeCarry.mjs'
+import { COURIER_ALIVE_MS, courierAlive, isCarryWord, plainWhy } from '../../wakeCarry.mjs'
 import { SIDE_WORD } from '../../work/sideWord.mjs'
 import { RETIRED_WATCH_RULES, givenBackFrom, goOnWaitMs, isGoOnWord } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
@@ -1638,21 +1638,29 @@ function nobodyAnswersWakes(view) {
  * and a chat needs a wake. One finding per day, naming the fix the person can do; the per-chat rule stands down for a launch-only failure
  * and "nobody answers" says nothing while it stands.
  */
-export const NOTHING_RUNS_DO = 'open the Scheduled section in the Claude app and turn on the courier task of the signed-in account'
+export const NOTHING_RUNS_DO = 'open the Claude app; if it is open, turn on the courier task of the signed-in account in the Scheduled section'
+/**
+ * P2.1 (chat 1's review, 2b): no finding on one snapshot: the courier must have been silent for its whole window by its own call time, or,
+ * when it never called this board, the board must have run that long (its start, never a guess of the clock).
+ */
+export const NOTHING_RUNS_GRACE_MS = COURIER_ALIVE_MS + 10 * MIN
 function wakeNothingRuns(view) {
   if (view.wakeNoHands !== true || courierAlive(view.wakeCourierAt, view.now)) return []
+  const quietSince = Number.isFinite(view.wakeCourierAt) ? view.wakeCourierAt : Number.isFinite(view.live?.startedAt) ? view.live.startedAt : null
+  if (quietSince === null || view.now - quietSince < NOTHING_RUNS_GRACE_MS) return []
   const needs = wakeLanesOf(view).filter(lane => lane.wake?.need === true && !listedByCheck(view, lane.name))
   if (needs.length === 0) return []
   const courier = Number.isFinite(view.wakeCourierAt) ? `the courier last called ${clockOf(view.wakeCourierAt)}` : 'the courier has not called on this account'
   return [{
     rule: 'wake-nothing-runs', key: `wake-nothing-runs ${dayOfMs(view.now)}`, subject: 'board',
-    text: `nothing runs that can wake a chat: no chat's hands run and ${courier}; ${needs.map(lane => lane.name).join(', ')} wait. Do: ${NOTHING_RUNS_DO}`,
-    evidence: [courier, ...needs.map(lane => `${lane.name}: ${triedWords(lane.wake.attempts ?? [], clockOf).join('; ') || 'nothing tried yet'}`)],
+    // 2d: the Do first (a title is cut at 300 characters); 3: the evidence one line (the incident keeps one).
+    text: `Do: ${NOTHING_RUNS_DO}. Nothing runs that can wake a chat: no chat's hands run and ${courier}; ${needs.map(lane => lane.name).join(', ')} wait`,
+    evidence: [courier, ...needs.map(lane => `${lane.name}: ${triedWords(lane.wake.attempts ?? [], clockOf).join('; ') || 'nothing tried yet'}`)].join(' · '),
   }]
 }
 const nothingRuns = view => wakeNothingRuns(view).length > 0
 /** P2.1: a wake whose tries are launches, or carried words (no hand's send went): the launch failing is the one fact, not the chat's. */
-const launchOnly = lane => (Array.isArray(lane.wake?.attempts) ? lane.wake.attempts : []).every(one => one.path === 'launch' || one.carry != null)
+const launchOnly = lane => Array.isArray(lane.wake?.attempts) && lane.wake.attempts.length > 0 && lane.wake.attempts.every(one => one.path === 'launch' || one.carry != null)
 
 /** B763: the Workers mod's words for a clear it skipped because the person pauses (its chats.ts `clearWhy`). */
 const PAUSE_WHY = 'the person pauses the chats'

@@ -4413,7 +4413,9 @@ async function main(args) {
           : failed.includes(id) ? wakeFailedToSend(wakes, chat, id, why[id], clock()) : (wakeGivenBack(wakes, chat, id) ? true : null)
         if (done === null) continue
         woke = true
-        // P2.1: the app's 20-second answer is a sent message (wake.mjs `isSlowStart`): its verdict waits for the chat's report.
+        // P2.1: the app's 20-second answer is a sent message (wake.mjs `isSlowStart`): its verdict waits for the chat's report, and it is this
+        // hand's send that went (B1271: it lifts the hand's refusal mark, as the hand's ok does above).
+        if (done?.slow === true && noteHandSent(wakes, checked.chat, clock())) woke = true
         if (failed.includes(id) && done?.slow === true) {
           slow.add(id)
           console.log(`Wake: the message to ${chat} went at ${timeOf(clock())} (${checked.chat}'s hands): ${SLOW_START_WHY}; the verdict waits for its own report.`)

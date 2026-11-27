@@ -70,7 +70,12 @@ async function until(check, what, ms = 60_000) {
 }
 
 /** A board over a made-up project: Main and Worker 1 run (idle), Worker 2's session ended at SPELL (asleep); the page's wake word waits. */
-async function boardWith(t) {
+/** Worker 2's CLI session id is a UUID: the board may launch it, and the copy records launches in `launches.jsonl` (WORKER_BOARD_OPEN_STUB). */
+const W2 = '2b2b2b2b-2b2b-4b2b-8b2b-2b2b2b2b2b2b'
+/** An answer of the person waiting for Worker 2: a wake need that stands until the chat takes it (wake.mjs `wakeNeeds`, case 5). */
+const ANSWER_WORD = { id: 'answer0000000001', at: NOW - MIN, to: 'Worker 2', ask: 'chat:Worker 2', text: 'Yes, go on.', state: 'waiting' }
+
+async function boardWith(t, { lines = [WAKE_WORD] } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'board-outcomes-'))
   const started = []
   t.after(async () => {
@@ -83,12 +88,12 @@ async function boardWith(t) {
     await mkdir(dirname(path), { recursive: true })
     await writeFile(path, text)
   }
-  await put(join(board, 'data', 'outbox.jsonl'), `${JSON.stringify(WAKE_WORD)}\n`)
+  await put(join(board, 'data', 'outbox.jsonl'), `${lines.map(line => JSON.stringify(line)).join('\n')}\n`)
   await put(join(board, 'data', 'wakes.json'), `${JSON.stringify({ wakes: {} })}\n`)
   const chats = join(project, '.claude', 'chats')
   await put(join(chats, 'list.json'), '{"prefix":"Game - ","main":"Main"}')
   const appChat = (name, sessionId, cliSessionId) => JSON.stringify({ title: `Game - ${name}`, sessionId, cliSessionId, cwd: project, isArchived: false, createdAt: NOW - 600 * MIN, lastActivityAt: NOW - 2 * MIN })
-  for (const [name, sessionId, cli, role] of [['Main', 'local_main', 'main-id', 'main'], ['Worker 1', 'local_w1', 'w1-id', 'worker'], ['Worker 2', 'local_w2', 'w2-id', 'worker']]) {
+  for (const [name, sessionId, cli, role] of [['Main', 'local_main', 'main-id', 'main'], ['Worker 1', 'local_w1', 'w1-id', 'worker'], ['Worker 2', 'local_w2', W2, 'worker']]) {
     await put(join(app, 'a', 'b', `${sessionId}.json`), appChat(name, sessionId, cli))
     if (name === 'Worker 2') continue
     await put(join(transcripts, `${cli}.jsonl`), `${[typed(NOW - 8 * MIN, 'Status?'), answer(NOW - 7 * MIN, 'All fine.')].join('\n')}\n`)
@@ -96,7 +101,8 @@ async function boardWith(t) {
   }
   const port = await freePort()
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'outcomes', refreshSeconds: 5, project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
-  const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_CARRY_BY_MODEL: '0', WORKER_BOARD_OPEN_STUB: join(dir, 'launches.jsonl') })
+  const launchFile = join(dir, 'launches.jsonl')
+  const { out } = await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_CARRY_BY_MODEL: '0', WORKER_BOARD_OPEN_STUB: launchFile })
   const base = `http://127.0.0.1:${port}`
   const { key } = JSON.parse(await readFile(join(project, '.claude', 'board.json'), 'utf8'))
   const call = (path, body) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.27.1' }, body: JSON.stringify(body) })
@@ -108,14 +114,15 @@ async function boardWith(t) {
     return parsed.result ?? parsed
   }
   for (const [chat, session] of [['Main', 'main-id'], ['Worker 1', 'w1-id']]) await json('/api/bridge/report', { chat, session, report: { state: 'idle', since: NOW - 2 * MIN, seq: 1, run: 1 } })
-  await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'ended', since: SPELL, seq: 1, run: 1 } })
+  await json('/api/bridge/report', { chat: 'Worker 2', session: W2, report: { state: 'ended', since: SPELL, seq: 1, run: 1 } })
   const claim = async () => (await json('/api/bridge/hands', { chat: 'Worker 1', session: 'w1-id', mod: '0.27.1', can: ['send'] })).jobs ?? []
   const words = async () => foldOutbox(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8'))
   const record = async () => JSON.parse(await readFile(join(board, 'data', 'wakes.json'), 'utf8'))
   const outcomes = () => readFile(join(board, 'data', 'wake-outcomes.jsonl'), 'utf8').then(text => text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line)), () => [])
   const token = /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
   const state = () => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
-  return { out, json, claim, words, record, outcomes, state }
+  const launches = () => readFile(launchFile, 'utf8').then(text => text.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line)), () => [])
+  return { out, json, claim, words, record, outcomes, state, launches }
 }
 
 test('P2.1 wired: the hand\'s slow answer is a sent wake on the board, the chat\'s report is the arrival, the outcome line is written, and the courier\'s call reaches the state', { timeout: 240_000 }, async t => {
@@ -138,6 +145,8 @@ test('P2.1 wired: the hand\'s slow answer is a sent wake on the board, the chat\
   assert.ok(Number.isFinite(attempt.sentAt) && attempt.sentAt >= answered - 1000, 'sent at the answer\'s time')
   assert.equal(attempt.by, 'Worker 1')
   assert.deepEqual(await outcomes(), [], 'no outcome line before the verdict')
+  // Chat 1's review 6: the slow answer is this hand's send that went: the record's send fact (B1271's lift) says so.
+  await until(async () => Number.isFinite((await record()).handSentAt) && (await record()).handSentAt >= answered - 1000, 'the send fact of the hand')
   // The page: waking, with the slow words; the word itself went (settled as typed, not failed).
   await until(async () => (await state()).chats.find(lane => lane.name === 'Worker 2')?.wake?.state === 'sent', 'the lane reads the wake as sent')
   const lane = (await state()).chats.find(one => one.name === 'Worker 2')
@@ -145,7 +154,7 @@ test('P2.1 wired: the hand\'s slow answer is a sent wake on the board, the chat\
   assert.match(out(), /Wake: the message to Worker 2 went at \d\d:\d\d \(Worker 1's hands\): the app took longer than 20 s to start it; the verdict waits for its own report\./)
   assert.equal((await words()).find(one => one.id === WAKE_WORD.id).state, 'delivered')
   // Worker 2 comes up 40 s later (a new run): the message's wake, one outcome line.
-  await json('/api/bridge/report', { chat: 'Worker 2', session: 'w2-id', report: { state: 'idle', since: Date.now(), seq: 2, run: 2 } })
+  await json('/api/bridge/report', { chat: 'Worker 2', session: W2, report: { state: 'idle', since: Date.now(), seq: 2, run: 2 } })
   await until(async () => (await outcomes()).length > 0, 'the outcome line')
   const lines = await outcomes()
   assert.equal(lines.length, 1)
@@ -161,4 +170,28 @@ test('P2.1 wired: the hand\'s slow answer is a sent wake on the board, the chat\
   await until(async () => Number.isFinite((await state()).wakeCourierAt), 'the courier\'s call in the state')
   assert.ok((await state()).wakeCourierAt >= before - 1000)
   await until(async () => Number.isFinite((await record()).courierAt), 'and in the record\'s file (a second later)')
+})
+
+test('a dead chat (chat 1\'s decision 1, wired): the slow answer is judged by the clock after 2 minutes, its outcome line says failed, and the launch follows at once, no carry word', { timeout: 300_000 }, async t => {
+  // The need is the person's answer waiting for Worker 2 (the page's wake word of the first case is delivered with the slow answer, as with a
+  // hand's ok: then nothing waits for the chat and no launch is due). The hand's job is the record's wake job for Worker 2.
+  const { json, claim, outcomes, launches, words, record } = await boardWith(t, { lines: [ANSWER_WORD] })
+  let jobs = []
+  await until(async () => {
+    jobs = (await claim()).filter(job => job.chat === 'Worker 2')
+    return jobs.length > 0
+  }, 'the hand gets the wake job for Worker 2')
+  assert.match(jobs[0].id, /^wake:\d+:Worker 2$/)
+  const answered = Date.now()
+  await json('/api/bridge/hands-done', { chat: 'Worker 1', session: 'w1-id', results: [{ id: jobs[0].id, ok: false, why: SLOW_ANSWER }] })
+  // Worker 2 never reports. The pass runs once a minute: the verdict comes within about three minutes of the answer.
+  await until(async () => (await outcomes()).some(one => one.outcome === 'failed'), 'the failed outcome line', 200_000)
+  const [line] = (await outcomes()).filter(one => one.outcome === 'failed')
+  assert.deepEqual([line.chat, line.path, line.by, line.slow, line.why], ['Worker 2', 'message', 'Worker 1', true, 'no report within 2 minutes of the message'])
+  assert.ok(line.afterMs >= 2 * MIN - 1000 && line.at >= answered + 2 * MIN - 1000, JSON.stringify(line))
+  // The launch follows (the stub records it), and no carry word is written for Worker 2.
+  await until(async () => (await launches()).some(one => one.chat === 'Worker 2'), 'the launch of the dead chat', 90_000)
+  assert.deepEqual((await words()).filter(one => one.command === 'wake-carry' && one.about === 'Worker 2'), [], 'no carry word after a slow silence')
+  await until(async () => (await record()).wakes?.['Worker 2']?.at(-1)?.attempts.some(one => one.path === 'launch'), 'the launch in the record')
+  assert.equal((await outcomes()).length, 1, 'the launch has no verdict yet: one line')
 })
