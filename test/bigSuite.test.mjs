@@ -552,7 +552,8 @@ test('P4, core review 6: at a give-way what the stopped half started outside its
     "appendFileSync(marks, 'x')",
     "if (readFileSync(marks, 'utf8').length === 1) {",
     "  const line = `\"${process.execPath}\" -e \"setTimeout(() => {}, 60000)\" \"${join(folder, 'keeper')}\"`",
-    "  const made = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', '$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $env:KEEPER_LINE }; [Console]::Out.WriteLine($r.ProcessId)'], { encoding: 'utf8', windowsHide: true, env: { ...process.env, KEEPER_LINE: line } })",
+    // Hidden, as src/keeperStart.mjs starts the real keeper (ShowWindow 0): a WMI start without it opens a visible console window.
+    "  const made = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', '$class = Get-CimClass -ClassName Win32_ProcessStartup; $startup = New-CimInstance -CimClass $class -ClientOnly -Property @{ ShowWindow = [uint16]0 }; $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $env:KEEPER_LINE; ProcessStartupInformation = $startup }; [Console]::Out.WriteLine($r.ProcessId)'], { encoding: 'utf8', windowsHide: true, env: { ...process.env, KEEPER_LINE: line } })",
     "  writeFileSync(join(folder, 'keeper.pid'), made.stdout.trim())",
     "  setTimeout(() => {}, 60000)",
     "} else { console.log('ℹ tests 1'); console.log('ℹ fail 0') }",

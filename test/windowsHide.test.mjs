@@ -60,3 +60,44 @@ test('every program the board code starts is started hidden (windowsHide: true),
   const missing = codeFiles(ROOT).flatMap(path => unhidden(readFileSync(path, 'utf8')).map(found => `${relative(ROOT, path)}:${found.line}  ${found.call}`))
   assert.deepEqual(missing, [], `add windowsHide: true to:\n${missing.join('\n')}`)
 })
+
+// P4 (chat 1, 2026-11-27): a process made through WMI (Win32_Process Create) has WMI as its parent, not the caller's hidden console,
+// so windowsHide does not reach it: without a startup of ShowWindow 0 a console program opens a visible window (a test's stand-in
+// keeper opened one for up to 60 s on every run, while the person played). This check covers every file, test/ and fixtures too.
+// A start: Invoke-CimMethod / Invoke-WmiMethod on the class with the method Create, or the old [wmiclass]'...'.Create(...); words
+// that only name it (a comment, a message "Win32_Process.Create answered 2") are no start.
+const WMI_CREATE = new RegExp(`\\bWin32_${'Process'}\\b[^\\n]*-(?:MethodName|Name)\\s+Create\\b|\\[wmiclass\\][^\\n]*\\bWin32_${'Process'}\\b[^\\n]*\\)\\.Create\\(`, 'i')
+// ShowWindow = [uint16]0, also as a test's pattern of it (\[uint16\]).
+const SHOW_WINDOW_0 = /ShowWindow\s*=\s*\\?\[uint16\\?\]\s*0/
+
+/** The lines of `text` that make a process through WMI without passing a hidden startup (ShowWindow 0): `{ line, text }`. */
+export function wmiUnhidden(text) {
+  const hidden = SHOW_WINDOW_0.test(text)
+  return String(text).split('\n').flatMap((line, index) => (WMI_CREATE.test(line) && !(hidden && /ProcessStartupInformation/.test(line)) ? [{ line: index + 1, text: line.trim().slice(0, 120) }] : []))
+}
+
+function allFiles(dir, out = []) {
+  for (const name of readdirSync(dir)) {
+    if (['node_modules', '.git', 'data'].includes(name)) continue
+    const path = join(dir, name)
+    if (statSync(path).isDirectory()) allFiles(path, out)
+    else if (/\.(mjs|cjs|js|ts|tsx|ps1)$/.test(name)) out.push(path)
+  }
+  return out
+}
+
+test('P4: the WMI check flags a Win32_Process Create without a hidden startup, and lets one with ShowWindow 0 pass', () => {
+  const kind = `Win32_${'Process'}`
+  const bare = `$r = Invoke-CimMethod -ClassName ${kind} -MethodName Create -Arguments @{ CommandLine = $line }`
+  const hidden = [`$startup = New-CimInstance -CimClass $class -ClientOnly -Property @{ ShowWindow = [uint16]0 }`, `$r = Invoke-CimMethod -ClassName ${kind} -MethodName Create -Arguments @{ CommandLine = $line; ProcessStartupInformation = $startup }`].join('\n')
+  assert.deepEqual(wmiUnhidden(bare).map(one => one.line), [1])
+  assert.deepEqual(wmiUnhidden(hidden), [])
+  assert.deepEqual(wmiUnhidden(`([wmiclass]'${kind}').Create($line)`).map(one => one.line), [1], 'the old way too')
+  assert.deepEqual(wmiUnhidden(`Get-CimInstance ${kind} | Where-Object { $_.CreationDate -ge $since }`), [], 'a listing is no start')
+  assert.deepEqual(wmiUnhidden(`$r = Invoke-CimMethod -ClassName ${kind} -MethodName Create -Arguments @{ CommandLine = $line; ProcessStartupInformation = $startup }`).map(one => one.line), [1], 'a startup that is not ShowWindow 0 is no hidden one')
+})
+
+test('P4: every process made through WMI, in any file (test/ and fixtures too), starts hidden (ShowWindow 0)', () => {
+  const missing = allFiles(ROOT).flatMap(path => wmiUnhidden(readFileSync(path, 'utf8')).map(found => `${relative(ROOT, path)}:${found.line}  ${found.text}`))
+  assert.deepEqual(missing, [], `pass ProcessStartupInformation with ShowWindow = [uint16]0 (as src/keeperStart.mjs) in:\n${missing.join('\n')}`)
+})
