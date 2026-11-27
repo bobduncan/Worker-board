@@ -3374,6 +3374,8 @@ function withWakes(built, { wakes, sent, pauseRecord, items, prefix, now, assets
     wakeBoardSince: nobody?.since ?? null,
     // F59 review 4, re-check a: and whether no hand at all answers now (no board-wide launch goes while no hand runs and the courier calls).
     wakeNoHands: noHands,
+    // P2.1: when the courier last called (the record's courierAt), for the rule wake-nothing-runs.
+    wakeCourierAt: Number.isFinite(wakes.courierAt) ? wakes.courierAt : null,
   }
 }
 

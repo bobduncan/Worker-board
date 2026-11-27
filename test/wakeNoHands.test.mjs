@@ -215,7 +215,7 @@ test('F59 review 4: "nobody answers the board\'s wake-ups" reads the hands\' own
   assert.equal(noticeOf(record, [{ ...need, need: true }], now, time, { senderClaims: true }).text.startsWith(line), false)
   // The Supervisor's rule: every chat with a need could not be woken, no board-wide launch (none goes while the courier calls), no hand.
   const lane = { ...closed('Worker 4', 3), onSequence: true, wake: { state: 'failed', final: true, need: true, spell: ENDED, why: 'no report within 2 minutes of the message', attempts: record.wakes.get('Worker 4').at(-1).attempts } }
-  const viewOf = noHands => buildView({ state: { chats: [lane], today: [], limits: {}, pause: null, chatPrefix: '', readyList: null, gaps: [], wakes: {}, wakeNoHands: noHands }, items: new Map(), outbox: [], settings: {}, now })
+  const viewOf = noHands => buildView({ state: { chats: [lane], today: [], limits: {}, pause: null, chatPrefix: '', readyList: null, gaps: [], wakes: {}, wakeNoHands: noHands, wakeCourierAt: AT }, items: new Map(), outbox: [], settings: {}, now })
   const rule = WATCH_RULES.find(one => one.id === 'nobody-answers-wakes')
   assert.deepEqual(rule.check(viewOf(true), { seen: new Map(), observed: [] }).map(one => one.text), ['nobody answers the board\'s wake-ups: Worker 4 could not be woken, and no chat\'s hands run'])
   assert.deepEqual(rule.check(viewOf(false), { seen: new Map(), observed: [] }), [], 'a hand claims: none')
@@ -233,7 +233,7 @@ test('F59 re-check a: a live hand in one long round (a slow send, 2 minutes with
   const rule = WATCH_RULES.find(one => one.id === 'nobody-answers-wakes')
   const filed = now => {
     const noHands = noHandsOf(handsAt(now))
-    const view = buildView({ state: { chats: [lane], today: [], limits: {}, pause: null, chatPrefix: '', readyList: null, gaps: [], wakes: {}, wakeNoHands: noHands }, items: new Map(), outbox: [], settings: {}, now })
+    const view = buildView({ state: { chats: [lane], today: [], limits: {}, pause: null, chatPrefix: '', readyList: null, gaps: [], wakes: {}, wakeNoHands: noHands, wakeCourierAt: AT }, items: new Map(), outbox: [], settings: {}, now })
     const notice = noticeOf(record, [{ ...need, need: true }], now, time, { senderClaims: true, handsClaim: handsAt(now).senders, noHands })
     return { noHands, rule: rule.check(view, { seen: new Map(), observed: [] }).length, nobody: notice.text.startsWith('nobody answers') }
   }

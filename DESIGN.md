@@ -9462,3 +9462,30 @@ lock's `branch` (its `cwd` becomes the branch, `gate` keeps the folder), so b144
 that is unknown, leaves the run as it was, and a branch without a step id stays unmatched. The memory of the last pass keys the branch as
 it keys a folder. Tests: test/supervisor/testQueueWait.test.mjs (the reading, the rule at 130 minutes of quiet, the memory, the server's
 wiring); 4 mutants red.
+
+## P2.1: failed wakes as one case (2026-11-27, chat 3, the part "Repeating incidents fixed at the root, failed wakes first")
+
+Of the 262 incidents 73 named a wake, in four shapes. Two still stood, and both were the board's own reading, not the app's failure.
+Design note: `.claude/plans/2026-11-27-p2-failed-wakes-design.md`.
+
+- The app's send answers "not delivered: that session gave no sign of starting on it within 20s" for a chat whose process must first start;
+  the chat came up 40-60 s after every such message (nine of the ten message failures of 11-25..11-27; the lane log: Worker 4 "failed"
+  14:03:22, working 14:04:15 with no launch; the Advisor's launch of 09:49:42 "woke" it one second later). The board's `failedToSend`
+  turned the answer into a verdict at once, against the procedure's own rule (a verdict only from the chat's report), filed "the message did
+  not go", launched needlessly and credited the launch. Now (src/wake.mjs `isSlowStart`, `SLOW_START_WHY`): such an answer is a SENT
+  message (`sentAt` the answer's time, `slow` on the attempt, kept in the file); `heard` gives woke on the report, `pass` fails it after
+  WAKE_VERDICT_MS as any sent message, and only then `nextPath` gives the carry word (B1279) and the launch, as before. The page says
+  "waking · message sent HH:MM by X (the app took longer than 20 s to start it)". The Workers mod is unchanged (no rollout).
+- Nothing runs that could wake a chat (no hand, no courier on the signed-in account, or the app closed): the board filed one "could not
+  wake" per chat and "nobody answers" (X242-X249, X252-X257: six incidents twice). Now one rule, `wake-nothing-runs` (rules/watch.mjs), once a
+  day, while no hand answers (`wakeNoHands`) and the courier has not called within COURIER_ALIVE_MS (`wakeCourierAt`, the record's
+  `courierAt` through the state and the view): its text names the courier's last call and the fix the person can do (NOTHING_RUNS_DO: open
+  the Scheduled section in the Claude app and turn on the courier task of the signed-in account). While it stands, `wake-failed` says
+  nothing of a launch-only failure (a courier's carried word counts as none of a hand's) and `nobody-answers-wakes` nothing at all.
+- Proof the person can see (chat 1's addition): every verdict writes one line to data/wake-outcomes.jsonl (`outcomeOf`: at, chat, spell,
+  path, by, carry, outcome arrived/failed, slow, afterMs, why), on the board that delivers only; the retrospective's script
+  `.claude/overview/delivery-review/scripts/wakes/a.mjs` counts the wakes that arrived or failed and the launches that worked.
+
+Tests: test/wakeRecorded.test.mjs (the recorded Advisor, Main and Worker 4 cases, Worker 4 altered to never report, a launch that works,
+the refusal and "not found" shapes, the file), test/supervisor/wakeNothingRuns.test.mjs (the 11-25 case, the courier alive or stale, a
+hand's own failure beside it, the start-up check's chats); 16 mutants red.

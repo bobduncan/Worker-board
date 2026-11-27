@@ -13,7 +13,7 @@
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
 import { linkGoneNames, wordLanesOf } from '../../modGone.mjs'
-import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
+import { courierAlive, isCarryWord, plainWhy } from '../../wakeCarry.mjs'
 import { SIDE_WORD } from '../../work/sideWord.mjs'
 import { RETIRED_WATCH_RULES, givenBackFrom, goOnWaitMs, isGoOnWord } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
@@ -1553,7 +1553,9 @@ function checkUnreachable(view) {
  * and no message reached it, or it has no id). One finding per chat and spell, with what was tried and when.
  */
 function wakeFailed(view) {
-  return wakeLanesOf(view).filter(lane => lane.wake?.state === 'failed' && lane.wake.final === true && !listedByCheck(view, lane.name)).map(lane => {
+  // P2.1: while nothing runs that could wake a chat (one finding of its own), a wake that failed on the launch alone is that one fact.
+  const nothing = nothingRuns(view)
+  return wakeLanesOf(view).filter(lane => lane.wake?.state === 'failed' && lane.wake.final === true && !listedByCheck(view, lane.name) && !(nothing && launchOnly(lane))).map(lane => {
     const attempts = Array.isArray(lane.wake.attempts) ? lane.wake.attempts : []
     const tried = attempts.length === 0 ? [lane.wake.why === 'no id' ? 'the board has no id to reach it' : lane.wake.why ?? 'no reason given'] : triedWords(attempts, clockOf)
     return {
@@ -1612,6 +1614,8 @@ function startUntaken(view) {
  * launch goes, and each chat's own courier word and launch failed.
  */
 function nobodyAnswersWakes(view) {
+  // P2.1: nothing runs that could wake a chat: that finding says it, once a day, with the fix.
+  if (nothingRuns(view)) return []
   // The start-up check names the chats it could not reach in one incident of their cause: they are not a second alarm here.
   const needs = wakeLanesOf(view).filter(lane => lane.wake?.need === true && !listedByCheck(view, lane.name))
   const board = view.wakes?.['*'] ?? null
@@ -1626,6 +1630,29 @@ function nobodyAnswersWakes(view) {
     evidence: [...(boardFailed ? [`the board-wide launch: ${triedWords(board.attempts ?? [], clockOf).join('; ') || board.why || 'failed'}`] : ['no hand that may send claims']), ...needs.map(lane => `${lane.name}: ${triedWords(lane.wake.attempts ?? [], clockOf).join('; ') || lane.wake.why}`)].join(' · '),
   }]
 }
+
+/**
+ * P2.1 (chat 3, 2026-11-27; X242-X249 and X252-X257: five "could not wake" and one "nobody answers" for ONE fact, twice): nothing runs that
+ * could wake a chat: no hand at all answers (`wakeNoHands`, F59 re-check a), the courier does not call (`wakeCourierAt` older than
+ * COURIER_ALIVE_MS, or never on this account: the courier is a scheduled task of the signed-in account, and the person switches accounts),
+ * and a chat needs a wake. One finding per day, naming the fix the person can do; the per-chat rule stands down for a launch-only failure
+ * and "nobody answers" says nothing while it stands.
+ */
+export const NOTHING_RUNS_DO = 'open the Scheduled section in the Claude app and turn on the courier task of the signed-in account'
+function wakeNothingRuns(view) {
+  if (view.wakeNoHands !== true || courierAlive(view.wakeCourierAt, view.now)) return []
+  const needs = wakeLanesOf(view).filter(lane => lane.wake?.need === true && !listedByCheck(view, lane.name))
+  if (needs.length === 0) return []
+  const courier = Number.isFinite(view.wakeCourierAt) ? `the courier last called ${clockOf(view.wakeCourierAt)}` : 'the courier has not called on this account'
+  return [{
+    rule: 'wake-nothing-runs', key: `wake-nothing-runs ${dayOfMs(view.now)}`, subject: 'board',
+    text: `nothing runs that can wake a chat: no chat's hands run and ${courier}; ${needs.map(lane => lane.name).join(', ')} wait. Do: ${NOTHING_RUNS_DO}`,
+    evidence: [courier, ...needs.map(lane => `${lane.name}: ${triedWords(lane.wake.attempts ?? [], clockOf).join('; ') || 'nothing tried yet'}`)],
+  }]
+}
+const nothingRuns = view => wakeNothingRuns(view).length > 0
+/** P2.1: a wake whose tries are launches, or carried words (no hand's send went): the launch failing is the one fact, not the chat's. */
+const launchOnly = lane => (Array.isArray(lane.wake?.attempts) ? lane.wake.attempts : []).every(one => one.path === 'launch' || one.carry != null)
 
 /** B763: the Workers mod's words for a clear it skipped because the person pauses (its chats.ts `clearWhy`). */
 const PAUSE_WHY = 'the person pauses the chats'
@@ -1738,6 +1765,7 @@ export const WATCH_RULES = [
   { id: 'handover-unanswered', kind: 'watch', says: 'a worker on the hand-over sequence that did not answer its hand-over within 10 min (the net fired)', check: handoverUnanswered },
   { id: 'clear-owed-repeat', kind: 'watch', says: 'a worker whose clear did not run at its last three hand-overs in a row (its line went each time; a refusal in the person\'s pause not counted)', check: clearOwedRepeat },
   { id: 'wake-failed', kind: 'watch', says: 'a chat the board could not wake: the app did not start it on a launch, and no message reached it; or (B986) the chat its reports name is not in the app list', check: wakeFailed },
+  { id: 'wake-nothing-runs', kind: 'watch', says: 'nothing runs that can wake a chat: no chat\'s hands run and the courier does not call (none on the signed-in account); once a day, with the fix the person can do', check: wakeNothingRuns },
   { id: 'start-untaken', kind: 'watch', says: 'a start word the idle chat it waits with has not taken for 10 running minutes (the pause and the board off time left out), with no carry word carrying it: no hand that may send took it', check: startUntaken },
   { id: 'nobody-answers-wakes', kind: 'watch', says: 'nobody answers the board\'s wake-ups: every chat with work could not be woken, and the launch when nobody ran failed', check: nobodyAnswersWakes },
   { id: 'check-unreachable', kind: 'watch', says: 'chats the start-up check could not reach, one incident per cause (the other Claude account, a restart of the app to do, no chat in the app) naming the chats; the per-chat wake rules stand down for them', check: checkUnreachable },

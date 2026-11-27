@@ -122,7 +122,7 @@ import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/code
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
 import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
-import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, handMayTakeOver, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
+import { BOARD_KEY, SLOW_START_WHY, WAKE_JOB, WORDS_LINE, claim as claimWake, outcomeOf as wakeOutcomeOf, emptyWakes, handMayTakeOver, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
 import { isHeldForLink, linkGoneNames, wordLanesOf } from './src/modGone.mjs'
 import { CARRY_BY_MODEL, COURIER, NO_HANDS_MS, isCarriedWord, noHandsOf, carryPaused, closeWay, mainCoversResume, PROBE_JOB, PROBE_LINE, canCarry, carriedChats, freeChatOf, carrierOf, carryCloses, carryTurnBegan, carryWord, carryingOf, courierAlive, courierSends, dueEntry, dueOf, isCarryWord, isSendRefusal, handRefused, keepHandWent, noteHandRefused, noteHandRefusedAlone, noteHandSent, noteSendLifted, noteSendRefused, probeDue, sendsRefusedOf } from './src/wakeCarry.mjs'
@@ -2285,6 +2285,8 @@ async function main(args) {
   /** The start-up check's runner (null on a demo or a board that only shows); set where the wake pass is defined. */
   let checker = null
   const WAKES_FILE = join(HERE, 'data', 'wakes.json')
+  /** P2.1: one line per wake verdict (src/wake.mjs `outcomeOf`), appended; the weekly retrospective reads it. */
+  const OUTCOMES_FILE = join(HERE, 'data', 'wake-outcomes.jsonl')
   const savedWakes = bridgeKey === null || isShowOnly ? null : await readWakes(WAKES_FILE, clock())
   if (savedWakes?.setAside != null) setAside.push({ file: basename(WAKES_FILE), aside: basename(savedWakes.setAside), why: null })
   else if (savedWakes?.unread != null) setAside.push({ file: basename(WAKES_FILE), aside: null, why: savedWakes.unread })
@@ -2320,7 +2322,7 @@ async function main(args) {
     const now = clock()
     const hands = handsNow(now)
     // Re-check a: `noHands`, no hand at all answers now (a hand in one long round is no hand gone), for "nobody answers" and its rule.
-    return { record: wakes, senderClaims: sendersNow(now, hands), handsClaim: hands.senders, noHands: noHandsOf(hands), canLaunch: canLaunchNow() }
+    return { record: wakes, senderClaims: sendersNow(now, hands), handsClaim: hands.senders, noHands: noHandsOf(hands), canLaunch: canLaunchNow(), courierAt: lastCourierAt }
   }
   /**
    * B1271 (X203; chat 1's review 1, 2): the hands now. `gone` (`handsGone`); `able`: a hand that may send by code (`maySend`) claims and
@@ -2939,7 +2941,14 @@ async function main(args) {
   // "started": a launch is no verdict.
   let isOpening = false
   /** Change 4: one board.log line per verdict, with what was tried. */
+  /** P2.1: the verdict's line in data/wake-outcomes.jsonl, on the board that delivers only. */
+  const noteOutcome = (chat, attempt) => {
+    const line = wakeOutcomeOf(wakes, chat, attempt)
+    if (line === null || wakesSave === null) return
+    appendFile(OUTCOMES_FILE, `${JSON.stringify(line)}\n`).catch(error => loops.failed('wake-outcomes', error))
+  }
   const sayVerdict = (chat, attempt) => {
+    noteOutcome(chat, attempt)
     const who = chat === BOARD_KEY ? 'the board-wide wake (nobody ran)' : chat
     if (attempt.verdict === 'woke') console.log(`Wake: ${who} woke at ${timeOf(attempt.verdictAt)} (its own report after the ${attempt.path} of ${timeOf(attempt.at)}${attempt.path === 'message' ? ` by ${attempt.by}` : ''}).`)
     else console.log(`Wake: could not wake ${who} at ${timeOf(attempt.verdictAt)}: ${triedWords([attempt], timeOf).join('; ')}.`)
@@ -2983,7 +2992,7 @@ async function main(args) {
       }
       openBlocked = null
       if (done.ok) wakeSent(wakes, key, jobId, clock())
-      else wakeFailedToSend(wakes, key, jobId, done.why, clock())
+      else noteOutcome(key, wakeFailedToSend(wakes, key, jobId, done.why, clock()))
       console.log(`Wake: launched ${target.chat} (${target.session}) at ${timeOf(now)}${key === BOARD_KEY ? ' (nobody ran)' : ''}${done.ok ? '; the verdict waits for its own report' : `: ${done.why}`}.`)
       return true
     } finally {
@@ -4402,7 +4411,12 @@ async function main(args) {
           : failed.includes(id) ? wakeFailedToSend(wakes, chat, id, why[id], clock()) : (wakeGivenBack(wakes, chat, id) ? true : null)
         if (done === null) continue
         woke = true
-        if (failed.includes(id)) console.log(`Wake: the message to ${chat} could not go at ${timeOf(clock())} (${checked.chat}'s hands): ${why[id] ?? 'not sent'}.`)
+        // P2.1: the app's 20-second answer is a sent message (wake.mjs `isSlowStart`): its verdict waits for the chat's report.
+        if (failed.includes(id) && done?.slow === true) console.log(`Wake: the message to ${chat} went at ${timeOf(clock())} (${checked.chat}'s hands): ${SLOW_START_WHY}; the verdict waits for its own report.`)
+        else if (failed.includes(id)) {
+          noteOutcome(chat, done)
+          console.log(`Wake: the message to ${chat} could not go at ${timeOf(clock())} (${checked.chat}'s hands): ${why[id] ?? 'not sent'}.`)
+        }
       }
       if (woke) wakesChanged()
       // B880: the words this hand gives back unsent (the app gave no answer in time, or its process cannot call tools) wait again,

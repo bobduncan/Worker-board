@@ -53,6 +53,17 @@ export const WORDS_LINE = 'The worker board holds words for you: run work next'
 export const takeLine = step => `take ${step} in this turn: run work next`
 /** The states of a wake still on its way: the hand-over's net does not run for them (decision 10). */
 export const WAKE_PENDING = ['waiting-sender', 'on-its-way', 'sent', 'launched']
+/**
+ * P2.1 (chat 3, 2026-11-27; 9 of the 10 message failures of 11-25..11-27): the app's send answers "not delivered: that session gave no sign
+ * of starting on it within 20s" for a chat whose process must first start; the chat came up 40-60 s after every such message (the lane log:
+ * Worker 4 "failed" 14:03:22, working 14:04:15 with no launch; the Advisor's launch of 09:49:42 "woke" it at 09:49:43, one second later,
+ * which a launch cannot). Such an answer is a SENT message, not a verdict: the chat's own report judges it within WAKE_VERDICT_MS as any
+ * sent message (`heard`, `pass`), and only after that the launch goes (`nextPath`).
+ */
+export const SLOW_START = /gave no sign of starting[\s\S]{0,80}within \d{1,4}\s*s\b/i
+export const isSlowStart = why => SLOW_START.test(String(why ?? ''))
+/** The words of such a send on the page and in the board.log. */
+export const SLOW_START_WHY = 'the app took longer than 20 s to start it'
 
 /** A chat's CLI session id as the app's list holds it: a UUID, and nothing else ever reaches the launch (opener.mjs re-exports it). */
 export const isSessionId = session => typeof session === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(session)
@@ -326,6 +337,12 @@ export function sent(record, chat, jobId, now) {
 export function failedToSend(record, chat, jobId, why, now) {
   const attempt = pendingOf(record, chat, jobId)
   if (attempt === null) return null
+  // P2.1: the app's 20-second answer for a sleeping chat is no verdict: the message went; the chat's report (or the 2 minutes) judges it.
+  if (attempt.path === 'message' && attempt.sentAt === null && isSlowStart(why)) {
+    attempt.sentAt = now
+    attempt.slow = true
+    return attempt
+  }
   attempt.verdict = 'failed'
   attempt.verdictAt = now
   // F17: the app's refusal of a code send is kept in plain words, marked (wakeCarry.mjs `sendsRefusedOf`), never its raw hook text.
@@ -507,7 +524,7 @@ export function statusOf(record, chat, spell = null) {
   const newest = attempts.at(-1)
   if (newest === undefined) return { ...base, state: 'none' }
   // H1: the app's "not found" is said plainly: it reads the chats it was reimported with at its next start.
-  const more = { path: newest.path, at: newest.sentAt ?? newest.at, by: newest.by, why: newest.unlisted === true ? RESTART_WHY : plainWhy(newest.why), ...(newest.carry == null ? {} : { carry: newest.carry }) }
+  const more = { path: newest.path, at: newest.sentAt ?? newest.at, by: newest.by, why: newest.unlisted === true ? RESTART_WHY : plainWhy(newest.why), ...(newest.carry == null ? {} : { carry: newest.carry }), ...(newest.slow === true ? { slow: true } : {}) }
   if (newest.verdict === 'failed') return { ...base, ...more, state: 'failed' }
   if (newest.path === 'launch') return { ...base, ...more, state: 'launched' }
   return { ...base, ...more, state: newest.sentAt === null ? 'on-its-way' : 'sent' }
@@ -526,6 +543,22 @@ export function wakeOf(record, need, { senderClaims = false, senderSince = -Infi
   const next = nextPath(record, { chat: need.chat, spell: need.spell, senderClaims, senderSince, paths })
   if (status.state === 'none' && next === null) return { ...status, state: 'waiting-sender', next, final: false }
   return { ...status, next, final: status.state === 'failed' && next === null }
+}
+
+/**
+ * P2.1 (chat 1's addition 2, 2026-11-27: "today nobody knows if launches work at all"): the line of a verdict for data/wake-outcomes.jsonl,
+ * so the weekly retrospective can count the wakes that arrived or failed and the launches that worked: `{ at, chat, spell, path, by, carry,
+ * outcome, slow, afterMs, why }`; `afterMs` from the send (or the claim) to the verdict. Null for an attempt without a verdict.
+ */
+export function outcomeOf(record, chat, attempt) {
+  if (attempt === null || attempt === undefined || !['woke', 'failed'].includes(attempt.verdict) || !isTime(attempt.verdictAt)) return null
+  const entry = entriesOf(record, chat).find(one => one.attempts.includes(attempt)) ?? null
+  const from = isTime(attempt.sentAt) ? attempt.sentAt : attempt.at
+  return {
+    at: attempt.verdictAt, chat, spell: entry?.spell ?? null, path: attempt.path, by: attempt.by, carry: attempt.carry ?? null,
+    outcome: attempt.verdict === 'woke' ? 'arrived' : 'failed', slow: attempt.slow === true, afterMs: Math.max(0, attempt.verdictAt - from),
+    why: attempt.verdict === 'failed' ? plainWhy(attempt.why) ?? null : null,
+  }
 }
 
 /** What was tried, with times, for the notice and the incident: "the app did not start it (launched 10:32)", ... */
@@ -675,7 +708,7 @@ export function wakeWords(wake, timeOf) {
     case 'waiting-sender': return { tone: 'quiet', text: 'waking · waits for a chat that can send' }
     // F17: a wake a model carries says through whom, plainly.
     case 'on-its-way': return { tone: 'quiet', text: wake.carry == null ? `waking · message on its way (held by ${wake.by})` : `waking through ${carrierWords(wake.by)}` }
-    case 'sent': return { tone: 'quiet', text: wake.carry == null ? `waking · message sent ${timeOf(wake.at)} by ${wake.by}` : `waking through ${carrierWords(wake.by)} (sent ${timeOf(wake.at)})` }
+    case 'sent': return { tone: 'quiet', text: wake.carry == null ? `waking · message sent ${timeOf(wake.at)} by ${wake.by}${wake.slow === true ? ` (${SLOW_START_WHY})` : ''}` : `waking through ${carrierWords(wake.by)} (sent ${timeOf(wake.at)})` }
     case 'woke': return wake.carry == null ? null : { tone: 'quiet', text: `woken through ${carrierWords(wake.by)}` }
     case 'launched': return { tone: 'quiet', text: `waking · launched ${timeOf(wake.at)}` }
     case 'failed': return wake.final === true ? { tone: 'attention', text: `could not wake: ${wake.why ?? 'no reason given'}` } : { tone: 'quiet', text: `waking · ${wake.why ?? 'the first way failed'}; trying the other way` }
@@ -866,7 +899,7 @@ function savedAttempt(value) {
   // T22: an attempt the person asked for ("Send again") keeps that mark; the step whose take line it carried too.
   return { path, at, by, jobId, sentAt, runBefore, verdict, verdictAt, why, ...(value.again === 'person' ? { again: 'person' } : {}), ...(value.unlisted === true ? { unlisted: true } : {}),
     // F17: a wake a model carried (a carrier's turn, the courier), and a send the app refused, keep their marks across the board's restart.
-    ...(value.path === 'message' && ['model', 'courier'].includes(value.carry) ? { carry: value.carry } : {}), ...(value.refused === true || isSendRefusal(value.why) ? { refused: true } : {}), ...(isTime(value.heldAt) ? { heldAt: value.heldAt } : {}), ...(value.self === true ? { self: true } : {}), step: typeof value.step === 'string' && /^[A-Z]\d{1,6}$/.test(value.step) ? value.step : null }
+    ...(value.path === 'message' && ['model', 'courier'].includes(value.carry) ? { carry: value.carry } : {}), ...(value.refused === true || isSendRefusal(value.why) ? { refused: true } : {}), ...(isTime(value.heldAt) ? { heldAt: value.heldAt } : {}), ...(value.self === true ? { self: true } : {}), ...(value.slow === true ? { slow: true } : {}), step: typeof value.step === 'string' && /^[A-Z]\d{1,6}$/.test(value.step) ? value.step : null }
 }
 
 /** One saved spell entry, or null when it is none (an attempt that is no attempt is left out). */

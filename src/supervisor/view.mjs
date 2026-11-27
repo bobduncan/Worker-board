@@ -72,6 +72,8 @@ export function buildView({ state = {}, items = new Map(), outbox = [], keep = n
     wakeBoardSince: Number.isFinite(state.wakeBoardSince) ? state.wakeBoardSince : null,
     // F59 review 4, re-check a: whether no hand at all answers the wake-ups now (never a hand in one long round), or null when the state does not say.
     wakeNoHands: typeof state.wakeNoHands === 'boolean' ? state.wakeNoHands : null,
+    // P2.1: when the courier last called, or null (never on this account, or the state does not say); the rule wake-nothing-runs reads it.
+    wakeCourierAt: Number.isFinite(state.wakeCourierAt) ? state.wakeCourierAt : null,
     // The start-up check (2026-11-05): the newest check's result (`state.check`), or null before the first; the rule check-unreachable reads it.
     check: state.check !== null && typeof state.check === 'object' ? Object.freeze({ ...state.check }) : null,
     limits: limits ?? state.limits ?? {},
