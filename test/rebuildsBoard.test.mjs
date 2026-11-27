@@ -150,8 +150,15 @@ describe('B978: what forces a rebuild of the state', { concurrency: true }, () =
   it('B978: a session the board shows under no name costs a rebuild at most once a second for 30 s, and then at most one in 30 s; a read under a second old is not thrown away; a named session costs none', { timeout: 300_000 }, async t => {
     const board = await startBoard(t, 'whoami')
     await board.state()
-    await pause(1_500)
     const count = async () => (await board.rebuilt()).length
+    // B1535: the board has settled once its start's own reads are done (the start-up check resets the state a few seconds after
+    // the start; with the state built in its thread those reads land later than they did in the loop): no rebuild for 1.5 s.
+    for (let last = -1, end = Date.now() + 60_000; Date.now() < end;) {
+      const now = await count()
+      if (now === last) break
+      last = now
+      await pause(1_500)
+    }
 
     // A named session asks again and again: the board answers from the state it keeps.
     const before = await count()
