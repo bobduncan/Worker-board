@@ -314,24 +314,24 @@ describe('B1555: start-board.mjs against slow, held and lost ports, side by side
     assert.equal(said.stdout, '')
   })
 
-  test('F10, re-check item 2: a keeper that loses the port race (another keeper\'s board holds the port and answers seconds later) is no failure: the script waits for the board and ends with 0', windows, async t => {
-    const port = String(await freePort())
-    // A board of this folder (the demo's own, by its command line) that holds the port and is up after 14 s: the race's winner. The check
-    // before the start is skipped by a test hook here (WORKER_BOARD_SKIP_CHECK, this test's alone), as a second keeper's start would be
-    // in flight when a chat's start and a landing's restart cross.
-    // B1555: the winner is up 14 s after its own start, so the wait counts from there (side by side, its start to listening takes seconds).
-    const began = Date.now()
-    await fakeBoard(t, port, 14_000, RACE_FAKE)
-    t.after(() => sweep(port))
-    const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_SKIP_CHECK: '1' } })
-    assert.equal(said.status, 0, `${said.stdout} ${said.stderr}`)
-    assert.ok(Date.now() - began >= 13_500, 'it waited for the winner\'s board, instead of failing on the keeper\'s early end')
-    assert.match(said.stdout, new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\(another keeper won the port; this one, process \\d+, ended\\)`))
-  })
 
 })
 
-// B1555: these two time an end "at once" (under the 20 s wait), so they run alone, after the cases side by side.
+// B1555: these run alone, after the cases side by side: two time an end "at once" (under the 20 s wait), and the port race needs its winner up on time (side by side under a full gate the keeper won the port itself, twice).
+test('F10, re-check item 2: a keeper that loses the port race (another keeper\'s board holds the port and answers seconds later) is no failure: the script waits for the board and ends with 0', windows, async t => {
+  const port = String(await freePort())
+  // A board of this folder (the demo's own, by its command line) that holds the port and is up after 14 s: the race's winner. The check
+  // before the start is skipped by a test hook here (WORKER_BOARD_SKIP_CHECK, this test's alone), as a second keeper's start would be
+  // in flight when a chat's start and a landing's restart cross.
+  // B1555: the winner is up 14 s after its own start, so the wait counts from there (side by side, its start to listening takes seconds).
+  const began = Date.now()
+  await fakeBoard(t, port, 14_000, RACE_FAKE)
+  t.after(() => sweep(port))
+  const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_SKIP_CHECK: '1' } })
+  assert.equal(said.status, 0, `${said.stdout} ${said.stderr}`)
+  assert.ok(Date.now() - began >= 13_500, 'it waited for the winner\'s board, instead of failing on the keeper\'s early end')
+  assert.match(said.stdout, new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\(another keeper won the port; this one, process \\d+, ended\\)`))
+})
 test('F10, round 5: an early end that is no port race (the child dies before it is up) fails at once with the log\'s words, not after the 20 s wait', windows, async t => {
   const port = String(await freePort())
   t.after(() => sweep(port))
