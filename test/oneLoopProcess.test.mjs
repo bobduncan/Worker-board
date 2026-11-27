@@ -162,7 +162,8 @@ test('two board processes on one project: each line goes out once, and the other
   await writeStore(store, steps(['B13', 'B14']), undefined, { now: NOW })
   const [one, two] = [await freePort(), await freePort()]
   await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'loops', project, port: one, refreshSeconds: 5, morningRound: '00:00', weeklyRound: false, gamePort: 7300, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json') }))
-  const env = { WORKER_BOARD_HOME: join(dir, 'pc') }
+  // B1555: the look every second (the take-over's first look waited up to the minute); the reconciler stays at 5 s.
+  const env = { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_TICK_MS: '1000' }
   const outbox = join(board, 'data', 'outbox.jsonl')
   const lock = join(project, '.claude', 'sync-loop.json')
   const sent = async what => (await readLines(outbox)).filter(message => what(message))
@@ -189,7 +190,7 @@ test('two board processes on one project: each line goes out once, and the other
   assert.equal(holder.pid, mine.child.pid)
   assert.match(other.out(), /Another board process of this project runs the loops/)
   // Everything the loops do has had its turns in both processes by now (the reconciler's refresh is 5 s).
-  await wait(14_000)
+  await wait(11_000)
   assert.equal((await sent(isRound)).length, 1, 'the round went out once')
   assert.equal((await sent(isLineOf('B13'))).length, 1, 'the line of B13 went out once')
   assert.equal((await sent(isRefineOf('B14'))).length, 1, 'the refine of B14 went out once')
@@ -227,9 +228,9 @@ test('two board processes on one project: each line goes out once, and the other
   await until(async () => stat(join(logs, 'left.txt')).then(() => true, () => false), 'the log the holder left, finished by the one that took over')
   assert.match(await readFile(join(logs, 'left.txt'), 'utf8'), /The shield is in\./)
   // Its own first look (once a minute): it writes when it last ran.
-  await until(async () => JSON.parse(await readFile(join(board, 'data', 'alive.json'), 'utf8').catch(() => '{}')).at > endedAt, 'the first look of the one that took over', 75_000)
+  await until(async () => JSON.parse(await readFile(join(board, 'data', 'alive.json'), 'utf8').catch(() => '{}')).at > endedAt, 'the first look of the one that took over', 40_000)
   await until(async () => (await sent(isRefineOf('B15'))).length > 0, 'the refine of B15', 10_000)
-  await wait(8_000)
+  await wait(6_000)
   assert.equal((await sent(isLineOf('B15'))).length, 1, 'the line of B15 went out once')
   assert.equal((await sent(isLineOf('B14'))).length, 0, 'no line of B14: its worker gets it in its hand-over')
   assert.equal((await sent(isLineOf('B13'))).length, 1, 'the line of B13 was not sent again')
