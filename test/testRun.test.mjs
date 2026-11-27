@@ -12,6 +12,11 @@ import { fileURLToPath } from 'node:url'
 import { failingFiles, gateVerdict } from '../src/landing.mjs'
 import { LOW, NORMAL, STALL_MS, TEST_TIMEOUT_MS, boardFolders, cliOf, halfTheCores, holdsBoard, insidePattern, openFiles, priorityWord, runTests, stallLines, stopInside } from '../tools/test.mjs'
 
+// Hotfix (2026-11-27): these tests judge runTests on its own, never inside the fence of the run around them. A gate inside the live
+// fence (S5) gives them HEAVY_RUN_PRIORITY, HEAVY_RUN_MASK and HEAVY_RUN_CORES, and runTests reads process.env by default: F68's
+// "asked normal" was then capped to below normal and every go-live was refused.
+for (const name of ['HEAVY_RUN_PRIORITY', 'HEAVY_RUN_MASK', 'HEAVY_RUN_CORES']) delete process.env[name]
+
 test('B351: npm test runs the tests through tools/test.mjs, on half the cores, at least one', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   // 2026-10-25: through the helper that lets one heavy run happen at a time on the PC (test/oneAtATime.test.mjs).

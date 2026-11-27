@@ -50,6 +50,7 @@
       "@board",
       "src/wake.mjs",
       "src/wakeCarry.mjs",
+      "src/opener.mjs",
       "src/hands.mjs",
       "src/store.mjs",
       "src/work/pause.mjs",
