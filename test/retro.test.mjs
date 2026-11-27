@@ -9,7 +9,10 @@ import vm from 'node:vm'
 
 import { listRetros, mayRun, oneLineOf, readRetro, retroFolderOf, retroWords, RUN_STALE_MS, runView } from '../src/retro.mjs'
 
-const PAGE = (line, extra = '') => `# Weekly retrospective\n\n## 1. In one line\n\n${line}\n\n## 2. The numbers\n\n| number | this week | last week |\n|---|---|---|\n| items done | 41 | 33 |\n${extra}`
+/** A page in its shape since 2026-11-27: "In short" first (three lines), no "In one line". */
+const PAGE = (line, extra = '') => `# Weekly retrospective\n\n## 1. In short\n\n- ${line}\n- Second line.\n- Third line.\n\n## 2. The numbers\n\n| number | this week | last week |\n|---|---|---|\n| items done | 41 steps · 12 go-lives | 33 steps · 9 go-lives |\n${extra}`
+/** An older page, with its "In one line" section. */
+const OLD_PAGE = line => `# Weekly retrospective\n\n## 1. In one line\n\n${line}\n\n## 2. The numbers\n`
 
 async function folderWith(t, pages) {
   const root = await mkdtemp(join(tmpdir(), 'retro-'))
@@ -23,8 +26,8 @@ async function folderWith(t, pages) {
   return folder
 }
 
-test('retro: the pages newest first, each with its "In one line"; a missing folder has none; other files are left out', async t => {
-  const folder = await folderWith(t, [['2026-11-20', PAGE('Slower: the test queue waited 31 hours.')], ['2026-11-27', PAGE('Faster: go-lives took half the time.')]])
+test('retro: the pages newest first, each with the first line of its "In short" (an older page: its "In one line"); a missing folder has none', async t => {
+  const folder = await folderWith(t, [['2026-11-20', OLD_PAGE('Slower: the test queue waited 31 hours.')], ['2026-11-27', PAGE('Faster: go-lives took half the time.')]])
   await writeFile(join(folder, 'notes.txt'), 'x')
   const pages = await listRetros(folder)
   assert.deepEqual(pages.map(page => [page.date, page.oneLine]), [['2026-11-27', 'Faster: go-lives took half the time.'], ['2026-11-20', 'Slower: the test queue waited 31 hours.']])
@@ -32,8 +35,11 @@ test('retro: the pages newest first, each with its "In one line"; a missing fold
   assert.deepEqual(await listRetros(join(folder, 'none')), [])
 })
 
-test('retro: "In one line" as a heading, on its own line after a colon, in bold, or missing', () => {
-  assert.equal(oneLineOf(PAGE('Same: nothing moved.')), 'Same: nothing moved.')
+test('retro: the list line: "In short"\'s first line (a bullet, numbered or bold), else "In one line", else none', () => {
+  assert.equal(oneLineOf(PAGE('**Faster:** go-lives took half the time.')), 'Faster: go-lives took half the time.')
+  assert.equal(oneLineOf('## 1. In short\n\n1. More got done.\n2. Fewer refusals.\n'), 'More got done.')
+  assert.equal(oneLineOf(`${OLD_PAGE('Older shape.')}\n## In short\n\nIn short wins.`), 'In short wins.', 'In short comes first wherever it stands')
+  assert.equal(oneLineOf(OLD_PAGE('Same: nothing moved.')), 'Same: nothing moved.')
   assert.equal(oneLineOf('**In one line:** Faster, because the fence landed.\n'), 'Faster, because the fence landed.')
   assert.equal(oneLineOf('1. In one line: slower.\n'), 'slower.')
   assert.equal(oneLineOf('# Retro\n\nNothing here.'), null)
@@ -41,7 +47,7 @@ test('retro: "In one line" as a heading, on its own line after a colon, in bold,
 
 test('retro: one page by its date only; a path or a date that is no page gives nothing', async t => {
   const folder = await folderWith(t, [['2026-11-27', PAGE('Faster.')]])
-  assert.match(await readRetro(folder, '2026-11-27'), /In one line/)
+  assert.match(await readRetro(folder, '2026-11-27'), /In short/)
   assert.equal(await readRetro(folder, '2026-11-28'), null)
   await writeFile(join(folder, '..', 'secret.md'), 'not a page')
   assert.equal(await readRetro(folder, '../secret'), null, 'a file beside the folder is never read')
@@ -89,11 +95,15 @@ async function page() {
 test('retro page: Markdown is read as headings, paragraphs, lists and the table; bold is the one inline mark; no HTML is made', async () => {
   const { blocksOf, inlineOf } = await page()
   const blocks = JSON.parse(JSON.stringify(blocksOf(`${PAGE('Faster: half the **wait**.')}\n## 3. Bottlenecks\n\n1. The test queue: 12 h\n2. Go-lives: 6 h\n\n- one\n- <b>two</b>\n\nA line\nthat goes on.`)))
-  assert.deepEqual(blocks.map(block => block.kind), ['heading', 'heading', 'paragraph', 'heading', 'table', 'heading', 'list', 'list', 'paragraph'])
-  assert.deepEqual(blocks[4], { kind: 'table', head: ['number', 'this week', 'last week'], rows: [['items done', '41', '33']] })
+  assert.deepEqual(blocks.map(block => block.kind), ['heading', 'heading', 'list', 'heading', 'table', 'heading', 'list', 'list', 'paragraph'])
+  assert.deepEqual(blocks[2], { kind: 'list', ordered: false, items: ['Faster: half the **wait**.', 'Second line.', 'Third line.'] })
+  assert.deepEqual(blocks[4], { kind: 'table', head: ['number', 'this week', 'last week'], rows: [['items done', '41 steps · 12 go-lives', '33 steps · 9 go-lives']] })
   assert.deepEqual(blocks[6], { kind: 'list', ordered: true, items: ['The test queue: 12 h', 'Go-lives: 6 h'] })
   assert.deepEqual(blocks[7].items, ['one', '<b>two</b>'], 'markup is kept as text, drawn with textContent')
   assert.equal(blocks[8].text, 'A line that goes on.')
+  // The bottlenecks are short paragraphs, each with its bold name first: each stays one paragraph.
+  const bottlenecks = JSON.parse(JSON.stringify(blocksOf('## 3. Biggest bottlenecks\n\n**Waiting for a go (9 step-hours).** Built changes waited.\nCause: one at a time.\n\n**PC sleep (6 hours).** The PC slept twice.')))
+  assert.deepEqual(bottlenecks.map(block => [block.kind, block.text ?? null]), [['heading', '3. Biggest bottlenecks'], ['paragraph', '**Waiting for a go (9 step-hours).** Built changes waited. Cause: one at a time.'], ['paragraph', '**PC sleep (6 hours).** The PC slept twice.']])
   assert.deepEqual(JSON.parse(JSON.stringify(inlineOf('half the **wait** now'))), [{ text: 'half the ', bold: false }, { text: 'wait', bold: true }, { text: ' now', bold: false }])
   const script = await readFile(new URL('../public/retro.js', import.meta.url), 'utf8')
   assert.doesNotMatch(script, /innerHTML|insertAdjacentHTML|outerHTML/)

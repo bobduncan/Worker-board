@@ -18,12 +18,19 @@ export const RUN_STALE_MS = 3 * 60 * 60 * 1000
 /** The pages' folder of a project. */
 export const retroFolderOf = project => join(project, '.claude', 'plans', 'retro')
 
-/** A page's "In one line" sentence: the text under that heading (or after "In one line:" on its own line), or null. */
+/**
+ * A page's line for the list: the first line of its "In short" section (the page's shape since 2026-11-27, chat 1), else, for
+ * an older page, its "In one line" sentence; null when it has neither. A section's line is the text after its name on the same
+ * line ("In short: ..."), or the first line under its heading.
+ */
 export function oneLineOf(text) {
   const lines = String(text ?? '').split(/\r?\n/)
+  return firstLineUnder(lines, /in short/i) ?? firstLineUnder(lines, /in one line/i)
+}
+function firstLineUnder(lines, name) {
   for (let i = 0; i < lines.length; i += 1) {
-    if (!/in one line/i.test(lines[i])) continue
-    const after = lines[i].replace(/^#+\s*/, '').replace(/^\d+\.\s*/, '').replace(/^\*\*|\*\*$/g, '').split(/in one line\**\s*[:.]?\s*\**/i)[1]?.trim()
+    if (!name.test(lines[i])) continue
+    const after = lines[i].replace(/^#+\s*/, '').replace(/^\d+\.\s*/, '').replace(/^\*\*|\*\*$/g, '').split(new RegExp(`${name.source}\\**\\s*[:.]?\\s*\\**`, 'i'))[1]?.trim()
     if (after) return clean(after)
     for (let j = i + 1; j < lines.length; j += 1) {
       if (lines[j].trim() === '') continue
@@ -33,7 +40,7 @@ export function oneLineOf(text) {
   }
   return null
 }
-const clean = line => line.replace(/^[-*]\s+/, '').replace(/\*\*/g, '').trim()
+const clean = line => line.replace(/^\s*([-*]|\d+[.)])\s+/, '').replace(/\*\*/g, '').trim()
 
 /** The pages, newest first: `[{ date, oneLine, at }]` (`at`: when its file was written, ms). A missing folder has none. */
 export async function listRetros(folder) {
