@@ -18,7 +18,7 @@ export const NIGHT_ORDINARY_HOUR = 5
 export const RUNNER_MAX_MS = 3 * 60 * 60 * 1000
 /**
  * The queue labels of a big run: idle (waits for an idle PC) or ordinary (an overdue one). P4 (chat 1, 2026-11-27): both give way to
- * a gate while they hold the slot (one-at-a-time.mjs givesWay: the idle room, and the `yield:` prefix), so a 30-minute suite never
+ * a gate while they hold the slot (one-at-a-time.mjs givesWay: big-suite.mjs gives every big run HEAVY_RUN_YIELD), so a 30-minute suite never
  * stands in front of a go-live; the suite then starts over at its next turn.
  */
 export const IDLE_LABEL = 'idle:big-suite'

@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, giveWayLookOf, givesWay, idleRoomOf, isIdleRun, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
+import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, giveWayLookOf, givesWay, idleRoomOf, isIdleRun, markOf, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'heavy-run-test-'))
@@ -578,18 +578,25 @@ test('S3, P4: a gate that comes right after an ordinary run took the slot waits 
   assert.ok(waited - left < 10000, `the gate waited ${waited - left} ms beyond the run's time left (a poll and a node start)`)
 })
 
-test('P4: the runs that give way to a gate: idle runs and yield: runs (or HEAVY_RUN_YIELD=1), never a first-class one or one under another', () => {
-  assert.deepEqual(['yield:p4-mutants', 'idle:x', 'slow-tier', 'b1517-measure2', 'check', 'gate', 'test'].map((label) => givesWay(label, {})), [true, true, true, true, false, false, false])
+/** P4: a short settle time after a give-way (GATE_SETTLE_MS is a minute), for the cases that are not about it. */
+const settle = { HEAVY_RUN_SETTLE_MS: '200' }
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+test('P4: the runs that give way to a gate: those safe to kill and rerun (yield:, HEAVY_RUN_YIELD=1, an idle run that sets it), never a plain idle run, a first-class one or one under another', () => {
+  assert.deepEqual(['yield:p4-mutants', 'idle:x', 'slow-tier', 'b1517-measure2', 'check', 'gate', 'test'].map((label) => givesWay(label, {})), [true, false, false, false, false, false, false])
   assert.equal(givesWay('check', { HEAVY_RUN_YIELD: '1' }), true)
+  assert.equal(givesWay('idle:big-suite', { HEAVY_RUN_YIELD: '1' }), true, 'an idle run that says it is safe to kill and rerun')
   assert.equal(givesWay('yield:x', { HEAVY_RUN_FIRST: '1' }), false, 'a gate never gives way')
-  assert.equal(givesWay('idle:x', { HEAVY_RUN_FIRST: '1' }), false, 'nor a first-class run with an idle label')
+  assert.equal(givesWay('idle:x', { HEAVY_RUN_FIRST: '1', HEAVY_RUN_YIELD: '1' }), false, 'nor a first-class run')
   assert.equal(givesWay('yield:x', { HEAVY_RUN_HELD: '1' }), false, 'a run under another holds no slot of its own')
   assert.equal(giveWayLookOf(5000), 1250, 'a quarter poll')
-  assert.equal(giveWayLookOf(50), 250, 'at least every 250 ms')
+  assert.equal(giveWayLookOf(50), 250, 'never more often than every 250 ms')
+  assert.equal(markOf({ HEAVY_RUN_MARK: 'ab12cd34ef' }), ' [ab12cd34ef]')
+  assert.equal(markOf({ HEAVY_RUN_MARK: 'not hex at all' }), '')
 })
 
-/** P4: a command that notes each start (its pid) in `marks`, and runs long the first `long` times, else ends at once with 0. */
-const startsOver = (marks, long = 1) => node(`const fs = require('fs'); fs.appendFileSync(${JSON.stringify(marks)}, process.pid + '\\n'); const n = fs.readFileSync(${JSON.stringify(marks)}, 'utf8').trim().split('\\n').length; setTimeout(() => process.exit(0), n <= ${long} ? 60000 : 100)`)
+/** P4: a command that notes each start (its pid) in `marks`, and runs `ms` the first `long` times, else ends at once with 0. */
+const startsOver = (marks, long = 1, ms = 60000) => node(`const fs = require('fs'); fs.appendFileSync(${JSON.stringify(marks)}, process.pid + '\\n'); const n = fs.readFileSync(${JSON.stringify(marks)}, 'utf8').trim().split('\\n').length; setTimeout(() => process.exit(0), n <= ${long} ? ${ms} : 100)`)
 const startsOf = (marks) => (existsSync(marks) ? readFileSync(marks, 'utf8').trim().split('\n').filter(Boolean).map(Number) : [])
 const pidRunsNow = (pid) => {
   try {
@@ -599,12 +606,13 @@ const pidRunsNow = (pid) => {
     return error.code === 'EPERM'
   }
 }
+const holding = (lock, label) => existsSync(lock) && readFileSync(lock, 'utf8').includes(`"${label}"`)
 
 test('P4, the real case: a gate that comes while a yield: run holds the slot gets it within one poll; the run\'s whole tree stops, it waits at the back and starts over later', async (t) => {
   const lock = newLock()
   const marks = join(scratch, `marks-${++counter}.txt`)
-  // A poll of a second, so "within one poll" stands out from a process start.
-  const slow = { HEAVY_RUN_POLL_MS: '1000' }
+  // A poll of two seconds, so "within one poll" stands out from a process start and a taskkill on a loaded PC.
+  const slow = { HEAVY_RUN_POLL_MS: '2000', ...settle }
   const run = start(lock, 'yield:p4-mutants', startsOver(marks), slow)
   await until(() => startsOf(marks).length === 1, 'the yield run\'s command running')
   const [first] = startsOf(marks)
@@ -614,8 +622,8 @@ test('P4, the real case: a gate that comes while a yield: run holds the slot get
   const came = Date.now()
   await until(() => /gate runs now/.test(gate.err), 'the gate taking the slot')
   const took = Date.now() - came
-  t.diagnostic(`the gate took the slot ${took} ms after its ticket came (poll 1000 ms)`)
-  assert.ok(took < 2000, `the gate takes the slot at its first look after the one it came with (${took} ms)`)
+  t.diagnostic(`the gate took the slot ${took} ms after its ticket came (poll 2000 ms)`)
+  assert.ok(took < 4000, `the gate takes the slot at its first look after the one it came with (${took} ms)`)
   assert.match(run.err, /one-at-a-time: yield:p4-mutants gives way to a gate \(its command starts over at its next turn\)/)
   assert.equal(pidRunsNow(first), false, 'the command that gave way no longer runs (its whole tree was stopped)')
   // While the gate runs, the run waits in the queue (not the idle room), its ticket saying it gave way once.
@@ -626,45 +634,139 @@ test('P4, the real case: a gate that comes while a yield: run holds the slot get
   assert.deepEqual([gateEnd.code, end.code], [0, 0], end.err)
   assert.equal(startsOf(marks).length, 2, 'the command started over once, after the gate')
   assert.doesNotMatch(end.err, /times in a row/, 'once is no news')
-  const logged = readFileSync(`${lock}.runs.jsonl`, 'utf8').trim().split('\n').map((line) => JSON.parse(line)).find((one) => one.label === 'yield:p4-mutants')
-  assert.equal(logged.gaveWay, 1)
+  // Core review 4: the log has a record of the give-way itself, and one of the run's end.
+  const logged = readFileSync(`${lock}.runs.jsonl`, 'utf8').trim().split('\n').map((line) => JSON.parse(line)).filter((one) => one.label === 'yield:p4-mutants')
+  assert.deepEqual(logged.map((one) => [one.stopped ?? null, one.exit, one.gaveWay]), [['gave way to a gate', null, 1], [null, 0, 1]])
 })
 
-test('P4: an idle run that holds the slot gives way to a gate too, and goes back to the idle room; it runs once the queue is empty', async () => {
+test('P4, core review 2: a yield run keeps the slot while only ordinary runs wait, and while a gate waits behind a ticket that came 30+ minutes earlier; it gives way once the gate is next', async () => {
   const lock = newLock()
   const marks = join(scratch, `marks-${++counter}.txt`)
-  const idle = start(lock, 'slow-tier', startsOver(marks))
-  await until(() => startsOf(marks).length === 1, 'the idle run\'s command running')
-  const gate = start(lock, 'gate', node('setTimeout(() => {}, 600)'), { HEAVY_RUN_FIRST: '1' })
-  await until(() => /gate runs now/.test(gate.err), 'the gate taking the slot')
-  await until(() => existsSync(idleRoomOf(lock)) && readdirSync(idleRoomOf(lock)).length === 1, 'the idle run back in the idle room')
-  const [gateEnd, end] = await Promise.all([gate.done, idle.done])
-  assert.deepEqual([gateEnd.code, end.code], [0, 0], end.err)
-  assert.match(end.err, /slow-tier gives way to a gate/)
+  const run = start(lock, 'yield:x', startsOver(marks), settle)
+  await until(() => startsOf(marks).length === 1, 'the yield run\'s command running')
+  const check = start(lock, 'check', quick)
+  await until(() => /waiting for yield:x/.test(check.err), 'an ordinary run waiting')
+  // A ticket of 35 minutes ago (this test's own live process): F39's order serves it before a gate that comes now.
+  const ago = Date.now() - 35 * 60_000
+  const old = join(`${lock}.queue`, `${String(ago).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`)
+  writeFileSync(old, JSON.stringify({ pid: process.pid, label: 'a worker\'s test', cwd: 'C:/elsewhere', startedAt: new Date(ago).toISOString(), order: ORDER_MARK, beat: new Date().toISOString() }))
+  const gate = start(lock, 'gate', quick, { HEAVY_RUN_FIRST: '1' })
+  await until(() => /waiting for yield:x/.test(gate.err), 'the gate waiting')
+  await pause(1500)
+  assert.doesNotMatch(run.err, /gives way/, 'no give-way for an ordinary run, nor for a gate that is not next')
+  assert.equal(startsOf(marks).length, 1)
+  rmSync(old)
+  await until(() => /gives way/.test(run.err), 'the give-way once the gate is next')
+  const [gateEnd, checkEnd, end] = await Promise.all([gate.done, check.done, run.done])
+  assert.deepEqual([gateEnd.code, checkEnd.code, end.code], [0, 0, 0], end.err)
   assert.equal(startsOf(marks).length, 2)
 })
 
-test('P4: a run that gave way three times in a row says so, with since when, in its lines', async () => {
+test('P4, core review 1: a slot file a reader holds open at the give-way is not lost: the run tries again until it is gone, and never waits for itself', { skip: process.platform !== 'win32' && 'Windows file sharing' }, async () => {
   const lock = newLock()
   const marks = join(scratch, `marks-${++counter}.txt`)
-  const run = start(lock, 'yield:big', startsOver(marks, 3))
+  const run = start(lock, 'yield:x', startsOver(marks), settle)
+  await until(() => startsOf(marks).length === 1 && holding(lock, 'yield:x'), 'the yield run holding the slot')
+  // A reader without delete sharing (as PowerShell's Get-Content or a scanner), for 2 s around the give-way.
+  const reader = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', `$f = [System.IO.File]::Open('${lock.replace(/'/g, "''")}', 'Open', 'Read', 'Read'); [Console]::Out.WriteLine('open'); Start-Sleep -Milliseconds 2000; $f.Close()`], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+  let opened = ''
+  reader.stdout.on('data', (data) => (opened += data))
+  await until(() => opened.includes('open'), 'the reader holding the slot file')
+  const gate = start(lock, 'gate', quick, { HEAVY_RUN_FIRST: '1' })
+  const [gateEnd, end] = await Promise.all([gate.done, run.done])
+  assert.deepEqual([gateEnd.code, end.code], [0, 0], end.err)
+  assert.equal(startsOf(marks).length, 2, 'it started over after the gate')
+  assert.equal(existsSync(lock), false)
+})
+
+test('P4, core review 1: a slot file that names this very run while it waits is its own of before: free, never a holder to wait for', { timeout: 20000 }, async () => {
+  const lock = newLock()
+  writeFileSync(lock, lockText({ pid: process.pid, label: 'me', cwd: process.cwd() }))
+  const said = []
+  const code = await runOneAtATime({ label: 'me', command: quick, env: envFor(lock), say: (line) => said.push(line) })
+  assert.equal(code, 0)
+  assert.match(said.join('\n'), /one-at-a-time: me runs now/)
+})
+
+test('P4, core review 3: a run never waits behind its own ticket of before, in the queue or the idle room', { timeout: 20000 }, async () => {
+  const lock = newLock()
+  const leftover = (folder) => {
+    mkdirSync(folder, { recursive: true })
+    const ago = Date.now() - 60_000
+    writeFileSync(join(folder, `${String(ago).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`), JSON.stringify({ pid: process.pid, label: 'me before', cwd: 'C:/elsewhere', startedAt: new Date(ago).toISOString(), order: ORDER_MARK, beat: new Date().toISOString() }))
+  }
+  leftover(`${lock}.queue`)
+  assert.equal(await runOneAtATime({ label: 'me', command: quick, env: envFor(lock), say: () => {} }), 0)
+  assert.deepEqual(readdirSync(`${lock}.queue`), [], 'its leftover went')
+  leftover(idleRoomOf(lock))
+  assert.equal(await runOneAtATime({ label: 'idle:me', command: quick, env: envFor(lock), say: () => {} }), 0)
+  assert.deepEqual(readdirSync(idleRoomOf(lock)), [])
+})
+
+test('P4, core review 4: a run that gave way three times in a row says so with since when, and keeps its next turn with no gate in the line: a gate that comes then waits for it', async () => {
+  const lock = newLock()
+  const marks = join(scratch, `marks-${++counter}.txt`)
+  const run = start(lock, 'yield:big', startsOver(marks, 4, 2500), settle)
   for (let time = 1; time <= 3; time += 1) {
-    await until(() => startsOf(marks).length === time && existsSync(lock) && readFileSync(lock, 'utf8').includes('yield:big'), `the run holding the slot, start ${time}`)
+    await until(() => startsOf(marks).length === time && holding(lock, 'yield:big'), `the run holding the slot, start ${time}`, 40000)
     const gate = start(lock, 'gate', node('setTimeout(() => {}, 500)'), { HEAVY_RUN_FIRST: '1' })
     assert.equal((await gate.done).code, 0)
   }
-  const end = await run.done
-  assert.equal(end.code, 0, end.err)
-  assert.equal(startsOf(marks).length, 4)
+  await until(() => startsOf(marks).length === 4 && holding(lock, 'yield:big'), 'its fourth start', 40000)
+  const gate = start(lock, 'gate', node('console.log(Date.now())'), { HEAVY_RUN_FIRST: '1' })
+  const [gateEnd, end] = await Promise.all([gate.done, run.done])
+  assert.deepEqual([gateEnd.code, end.code], [0, 0], end.err)
+  assert.equal(startsOf(marks).length, 4, 'not stopped in its kept turn')
+  assert.match(end.err, /one-at-a-time: yield:big keeps this turn: it gave way to a gate 3 times in a row, so a gate that comes now waits for it/)
   assert.doesNotMatch(end.err.split('\n').filter((line) => /gives way/.test(line)).slice(0, 2).join('\n'), /in a row/, 'once or twice is no news')
   assert.match(end.err, /yield:big gives way to a gate \(its command starts over at its next turn; gave way to a gate 3 times in a row, not finished since \d\d:\d\d\)/)
-  assert.match(end.err, /waiting for gate in .*; gave way to a gate 3 times in a row, not finished since \d\d:\d\d/, 'its waiting lines say it too')
+  assert.match(end.err, /waiting for (?:the gates to settle \()?gate in .*; gave way to a gate 3 times in a row, not finished since \d\d:\d\d/, 'its waiting lines say it too')
+})
+
+test('P4 (nit of the core review): after a give-way a run takes no slot in the gap between a gate and its rerun (the settle time)', async () => {
+  const lock = newLock()
+  const marks = join(scratch, `marks-${++counter}.txt`)
+  // Ten seconds, so the rerun's own start on a loaded PC stays inside it.
+  const run = start(lock, 'yield:x', startsOver(marks), { HEAVY_RUN_SETTLE_MS: '10000' })
+  await until(() => startsOf(marks).length === 1, 'the yield run\'s command running')
+  const gate = start(lock, 'gate', node('setTimeout(() => {}, 300)'), { HEAVY_RUN_FIRST: '1' })
+  assert.equal((await gate.done).code, 0)
+  await pause(500)
+  assert.equal(startsOf(marks).length, 1, 'not started in the gap')
+  const rerun = start(lock, 'rerun', node('setTimeout(() => {}, 300)'), { HEAVY_RUN_FIRST: '1' })
+  assert.equal((await rerun.done).code, 0)
+  const end = await run.done
+  assert.equal(end.code, 0, end.err)
+  assert.equal(startsOf(marks).length, 2)
+  assert.equal((end.err.match(/gives way to a gate/g) ?? []).length, 1, 'it gave way once, not again at the rerun')
+})
+
+test('P4, core review 7: a plain idle run keeps the slot when a gate comes; one that says it is safe to kill and rerun (HEAVY_RUN_YIELD=1) gives way and goes back to the idle room', async () => {
+  const lock = newLock()
+  const plainMarks = join(scratch, `marks-${++counter}.txt`)
+  const plainIdle = start(lock, 'slow-tier', startsOver(plainMarks, 1, 1500))
+  await until(() => startsOf(plainMarks).length === 1 && holding(lock, 'slow-tier'), 'the plain idle run holding the slot')
+  const gate = start(lock, 'gate', quick, { HEAVY_RUN_FIRST: '1' })
+  const [gateEnd, plainEnd] = await Promise.all([gate.done, plainIdle.done])
+  assert.deepEqual([gateEnd.code, plainEnd.code], [0, 0])
+  assert.doesNotMatch(plainEnd.err, /gives way/)
+  assert.equal(startsOf(plainMarks).length, 1)
+  const marks = join(scratch, `marks-${++counter}.txt`)
+  const idle = start(lock, 'slow-tier', startsOver(marks), { HEAVY_RUN_YIELD: '1', ...settle })
+  await until(() => startsOf(marks).length === 1 && holding(lock, 'slow-tier'), 'the idle run holding the slot')
+  const second = start(lock, 'gate', node('setTimeout(() => {}, 600)'), { HEAVY_RUN_FIRST: '1' })
+  await until(() => /gate runs now/.test(second.err), 'the gate taking the slot')
+  await until(() => existsSync(idleRoomOf(lock)) && readdirSync(idleRoomOf(lock)).length === 1, 'the idle run back in the idle room')
+  const [secondEnd, end] = await Promise.all([second.done, idle.done])
+  assert.deepEqual([secondEnd.code, end.code], [0, 0], end.err)
+  assert.match(end.err, /slow-tier gives way to a gate/)
+  assert.equal(startsOf(marks).length, 2)
 })
 
 test('P4: a run that gives way never stops for a gate after a stop signal, and a signal while it waits again ends it', async () => {
   const lock = newLock()
   const marks = join(scratch, `marks-${++counter}.txt`)
-  const run = start(lock, 'yield:x', startsOver(marks, 5))
+  const run = start(lock, 'yield:x', startsOver(marks, 5), settle)
   await until(() => startsOf(marks).length === 1, 'the run\'s command running')
   const gate = start(lock, 'gate', node('setTimeout(() => {}, 3000)'), { HEAVY_RUN_FIRST: '1' })
   await until(() => /gives way/.test(run.err), 'the run giving way')
@@ -673,6 +775,13 @@ test('P4: a run that gives way never stops for a gate after a stop signal, and a
   assert.notEqual(end.code, 0, 'stopped while it waited again: it ends, and its command never started over')
   assert.equal(startsOf(marks).length, 1)
   assert.equal((await gate.done).code, 0)
+})
+
+test('P4 (nit of the core review): the command does not see HEAVY_RUN_YIELD or the caller\'s mark, and the mark ends the "runs now" line', async () => {
+  const result = await start(newLock(), 'yield:x', node('console.log(String(process.env.HEAVY_RUN_YIELD) + " " + String(process.env.HEAVY_RUN_MARK))'), { HEAVY_RUN_YIELD: '1', HEAVY_RUN_MARK: 'abcdef12' }).done
+  assert.equal(result.code, 0)
+  assert.equal(result.out.trim(), 'undefined undefined')
+  assert.match(result.err, /^one-at-a-time: yield:x runs now \(waited \d+ s\) \[abcdef12\]$/m)
 })
 
 test('S3, chat 1\'s review: a sleep is no hang: a run that spans a sleep is not stopped, and its lock\'s since moves on by the time slept, so no waiter (old copies too) calls it stale', async () => {

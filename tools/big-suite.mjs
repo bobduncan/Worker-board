@@ -10,6 +10,7 @@
 // recursive delete through it); then `git worktree remove` without force, and only while the main checkout's node_modules still
 // holds its marker package.
 import { spawn, spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { appendFileSync, existsSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -21,6 +22,7 @@ import {
 import { asRepoPath } from '../src/lightCheck.mjs'
 import { failingFiles, gatePassed } from '../src/landing.mjs'
 import * as tool from './one-at-a-time.mjs'
+import { boardFolders, stopInside } from './test.mjs'
 
 /** The exit code one-at-a-time gives a run it stopped at its hold cap (S3): such a run could not run, it is no red of main. */
 export const STOPPED = 124
@@ -41,8 +43,14 @@ export function rotateLog(log, maxBytes = LOG_MAX_BYTES) {
 }
 /** one-at-a-time's line when a run takes its slot (F14): until then an idle run only waits, and may be started anew as ordinary. */
 export const RUNS_NOW = /one-at-a-time: .+ runs now/
-/** P4: one-at-a-time's line when a run gave way to a gate (its gaveWayLine): the run waits again, and its command starts over. */
-export const GAVE_WAY = /one-at-a-time: .+ gives way to a gate[^\n]*\n/g
+/**
+ * P4, core review 5: one-at-a-time's lines of THIS run, by the run's own mark (HEAVY_RUN_MARK, made fresh for each run and never seen
+ * by the tests: the helper keeps it from its command), at the start of a line. A test that fails and quotes a helper's "gives way" or
+ * "runs now" words is not read as this run's.
+ */
+const escaped = mark => mark.replace(/[^0-9a-f]/gi, '')
+export const runsNowOf = mark => new RegExp(`^one-at-a-time: .+ runs now \\(waited \\d+ s\\) \\[${escaped(mark)}\\]\\r?$`, 'm')
+export const gaveWayOf = mark => new RegExp(`^one-at-a-time: .+ gives way to a gate .*\\[${escaped(mark)}\\]\\r?\\n`, 'gm')
 export { RERUN_LABEL }
 
 export const git = (args, cwd) => spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true })
@@ -125,21 +133,28 @@ export function bigSuiteSteps(repo, env = process.env) {
       return new Promise((resolve) => {
         rotateLog(files.log)
         appendFileSync(files.log, `\n===== big suite ${label} in ${folder} at ${new Date().toISOString()} =====\n`)
-        const child = spawn(process.execPath, [path.join(folder, 'tools', 'one-at-a-time.mjs'), label, '--', 'node', 'tools/test.mjs', ...only], { cwd: folder, env, windowsHide: true })
+        // P4: every big run is safe to kill and run again (HEAVY_RUN_YIELD), so it gives way to a gate, the idle one too; its own mark.
+        const mark = randomBytes(8).toString('hex')
+        const runsNow = runsNowOf(mark)
+        const gaveWay = gaveWayOf(mark)
+        const child = spawn(process.execPath, [path.join(folder, 'tools', 'one-at-a-time.mjs'), label, '--', 'node', 'tools/test.mjs', ...only], { cwd: folder, env: { ...env, HEAVY_RUN_YIELD: '1', HEAVY_RUN_MARK: mark }, windowsHide: true })
         let output = ''
         let ranAt = null
         const take = (chunk) => {
           const text = String(chunk)
           output += text
           // P4: a run that gave way to a gate starts over: what it said before (the half of a stopped suite) is no part of its verdict,
-          // and it holds no slot until its next "runs now" (so an idle one may be started anew as ordinary again).
-          const gave = [...output.matchAll(GAVE_WAY)].at(-1)
+          // and it holds no slot until its next "runs now" (so an idle one may be started anew as ordinary again). Core review 6: what
+          // the stopped half started outside its tree inside the folder (a keeper or board a test made through WMI) is ended now,
+          // before the command starts over and beside no gate.
+          const gave = [...output.matchAll(gaveWay)].at(-1)
           if (gave !== undefined) {
+            if (Number.isFinite(ranAt)) stopInside(folder, ranAt, spawnSync, boardFolders(env))
             output = output.slice(gave.index + gave[0].length)
             ranAt = null
           }
           // On the whole output, not the chunk: the line may come in two pieces (verifier).
-          if (ranAt === null && RUNS_NOW.test(output)) ranAt = Date.now()
+          if (ranAt === null && runsNow.test(output)) ranAt = Date.now()
           appendFileSync(files.log, text)
         }
         child.stdout.on('data', take)
@@ -164,6 +179,15 @@ export function bigSuiteSteps(repo, env = process.env) {
       })
     },
     cleanUp(folder) {
+      // P4, core review 6: first what the run started outside its tree inside the folder and left running (a WMI keeper), made since
+      // the folder was: git cannot remove a folder a process still holds.
+      let since = NaN
+      try {
+        since = statSync(folder).birthtimeMs
+      } catch {
+        // no folder
+      }
+      if (Number.isFinite(since)) stopInside(folder, since, spawnSync, boardFolders(env))
       const junction = path.join(folder, 'node_modules')
       if (existsSync(junction)) {
         spawnSync('cmd.exe', ['/c', 'rmdir', junction], { windowsHide: true })

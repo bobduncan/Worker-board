@@ -14,7 +14,7 @@ import {
   readJson, recordRun, stateFiles, statusLines, touchRunner,
 } from '../src/bigSuite.mjs'
 import { BIG_SUITE_STALE_MS, NOT_RUN_STEP_AFTER, RETRY_MS, bigSuitePass, owedOf } from '../src/bigSuitePass.mjs'
-import { RERUNS_MAX, RERUN_LABEL, RUNS_NOW, STOPPED, bigSuiteSteps, playOnce, repoTestPath, runner, stalledFiles, verdictOf, waitsInRoom } from '../tools/big-suite.mjs'
+import { RERUNS_MAX, RERUN_LABEL, RUNS_NOW, STOPPED, bigSuiteSteps, gaveWayOf, playOnce, repoTestPath, runner, runsNowOf, stalledFiles, verdictOf, waitsInRoom } from '../tools/big-suite.mjs'
 import * as tool from '../tools/one-at-a-time.mjs'
 
 const HOUR = 60 * 60 * 1000
@@ -461,31 +461,44 @@ test('S9, core review, the real case: steps.run starts one-at-a-time with test.m
   }
 })
 
-test('P4, the real case: a big run that holds the slot gives way to a gate, starts over after it, and its verdict and its start are the new run\'s', { timeout: 60_000 }, async () => {
+/** P4: a big run's folder with the real helper and `lines` as its tools/test.mjs; the env of a run beside no live board or lock. */
+function bigWorld(lines) {
   const { dir, lock } = world()
+  const folder = join(dir, 'board-big-suite-real')
+  mkdirSync(join(folder, 'tools'), { recursive: true })
+  writeFileSync(join(folder, 'tools', 'one-at-a-time.mjs'), readFileSync(HELPER, 'utf8'))
+  writeFileSync(join(folder, 'tools', 'test.mjs'), lines.join('\n'))
+  // A PC of its own with no board on it, so the folder sweep (it fails closed without the list) may run.
+  const home = join(dir, 'pc')
+  mkdirSync(home, { recursive: true })
+  writeFileSync(join(home, 'boards.json'), JSON.stringify({ boards: [] }))
+  const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, HEAVY_RUN_MASK: _mask, HEAVY_RUN_CORES: _cores, HEAVY_RUN_YIELD: _yield, HEAVY_RUN_MARK: _mark, ...plain } = process.env
+  const env = { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50', HEAVY_RUN_SETTLE_MS: '200', WORKER_BOARD_HOME: home }
+  return { dir, lock, folder, env, marks: join(folder, 'tools', 'starts.txt') }
+}
+const untilFile = async (file, check = () => true) => {
+  for (const end = Date.now() + 30_000; Date.now() < end && !(existsSync(file) && check(readFileSync(file, 'utf8')));) await new Promise(done => setTimeout(done, 50))
+}
+const aGate = env => spawnSync(process.execPath, [HELPER, 'gate', '--', 'node', '-e', 'setTimeout(() => {}, 300)'], { encoding: 'utf8', windowsHide: true, env: { ...env, HEAVY_RUN_FIRST: '1' } })
+
+test('P4, the real case: a big run that holds the slot gives way to a gate, starts over after it, and its verdict and its start are the new run\'s', { timeout: 60_000 }, async () => {
+  assert.match(ORDINARY_LABEL, /^yield:/, 'an overdue big run waits as an ordinary run that gives way')
+  assert.match(RERUN_LABEL, /^yield:/, 'so does the rerun alone of a failing file')
+  // The first start says half of a red run and runs on; the second passes at once.
+  const { dir, folder, env, marks } = bigWorld([
+    "import { appendFileSync, readFileSync } from 'node:fs'",
+    "const marks = new URL('starts.txt', import.meta.url)",
+    "appendFileSync(marks, 'x')",
+    "if (readFileSync(marks, 'utf8').length === 1) { console.log('✖ half of a run that was stopped'); console.log('ℹ fail 3'); setTimeout(() => {}, 60000) }",
+    "else { console.log('ℹ tests 1'); console.log('ℹ fail 0') }",
+  ])
   try {
-    assert.match(ORDINARY_LABEL, /^yield:/, 'an overdue big run waits as an ordinary run that gives way')
-    assert.match(RERUN_LABEL, /^yield:/, 'so does the rerun alone of a failing file')
-    assert.equal(tool.givesWay(IDLE_LABEL, {}), true, 'and the idle one gives way as every idle run')
-    const folder = join(dir, 'board-big-suite-real')
-    mkdirSync(join(folder, 'tools'), { recursive: true })
-    writeFileSync(join(folder, 'tools', 'one-at-a-time.mjs'), readFileSync(HELPER, 'utf8'))
-    // The first start says half of a red run and runs on; the second passes at once.
-    writeFileSync(join(folder, 'tools', 'test.mjs'), [
-      "import { appendFileSync, readFileSync } from 'node:fs'",
-      "const marks = new URL('starts.txt', import.meta.url)",
-      "appendFileSync(marks, 'x')",
-      "if (readFileSync(marks, 'utf8').length === 1) { console.log('✖ half of a run that was stopped'); console.log('ℹ fail 3'); setTimeout(() => {}, 60000) }",
-      "else { console.log('ℹ tests 1'); console.log('ℹ fail 0') }",
-    ].join('\n'))
-    const { NODE_TEST_CONTEXT: _context, HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, HEAVY_RUN_MASK: _mask, HEAVY_RUN_CORES: _cores, ...plain } = process.env
-    const env = { ...plain, HEAVY_RUN_LOCK: lock, HEAVY_RUN_POLL_MS: '50' }
     const steps = bigSuiteSteps(dir, env)
-    const running = steps.run(folder, ORDINARY_LABEL, { upgrade: () => false })
-    const marks = join(folder, 'tools', 'starts.txt')
-    for (const end = Date.now() + 30_000; Date.now() < end && !(existsSync(marks) && readFileSync(marks, 'utf8').length === 1);) await new Promise(done => setTimeout(done, 50))
+    // The idle one gives way too: every big run is started with HEAVY_RUN_YIELD (a plain idle run keeps its slot, core review 7).
+    const running = steps.run(folder, IDLE_LABEL, { upgrade: () => false })
+    await untilFile(marks, text => text.length === 1)
     const gateCame = Date.now()
-    const gate = spawnSync(process.execPath, [HELPER, 'gate', '--', 'node', '-e', 'setTimeout(() => {}, 300)'], { encoding: 'utf8', windowsHide: true, env: { ...env, HEAVY_RUN_FIRST: '1' } })
+    const gate = aGate(env)
     assert.equal(gate.status, 0, gate.stderr)
     const ran = await running
     assert.equal(ran.code, 0, ran.output)
@@ -495,6 +508,69 @@ test('P4, the real case: a big run that holds the slot gives way to a gate, star
     assert.ok(ran.ranAt > gateCame, 'the run counts from its new start')
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('P4, core review 5: only this run\'s own lines count, by its mark: a failing test that quotes a helper\'s "gives way" or "runs now" words keeps the run red', { timeout: 60_000 }, async () => {
+  const mark = 'ab12cd34ef567890'
+  const gave = `one-at-a-time: yield:big-suite gives way to a gate (its command starts over at its next turn) [${mark}]\n`
+  assert.equal([...gave.matchAll(gaveWayOf(mark))].length, 1)
+  assert.equal([...`  ${gave}`.matchAll(gaveWayOf(mark))].length, 0, 'only at the start of a line')
+  assert.equal([...gave.replace(mark, '0123456789abcdef').matchAll(gaveWayOf(mark))].length, 0, 'another run\'s mark is not this run\'s')
+  assert.equal([...gave.replace(` [${mark}]`, '').matchAll(gaveWayOf(mark))].length, 0, 'the words alone are no give-way')
+  assert.match(`one-at-a-time: yield:big-suite runs now (waited 3 s) [${mark}]\n`, runsNowOf(mark))
+  assert.doesNotMatch('one-at-a-time: yield:big-suite runs now (waited 3 s)\n', runsNowOf(mark))
+  // The real case: a red run whose failure text quotes those words (as the P4 queue tests do when they fail).
+  const { dir, folder, env } = bigWorld([
+    "console.log('✖ failing tests:')",
+    "console.log('test at test\\\\a.test.mjs:1:1')",
+    "console.log('one-at-a-time: yield:x gives way to a gate (its command starts over at its next turn)')",
+    "console.log('one-at-a-time: yield:x runs now (waited 1 s)')",
+    "console.log('ℹ tests 9')",
+    "console.log('ℹ fail 1')",
+    'process.exitCode = 1',
+  ])
+  try {
+    const ran = await bigSuiteSteps(dir, env).run(folder, ORDINARY_LABEL, { upgrade: () => false })
+    assert.equal(verdictOf(ran.output, ran.code, folder).outcome, 'failed', ran.output)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('P4, core review 6: at a give-way what the stopped half started outside its tree inside the folder (a keeper a test made through WMI) is ended', { timeout: 90_000, skip: process.platform !== 'win32' && 'WMI is Windows\'' }, async () => {
+  // The first start makes a stand-in keeper through WMI (its parent is WMI's, outside the run's tree), with the folder in its command
+  // line, and runs on; the second passes at once.
+  const { dir, folder, env, marks } = bigWorld([
+    "import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'",
+    "import { spawnSync } from 'node:child_process'",
+    "import { dirname, join } from 'node:path'",
+    "import { fileURLToPath } from 'node:url'",
+    "const folder = dirname(dirname(fileURLToPath(import.meta.url)))",
+    "const marks = join(folder, 'tools', 'starts.txt')",
+    "appendFileSync(marks, 'x')",
+    "if (readFileSync(marks, 'utf8').length === 1) {",
+    "  const line = `\"${process.execPath}\" -e \"setTimeout(() => {}, 60000)\" \"${join(folder, 'keeper')}\"`",
+    "  const made = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', '$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $env:KEEPER_LINE }; [Console]::Out.WriteLine($r.ProcessId)'], { encoding: 'utf8', windowsHide: true, env: { ...process.env, KEEPER_LINE: line } })",
+    "  writeFileSync(join(folder, 'keeper.pid'), made.stdout.trim())",
+    "  setTimeout(() => {}, 60000)",
+    "} else { console.log('ℹ tests 1'); console.log('ℹ fail 0') }",
+  ])
+  const keeperFile = join(folder, 'keeper.pid')
+  let keeper = NaN
+  try {
+    const running = bigSuiteSteps(dir, env).run(folder, ORDINARY_LABEL, { upgrade: () => false })
+    await untilFile(keeperFile, text => /^\d+$/.test(text.trim()))
+    keeper = Number(readFileSync(keeperFile, 'utf8').trim())
+    assert.ok(tool.pidRuns(keeper), 'the stand-in keeper runs')
+    assert.equal(aGate(env).status, 0)
+    const ran = await running
+    assert.equal(ran.code, 0, ran.output)
+    assert.equal(readFileSync(marks, 'utf8').length, 2)
+    assert.equal(tool.pidRuns(keeper), false, 'the keeper the stopped half made is gone')
+  } finally {
+    if (Number.isInteger(keeper) && tool.pidRuns(keeper)) process.kill(keeper)
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   }
 })
 

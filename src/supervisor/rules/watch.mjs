@@ -1092,7 +1092,9 @@ export function testQueueOf(item, view) {
  */
 export function testQueueWords(run) {
   if (run.state === 'running') return `its test run goes since ${clockOf(run.since)}`
-  return run.idle === true ? `waits for an idle PC since ${clockOf(run.since)}` : `waits in the test queue since ${clockOf(run.since)}, ${run.ahead} ahead`
+  // P4, core review 4: a run that gave way to a gate says how often, so one that never finishes shows.
+  const gave = Number.isInteger(run.gaveWay) && run.gaveWay > 0 ? `, gave way to a gate ${run.gaveWay} time${run.gaveWay === 1 ? '' : 's'}` : ''
+  return run.idle === true ? `waits for an idle PC since ${clockOf(run.since)}${gave}` : `waits in the test queue since ${clockOf(run.since)}, ${run.ahead} ahead${gave}`
 }
 
 /**

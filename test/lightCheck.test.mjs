@@ -129,14 +129,15 @@ test('S9, the real case: node tools/test.mjs --gate in a branch leaves a slow fi
     writeFileSync(`${lock}.board-big-suite.json`, JSON.stringify({ probation: { 'test/slow.test.mjs': { greens: 0 } } }))
     const held = gate()
     assert.match(held.stdout, /^light check: runs test\/slow\.test\.mjs \(probation\)$/m)
-    // P4: a new test file of the branch that takes over 5 s is named; the run still passes (a report, not a gate)
+    // P4: a new test file of the branch that takes over the threshold is named; the run still passes (a report, not a gate). The
+    // threshold is set low here (TEST_SLOW_NEW_S), so the case adds no five-second file to every go-live (core review, nit).
     git('checkout', '-q', 'feature')
-    writeFileSync(join(root, 'test', 'new.test.mjs'), "import test from 'node:test'\ntest('new and slow', () => new Promise(done => setTimeout(done, 5300)))\n")
+    writeFileSync(join(root, 'test', 'new.test.mjs'), "import test from 'node:test'\ntest('new and slow', () => new Promise(done => setTimeout(done, 600)))\n")
     git('add', '-A')
     git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'a slow new test')
-    const slowNew = gate()
+    const slowNew = spawnSync(process.execPath, ['tools/test.mjs', '--gate'], { cwd: root, encoding: 'utf8', windowsHide: true, env: { ...plain, HEAVY_RUN_LOCK: lock, TEST_SLOW_NEW_S: '0.3' } })
     assert.equal(slowNew.status, 0, slowNew.stdout + slowNew.stderr)
-    assert.match(slowNew.stdout, /^slow new or changed test files \(over 5 s\): test\/new\.test\.mjs \(\d+\.\d s\)$/m)
+    assert.match(slowNew.stdout, /^slow new or changed test files \(over 0\.3 s\): test\/new\.test\.mjs \(\d+\.\d s\)$/m)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

@@ -9243,9 +9243,9 @@ clock stands still while the PC sleeps (both ended with 124, late). Plan: .claud
     and its health line says "waits for an idle PC since 14:02". A folder's running run, then a run waiting its turn, is named
     before an older idle job of the same folder.
   - The run log marks idle runs (`idle: true`).
-- **An idle run that took the slot gives way to a gate** (P4, 2026-11-27, below; until then it kept the slot, and a gate waited for its
-  whole time). An ordinary run still keeps it: a gate that comes right after it waits until it ends, never past the cap (measured in
-  test/oneAtATime.test.mjs: the wait beyond the run's time left is a poll and a node start).
+- **An idle run that took the slot keeps it**, as an ordinary run does: a gate that comes right after it waits until it ends, never
+  past the cap (measured in test/oneAtATime.test.mjs: the wait beyond the run's time left is a poll and a node start). Only a run that
+  says its command is safe to kill and rerun gives way to a gate (P4, 2026-11-27, below): the big suite does, its idle run too.
 - **The cap counts the time awake; a sleep is no hang** (chat 1's review). The holder also reads the wall clock at every beat
   (HEAVY_RUN_BEAT_MS, 60 s) against when it took the slot, less the time the PC slept. A sleep is a gap between two beats well over
   the beat (`sleepGapOf`: 3 beats, at least the beat plus 2 minutes), because the holder only waits on its command, so nothing else
@@ -9389,18 +9389,31 @@ The delivery review: the go-live check doubled in three weeks (median 6.8 to 16.
 - Which tests run where stays the speed plan's rule: the light check per go-live, the big suite when idle.
 - **Background work gives way to a gate** (chat 1, 2026-11-27: a mutant run, queued as an ordinary run, held the slot 28 minutes
   while a go-live's rerun waited, and the whole line stood still).
-  - Who gives way (tools/one-at-a-time.mjs `givesWay`): a run from the idle room (S3's idle labels), and a run with the `yield:`
-    prefix or HEAVY_RUN_YIELD=1. A `yield:` run waits in the queue as an ordinary run, not for an idle PC: a builder's mutants, the
-    big suite once it is overdue (`yield:big-suite`) and its reruns alone (`yield:big-suite-rerun`). A first-class run (a gate, its
-    rerun) never gives way, nor does a run under another (HEAVY_RUN_HELD).
-  - How: while it holds the slot it looks every quarter poll (at least every 250 ms) whether a first-class ticket waits in the queue.
-    Then it stops its command's whole tree (taskkill /T /F), gives the slot back at once, says "gives way to a gate (its command starts
-    over at its next turn)", and waits again where it came from: the idle room, or the back of the queue. At its next turn the command
-    starts over. Measured: a gate takes the slot at its first look after the one it came with.
+  - Who gives way (tools/one-at-a-time.mjs `givesWay`): a run whose command is safe to kill and run again from the start, and says
+    so: the `yield:` prefix (it waits in the queue as an ordinary run, not for an idle PC: a builder's mutants in a scratch copy or
+    put back at their start) or HEAVY_RUN_YIELD=1 (big-suite.mjs gives it to every big run, so its idle run gives way too; the overdue
+    one is `yield:big-suite`, its reruns alone `yield:big-suite-rerun`). A plain idle run keeps its slot (core review 7: a measure,
+    a trial or an in-place mutant was never asked to survive a kill). A first-class run (a gate, its rerun) never gives way, nor does
+    a run under another (HEAVY_RUN_HELD); the command sees neither HEAVY_RUN_YIELD nor the caller's mark.
+  - When: while it holds the slot it looks every quarter poll (1.25 s at the default 5 s poll, never more often than every 250 ms)
+    whether the next ticket in the queue's own order (queueOrder: an ordinary ticket 30+ minutes older still goes first) is
+    first-class and no slot is free for it (core review 2).
+  - How: it stops its command's whole tree (taskkill /T /F), and once the command ended gives the slot back, trying again for up to
+    10 s while a reader holds the slot file open (core review 1; a slot file that names the waiting run itself is free to it). It says
+    "gives way to a gate (its command starts over at its next turn)", writes a record to the run log, and waits again where it came
+    from: the idle room, or the back of the queue, never behind its own ticket of before (core review 3). It takes no slot until no
+    gate was seen for a minute (HEAVY_RUN_SETTLE_MS; a gate's lock says `first`), so the gaps between a landing's gate and its reruns
+    do not stop it again. At its next turn the command starts over. A command that does not end within 5 s ends the run (125) instead
+    of a second copy. Measured: a gate takes the slot at its first look after the one it came with.
   - From the third time in a row its lines (the give-way line and every waiting line) add "gave way to a gate N times in a row, not
-    finished since HH:MM", so a run that never finishes shows; its ticket carries `gaveWay`, and the log's record too.
-  - The big suite (tools/big-suite.mjs) reads the give-way line: what the stopped half said is dropped, so its verdict and its start
-    are the new run's.
+    finished since HH:MM"; its ticket carries `gaveWay` and `gaveWaySince`, which the board's queue view reads (src/testQueue.mjs:
+    waiting since it first came, "gave way to a gate N times"). Its next turn with no gate in the line is its own ("keeps this turn"):
+    a gate that comes then waits for it, so a gate can never starve it (core review 4).
+  - The big suite (tools/big-suite.mjs) gives each run a fresh mark (HEAVY_RUN_MARK), which ends the helper's "runs now" and "gives
+    way" lines, and reads only lines with that mark at a line's start: a failing test that quotes such words is no give-way (core
+    review 5). At a give-way what the stopped half said is dropped, so its verdict and its start are the new run's, and what it
+    started outside its tree inside the folder since its start (a keeper or board a test made through WMI) is ended (tools/test.mjs
+    `stopInside`, never in a board's folder); the folder's clean-up ends such processes first too (core review 6).
 
 ## F46: a build of the state walks the store once (2026-11-23, chat 4)
 

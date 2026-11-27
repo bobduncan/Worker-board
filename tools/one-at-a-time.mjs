@@ -60,19 +60,23 @@
 //   room beside the lock (`<lock>.idle`, beating tickets as in the queue), oldest first, and goes only when no ticket waits in the
 //   queue and a slot is free: it puts a ticket in the queue for one look, takes the slot, or goes back to the room. The queue's order
 //   and the old copies' rules do not change, and an old copy never sees an idle run waiting ahead of it (no two runs wait for each
-//   other). P4 (chat 1, 2026-11-27): an idle run that took the slot gives way to a gate (givesWay, below), no longer keeps it. The hold
+//   other). An idle run that took the slot keeps it (unless it is safe to kill and rerun: P4, below). The hold
 //   cap is the hold's time awake, read against the wall clock at every beat, less the time the PC slept (a gap between beats well
 //   over the beat, sleepGapOf): a sleep is no hang (chat 1's review). No timer: libuv's timers count the time asleep here. The
 //   holder's beats move its lock's `since` on by the time slept, so no waiter, old copies too, frees a holder that only slept.
 // - P4 (chat 1, 2026-11-27, after a mutant run held the slot 28 minutes while a go-live's rerun waited): background work gives way
-//   to a gate. A run from the idle room, or one with the `yield:` prefix or HEAVY_RUN_YIELD=1 (it waits in the queue as an ordinary
-//   run, not for an idle PC), that holds the slot looks every quarter poll whether a first-class ticket (a landing's gate or its
-//   rerun) waits in the queue. Then it stops its command's whole tree, gives the slot back at once, says so, and waits again where it
-//   came from (the room, or the back of the queue); at its next turn its command starts over. A first-class run, and a run under
-//   another (HEAVY_RUN_HELD), never gives way. From the third time in a row its lines say how often and since when, so a run that
-//   never finishes shows (its ticket carries the count too, and the log's record).
+//   to a gate. A run whose command is safe to kill and run again says so: the `yield:` prefix (it waits in the queue as an ordinary
+//   run) or HEAVY_RUN_YIELD=1 (an idle run may set it: the big suite); a plain idle run keeps the slot. While it holds the slot it
+//   looks every quarter poll (1.25 s at the default poll) whether the next ticket in the queue's own order is first-class (a
+//   landing's gate or its rerun) and no slot is free for it. Then it stops its command's whole tree, gives the slot back once the
+//   command ended (its file removed, tried again while a reader holds it), says so, logs it, and waits again where it came from (the
+//   room, or the back of the queue, never behind its own ticket of before), taking no slot until no gate was seen for a minute (the
+//   gaps of a landing); at its next turn its command starts over. A first-class run, and a run under another (HEAVY_RUN_HELD), never
+//   gives way. From the third time in a row its lines say how often and since when (its ticket and the log say it too), and its next
+//   turn with no gate in the line is its own: a gate that comes then waits. A caller's HEAVY_RUN_MARK ends its "runs now" and
+//   "gives way" lines, so a caller tells them from a test's output that quotes such words.
 import { execFile, spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, statSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
+import { appendFileSync, existsSync, statSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -145,23 +149,44 @@ export function isIdleRun(label, env = process.env) {
 export function idleRoomOf(file) {
   return `${file}.idle`
 }
-/** P4: the label prefix of a run that waits in the queue as an ordinary run but gives way to a gate (mutants, the big suite). */
+/**
+ * P4: the label prefix of a run that waits in the queue as an ordinary run but gives way to a gate. Its command must be safe to kill
+ * and run again from the start (mutants in a scratch copy, or put back at their start; a whole test suite).
+ */
 export const YIELD_LABEL = /^yield:/i
-/** P4: whether a run gives way to a gate while it holds the slot: an idle or `yield:` run of its own, never a first-class one. */
+/**
+ * P4: whether a run gives way to a gate while it holds the slot: one that says it is safe to kill and rerun (the `yield:` prefix, or
+ * HEAVY_RUN_YIELD=1, which an idle run may set too: the big suite), never a first-class one or one under another. A plain idle run
+ * keeps the slot as before (core review 7: its command was never asked to survive a kill).
+ */
 export function givesWay(label, env = process.env) {
   if (env.HEAVY_RUN_FIRST === '1' || env.HEAVY_RUN_HELD === '1') return false
-  return isIdleRun(label, env) || env.HEAVY_RUN_YIELD === '1' || YIELD_LABEL.test(String(label ?? ''))
+  return env.HEAVY_RUN_YIELD === '1' || YIELD_LABEL.test(String(label ?? ''))
 }
-/** P4: how often a run that gives way looks for a waiting gate: every quarter poll, at least every 250 ms. */
+/** P4: how often a run that gives way looks for a waiting gate: every quarter poll (1.25 s at the default 5 s poll), never more often than every 250 ms. */
 export const giveWayLookOf = (pollMs) => Math.max(250, Math.floor(pollMs / 4))
-/** P4: from this many give-ways in a row a run's lines say how often and since when. */
+/** P4: from this many give-ways in a row a run's lines say how often and since when, and its next turn without a gate in line is its own. */
 export const GAVE_WAY_SAID = 3
-/** P4: the line a run says when it gives way (big-suite.mjs reads it, so its output starts over with the command). */
-export const gaveWayLine = (label, times, since) => `one-at-a-time: ${label} gives way to a gate (its command starts over at its next turn${gaveWayWords(times, since)})`
+/**
+ * P4, core review (nit): after a give-way a run takes no slot until no gate was seen for this long (waiting in the queue or holding a
+ * slot), so it does not start in the second between a landing's gate and its reruns only to be stopped again.
+ */
+export const GATE_SETTLE_MS = 60 * 1000
+/** P4, core review 1: how long a run that gave way tries to remove its slot file (a reader may hold it open a moment). */
+const GIVE_BACK_TRIES_MS = 10 * 1000
+/** P4, core review (nit): how long a stopped command may take to end; then the run ends instead of starting it over beside a gate. */
+const GIVE_WAY_STOP_MS = 5000
+/** P4, core review 5: a caller's mark (HEAVY_RUN_MARK, hex), put at the end of the "runs now" and "gives way" lines; '' without one. */
+export const markOf = (env = process.env) => (/^[0-9a-f]{8,64}$/i.test(String(env.HEAVY_RUN_MARK ?? '')) ? ` [${env.HEAVY_RUN_MARK}]` : '')
+/** P4: the line a run says when it gives way (big-suite.mjs reads it by its mark, so its output starts over with the command). */
+export const gaveWayLine = (label, times, since, mark = '') => `one-at-a-time: ${label} gives way to a gate (its command starts over at its next turn${gaveWayWords(times, since)})${mark}`
 /** P4: the words a run that gave way adds to its lines from the third time in a row (`since` when it came, ISO), or ''. */
 const gaveWayWords = (times, since) => (times >= GAVE_WAY_SAID ? `; gave way to a gate ${times} times in a row, not finished since ${clock(since)}` : '')
-/** P4: the end of a hold whose command was stopped to give way (never an exit code). */
+/** P4: the end of a hold whose command was stopped to give way (never an exit code), and of one whose command did not end in time. */
 const GAVE_WAY = Symbol('gave way')
+const NOT_STOPPED = Symbol('not stopped')
+/** P4, core review 3: the end of a ticket's name that is this process's (`<ms>-<pid, 8 digits>.json`). */
+const ownTicketEnd = (pid = process.pid) => `-${String(pid).padStart(8, '0')}.json`
 
 /** The file of slot `n` (from 1): slot 1 is the lock file itself, slot n is `<name>.n.lock` beside it. */
 export function slotPath(file, n) {
@@ -271,6 +296,12 @@ function giveBack(file, text) {
   } catch {
     // gone already, or not ours to read
   }
+  // P4, core review 1: true once it is gone or no longer ours; false while it is still there with our text (a reader held it open).
+  try {
+    return readFileSync(file, 'utf8') !== text
+  } catch (error) {
+    return error.code === 'ENOENT'
+  }
 }
 
 const clock = (iso) => {
@@ -363,9 +394,35 @@ function queueOf(folder, now = Date.now()) {
   return live
 }
 
-/** P4: whether a first-class ticket (a landing's gate or its rerun, of any copy) waits in the queue folder `queue` now. */
-export function gateWaits(queue) {
-  return queueOf(queue).some((one) => one.first)
+/**
+ * P4: whether a run that holds a slot must give way now: the next ticket in the queue's own order (queueOrder, core review 2: not
+ * just any) is first-class (a landing's gate or its rerun, of any copy), and no slot of `slots` is free for it to take itself.
+ */
+export function gateIsNext(file, slots = 1) {
+  const head = queueOrder(queueOf(`${file}.queue`))[0]
+  if (head?.first !== true) return false
+  for (let n = 1; n <= slots; n += 1) if (!existsSync(slotPath(file, n))) return false
+  return true
+}
+
+/** P4: whether a gate is in the line at all: a first-class ticket waits, or a first-class run of this copy holds a slot (its lock says so). */
+export function gateInLine(file, slots = 1) {
+  if (queueOf(`${file}.queue`).some((one) => one.first)) return true
+  for (let n = 1, count = slotCountOf(file, slots); n <= count; n += 1) if (readLock(slotPath(file, n))?.info?.first === true) return true
+  return false
+}
+
+/** P4, core review 3: removes this process's tickets left in `folder` (Windows refused a removal) but `keep`; true when none is left. */
+function dropOwnTickets(folder, keep = null) {
+  let names = []
+  try {
+    names = readdirSync(folder)
+  } catch {
+    return true
+  }
+  let clean = true
+  for (const name of names) if (name.endsWith(ownTicketEnd()) && name !== keep && !removeFile(path.join(folder, name))) clean = false
+  return clean
 }
 
 /**
@@ -477,13 +534,19 @@ function ticketIn(folder, at, { label, cwd, first = false, idle = false, gaveWay
  * `stop` aborted the wait. The poll and say intervals are in `timing`; `slots` how many may run at once. S3: an `idle` run waits
  * in the idle room until the queue holds no ticket, then takes a free slot at once or goes back to the room.
  */
-async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first = false, idle = false, holdMaxMs = HOLD_MAX_MS, gaveWay = null }) {
+async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first = false, idle = false, holdMaxMs = HOLD_MAX_MS, gaveWay = null, mark = '', yields = false }) {
   mkdirSync(path.dirname(file), { recursive: true })
   const queue = `${file}.queue`
   mkdirSync(queue, { recursive: true })
   const came = Date.now()
   // P4: the words of a run that gave way three times or more in a row, in every waiting line.
   const gaveSaid = gaveWay === null ? '' : gaveWayWords(gaveWay.times, gaveWay.since)
+  // P4, core review 3: a run that gave way and queues again never waits behind its own ticket of before (Windows may refuse a removal).
+  dropOwnTickets(queue)
+  dropOwnTickets(idleRoomOf(file))
+  // P4 (nit of the core review): after a give-way, no slot until no gate was seen for the settle time (the gaps of a landing).
+  const settles = gaveWay !== null && gaveWay.times > 0
+  let gateSeenAt = Date.now()
   // S3: an idle run's ticket stays in the room; it is in the queue only for the one look at which it takes its slot.
   const ticket = ticketIn(idle ? idleRoomOf(file) : queue, came, { label, cwd, first, idle, gaveWay })
   let placed = null
@@ -506,12 +569,13 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
   const takeFree = (free) => {
     for (const slot of free) {
       const taken = new Date().toISOString()
-      const held = { pid: process.pid, label, cwd, since: taken, order: ORDER_MARK }
+      // P4: a first-class run's lock says so, so a run that gave way sees a gate that holds the slot too (its settle time).
+      const held = { pid: process.pid, label, cwd, since: taken, ...(first ? { first: true } : {}), ...(yields ? { yields: true } : {}), order: ORDER_MARK }
       // F39, review: `startedAt` moves with every beat (old copies judge a lock by it alone); `since` stays.
       let text = JSON.stringify({ ...held, startedAt: taken, beat: taken })
       if (createLock(slot, text)) {
-        // F14: the moment the work begins, for a log of the run (land.ps1 starts the gate's clock here).
-        say(`one-at-a-time: ${label} runs now (waited ${Math.round((Date.now() - came) / 1000)} s)`)
+        // F14: the moment the work begins, for a log of the run (land.ps1 starts the gate's clock here). P4: the caller's mark last.
+        say(`one-at-a-time: ${label} runs now (waited ${Math.round((Date.now() - came) / 1000)} s)${mark}`)
         // F39: the beat, while the command runs: only into the lock that is still ours. S3, chat 1's review: after a sleep of the PC
         // (a gap between beats well over the beat) `since` moves on by the time slept, so it says the time awake to every waiter, old
         // copies too (they judge the hold by `since` alone).
@@ -527,9 +591,10 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
           if (rewriteLock(slot, text, next)) text = next
         }, timing.beat)
         beat.unref()
+        // P4, core review 1: true once the slot file is gone (or no longer ours), so a give-way can try again until it is.
         return () => {
           clearInterval(beat)
-          giveBack(slot, text)
+          return giveBack(slot, text)
         }
       }
     }
@@ -541,11 +606,21 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
       const free = []
       for (let n = 1, count = slotCountOf(file, slots); n <= count; n++) {
         const slot = slotPath(file, n)
-        const seen = await holderOf(slot, nap, watched, timing.beat, holdMaxMs)
+        let seen = await holderOf(slot, nap, watched, timing.beat, holdMaxMs)
+        // P4, core review 1: a slot file that names this very run while it waits (its process, label and folder) is its own of before (a
+        // give-way whose removal a reader held up): it is free, never a holder this run waits for. Removed here; if that fails too, the
+        // take tries again. (The process alone is not enough: a test that runs the helper in its own process holds slots as "others".)
+        if (seen?.info?.pid === process.pid && seen.info.label === label && seen.info.cwd === cwd) {
+          removeFile(slot)
+          seen = null
+        }
         if (seen) holders.push(seen.info)
         else if (n <= slots) free.push(slot)
       }
       ticket.beat()
+      // P4: the settle time of a run that gave way: no slot while a gate is in the line, nor for GATE_SETTLE_MS after one was.
+      if (settles && gateInLine(file, slots)) gateSeenAt = Date.now()
+      const settling = settles && Date.now() - gateSeenAt < (timing.settle ?? GATE_SETTLE_MS)
       // Room is our slots less every run that holds one, ours or beyond (2026-11-11).
       const room = Math.min(free.length, slots - holders.length)
       const running = () => holders.map((one) => `${one.label} in ${one.cwd} (since ${clock(one.since ?? one.startedAt)})`).join('; ')
@@ -555,8 +630,9 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
         // S3: only when no ticket waits in the queue (a gate, a check, an old copy's run) and this run is the oldest in the room; read
         // with the grace of ticketsSeen, so a ticket that only slept still counts. Our own leftover in the queue does not.
         const others = ticketsSeen(queue, watchedTickets, timing.beat).filter((one) => one.pid !== process.pid)
-        const oldest = ticketsSeen(idleRoomOf(file), watchedTickets, timing.beat)[0]
-        if (placed === null && room > 0 && others.length === 0 && (oldest === undefined || oldest.name === ticket.name)) {
+        // P4, core review 3: a leftover room ticket of this very run is never older than itself.
+        const oldest = ticketsSeen(idleRoomOf(file), watchedTickets, timing.beat).filter((one) => one.pid !== process.pid || one.name === ticket.name)[0]
+        if (!settling && placed === null && room > 0 && others.length === 0 && (oldest === undefined || oldest.name === ticket.name)) {
           placed = ticketIn(queue, Date.now(), { label, cwd })
           // One look in the queue's own order: a run that came a moment before goes first, and this one goes back to the room.
           const giveBackSlot = aheadOf(queueOf(queue), placed.name, false) < room ? takeFree(free) : null
@@ -573,24 +649,25 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
             return () => {
               clearInterval(retry)
               leftover.leave()
-              giveBackSlot()
+              return giveBackSlot()
             }
           }
         }
         if (Date.now() - saidAt >= timing.say) {
           const queued = others.length > 0 ? `, ${others.length} in the queue` : ''
-          say(`waiting for an idle PC (${running() || 'no run'}${queued})${gaveSaid}`)
+          say(`waiting for ${settling ? 'the gates to settle' : 'an idle PC'} (${running() || 'no run'}${queued})${gaveSaid}`)
           saidAt = Date.now()
         }
         await nap(timing.poll)
         continue
       }
-      const order = queueOf(queue)
+      // P4, core review 3: a leftover ticket of this very run never stands ahead of it.
+      const order = queueOf(queue).filter((one) => one.name === ticket.name || !one.name.endsWith(ownTicketEnd()))
       // F14: a first-class run (a landing's gate) counts only the first-class tickets before it; an ordinary run counts every ticket
       // before it and every first-class one.
       const ahead = aheadOf(order, ticket.name, first)
       // Our turn when fewer runs came before us than there is room (a ticket we cannot read: go by the room).
-      if (room > 0 && ahead < room) {
+      if (!settling && room > 0 && ahead < room) {
         const giveBackSlot = takeFree(free)
         if (giveBackSlot) return giveBackSlot
         await nap(50)
@@ -598,10 +675,12 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
       }
       if (Date.now() - saidAt >= timing.say) {
         const before = ahead > 0 ? `, ${ahead} ahead of this run` : ''
-        say(`waiting for ${running() || 'a free slot'}${before}${gaveSaid}`)
+        say(`waiting for ${settling ? `the gates to settle (${running() || 'no run'})` : running() || 'a free slot'}${before}${gaveSaid}`)
         saidAt = Date.now()
       }
-      await nap(timing.poll)
+      // P4: a first-class run looks every quarter poll while a run that gives way holds a slot (its lock says `yields`), so it takes
+      // the slot it is given within a quarter poll, not a whole one.
+      await nap(first && holders.some((one) => one.yields === true) ? giveWayLookOf(timing.poll) : timing.poll)
     }
     return null
   } finally {
@@ -767,6 +846,13 @@ export async function runOneAtATime({
   const mayGiveWay = givesWay(label, env)
   const gaveWay = { times: 0, since: new Date(came).toISOString() }
   let givingWay = false
+  const mark = markOf(env)
+  /** P4: one record in the run log per give-way (core review 4: a run that never finishes still shows in the log). */
+  const logGaveWay = () => logRun(env, {
+    at: new Date(came).toISOString(), label, cwd, first: false, ...(idle ? { idle: true } : {}), slots: slotsOf(env),
+    waitedS: Math.round(((began ?? Date.now()) - came) / 1000), ranS: began === null ? 0 : Math.round((Date.now() - began) / 1000),
+    exit: null, fence: fenceSaid, stopped: 'gave way to a gate', gaveWay: gaveWay.times,
+  })
 
   const onSignal = (name) => {
     const again = signalled !== null
@@ -786,14 +872,18 @@ export async function runOneAtATime({
     // P4: one pass per hold; a hold that gave way to a gate waits again where it came from, and its command starts over.
     for (;;) {
       if (env.HEAVY_RUN_HELD !== '1') {
-        const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS), now }
-        giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1', idle, holdMaxMs: positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS), gaveWay: mayGiveWay ? gaveWay : null })
+        const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS), settle: positive(env.HEAVY_RUN_SETTLE_MS, GATE_SETTLE_MS), now }
+        giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1', idle, holdMaxMs: positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS), gaveWay: mayGiveWay ? gaveWay : null, mark, yields: mayGiveWay })
         if (!giveLockBack || signalled) {
           code = signalExit(signalled)
           return code
         }
         began = Date.now()
       }
+      // P4, core review 4: a run that gave way GAVE_WAY_SAID times in a row keeps the turn it takes with no gate in the line, so a gate
+      // can never starve it; a gate that comes meanwhile waits for it (said here, so the log shows why).
+      const keepsTurn = mayGiveWay && gaveWay.times >= GAVE_WAY_SAID && !gateInLine(lockPath(env), slotsOf(env))
+      if (keepsTurn) say(`one-at-a-time: ${label} keeps this turn: it gave way to a gate ${gaveWay.times} times in a row, so a gate that comes now waits for it`)
       // S5: the fence, once the slot is ours and before the command starts (a run under another is inside its fence already).
       const fence = await fenceOf({ env })
       // Chat 1's review: a stop signal while the fence was set finds no command yet; it must not start one then.
@@ -808,7 +898,8 @@ export async function runOneAtATime({
       const ownerPid = env.HEAVY_RUN_HELD === '1' && env.HEAVY_RUN_PID ? env.HEAVY_RUN_PID : String(process.pid)
       const exited = new Promise((resolve) => {
         forceExit = () => resolve(signalExit(signalled))
-        const { HEAVY_RUN_FIRST: _first, HEAVY_RUN_IDLE: _idle, ...plain } = env
+        // P4 (nit of the core review): nor HEAVY_RUN_YIELD or the caller's mark: the runs the command starts are its own.
+        const { HEAVY_RUN_FIRST: _first, HEAVY_RUN_IDLE: _idle, HEAVY_RUN_YIELD: _yield, HEAVY_RUN_MARK: _mark, ...plain } = env
         // S5: the fence's priority; a run under another keeps the one it was born with (an idle fence is never lifted).
         const priority = env.HEAVY_RUN_HELD === '1' ? null : fence.fenced ? fence.priority : null
         child = startWith(priority, () => spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, ...fenceEnv, HEAVY_RUN_HELD: '1', HEAVY_RUN_PID: ownerPid } }))
@@ -817,19 +908,18 @@ export async function runOneAtATime({
           resolve(127)
         })
         child.on('exit', (code, signal) => resolve(givingWay ? GAVE_WAY : capped ? 124 : signalled ? signalExit(signalled) : (code ?? signalExit(signal))))
-        // P4: a gate waits: the whole tree stops and the hold ends as "gave way" (never at the cap, nor after a stop signal).
-        if (mayGiveWay) {
-          const queue = `${lockPath(env)}.queue`
+        // P4: a gate is next in line and no slot is free for it: the whole tree stops and the hold ends as "gave way" once the command
+        // has ended (its exit event, within ms of taskkill /T /F); never at the cap, after a stop signal, or in a kept turn. A command that
+        // does not end within GIVE_WAY_STOP_MS ends the run instead of starting a second copy (core review, nit).
+        if (mayGiveWay && !keepsTurn) {
+          const file = lockPath(env)
+          const slots = slotsOf(env)
           const look = setInterval(() => {
-            if (givingWay || capped || signalled || !gateWaits(queue)) return
+            if (givingWay || capped || signalled || !gateIsNext(file, slots)) return
             givingWay = true
             clearInterval(look)
             stopTree(child, 'SIGTERM')
-            // The tree is stopped (taskkill /F returns once it is): the slot goes back now, not at the exit's event, so the gate's
-            // next look finds it free.
-            giveLockBack?.()
-            giveLockBack = null
-            setTimeout(() => resolve(GAVE_WAY), STOP_WAIT_MS).unref()
+            setTimeout(() => resolve(NOT_STOPPED), GIVE_WAY_STOP_MS).unref()
           }, giveWayLookOf(positive(env.HEAVY_RUN_POLL_MS, POLL_MS)))
           look.unref()
           const unlook = () => clearInterval(look)
@@ -866,13 +956,20 @@ export async function runOneAtATime({
         }
       })
       code = await exited
+      if (code === NOT_STOPPED) {
+        say(`one-at-a-time: ${label} gave way to a gate, but its command did not end within ${GIVE_WAY_STOP_MS / 1000} s: the run ends here`)
+        code = 125
+        return code
+      }
       if (code !== GAVE_WAY) return code
-      // P4: gave way: the slot back at once, the line said, and the next turn awaited where this run came from.
+      // P4: gave way: the slot back at once (core review 1: until its file is gone, a reader may hold it a moment), the line and the
+      // log's record, and the next turn awaited where this run came from.
       quiet()
-      giveLockBack?.()
+      for (const end = Date.now() + GIVE_BACK_TRIES_MS; giveLockBack?.() === false && Date.now() < end;) await sleep(100)
       giveLockBack = null
       gaveWay.times += 1
-      say(gaveWayLine(label, gaveWay.times, gaveWay.since))
+      say(gaveWayLine(label, gaveWay.times, gaveWay.since, mark))
+      logGaveWay()
       child = null
       capped = false
       givingWay = false

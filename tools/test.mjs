@@ -117,7 +117,10 @@ export function openFiles(text) {
   return [...files.values()].filter(one => one.open).map(one => ({ file: one.file, tests: [...one.tests].filter(([, n]) => n > 0).map(([name]) => name) }))
 }
 
-/** P4 (keep the tests fast, the person's yes of 2026-11-26): a new or changed test file over this many seconds is named in the log. */
+/**
+ * P4 (keep the tests fast, the person's yes of 2026-11-26): a new or changed test file over this many seconds is named in the log
+ * (TEST_SLOW_NEW_S gives another, for a test that needs no five-second file to prove it).
+ */
 export const SLOW_NEW_S = 5
 
 /**
@@ -309,7 +312,7 @@ export function runTests({
       clearInterval(watch)
       // P4: every test file's seconds, and on a go-live the slow new or changed ones, after the run's own summary.
       try {
-        out.write(`\n${timeLines(fileTimes(readFileSync(events, 'utf8'), cwd), changed).join('\n')}\n`)
+        out.write(`\n${timeLines(fileTimes(readFileSync(events, 'utf8'), cwd), changed, positive(env.TEST_SLOW_NEW_S, SLOW_NEW_S)).join('\n')}\n`)
       } catch {
         // no reporter's lines: no times
       }

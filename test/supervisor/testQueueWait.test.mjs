@@ -202,6 +202,29 @@ test('S3: readTestQueue lists the idle room\'s runs after every ticket, oldest f
   }
 })
 
+test('P4, core review 4: a waiting run that gave way to a gate is read as waiting since it first came, with how often it gave way, and its line says so', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'testq-'))
+  try {
+    const lock = path.join(dir, 'one-heavy-run.lock')
+    const queue = `${lock}.queue`
+    const room = tool.idleRoomOf(lock)
+    mkdirSync(queue)
+    mkdirSync(room)
+    const now = at(14, 10)
+    const iso = ms => new Date(ms).toISOString()
+    const put = (folder, name, body) => writeFileSync(path.join(folder, name), JSON.stringify(body))
+    put(queue, '000000000000005-00000022.json', { pid: 22, label: 'yield:big-suite', cwd: 'C:\\Work\\board-big-suite-abc', startedAt: iso(at(14, 5)), gaveWay: 4, gaveWaySince: iso(at(12, 30)), order: 2, beat: iso(at(14, 9)) })
+    put(room, '000000000000002-00000033.json', { pid: 33, label: 'idle:big-suite', cwd: 'C:\\Work\\board-big-suite-def', startedAt: iso(at(14, 2)), idle: true, gaveWay: 1, gaveWaySince: iso(at(13, 50)), order: 2, beat: iso(at(14, 9)) })
+    const found = readTestQueue({ tool, env: { HEAVY_RUN_LOCK: lock }, now, runs: () => true })
+    assert.deepEqual(found.map(one => [one.label, one.since, one.gaveWay]), [['yield:big-suite', at(12, 30), 4], ['idle:big-suite', at(13, 50), 1]])
+    assert.equal(testQueueWords(found[0]), 'waits in the test queue since 12:30, 0 ahead, gave way to a gate 4 times')
+    assert.equal(testQueueWords(found[1]), 'waits for an idle PC since 13:50, gave way to a gate 1 time')
+    assert.equal(testQueueWords(ticket(FOLDER, at(14, 0))), 'waits in the test queue since 14:00, 1 ahead', 'a run that never gave way says nothing of it')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('readTestQueue with F39 tickets: a beat keeps a holder at work, a stale beat drops a ticket, a first-class ticket goes 30 min earlier, the holder keeps its since', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'testq-'))
   try {

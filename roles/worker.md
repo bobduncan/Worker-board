@@ -260,6 +260,10 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
   file says who moves a step and when; the board refuses a move it does not allow and says why.
 - `npm test` (2026-11-11) runs at low priority on half the PC's cores and waits its turn: one heavy run at a time on the
   PC, across every chat and landing. A "waiting for ..." line is that queue: let it wait, never start a second run.
+- Long background runs of your own (mutant runs, measures) go through the queue with the `yield:` prefix
+  (`node tools/one-at-a-time.mjs yield:<name> -- <command>`): such a run is stopped when a go-live needs the slot and starts over
+  later, so its command must be safe to kill and rerun (mutants in a scratch copy, or put back at its start). Never an
+  ordinary label for them: an ordinary run keeps the slot while a go-live waits (P4, 2026-11-27).
 - Tests bite (B527): when your change touches a test file, make the mutant before you report: in a scratch copy
   (never on your branch), undo the fix, run the new tests, see which assertion fails, then delete the copy. Your
   report's result then holds one line `Tests bite: <what was undone in a copy> → <the assertion that

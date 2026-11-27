@@ -66,7 +66,8 @@ function collectTestQueue({ tool, env, now, runs, read, list }) {
   for (const { name, info } of order.map(one => tickets.find(ticket => ticket.name === one.name))) {
     // A run that already holds a slot has left the queue (its ticket goes when it takes its turn): not counted twice.
     if (running.some(one => one.pid === info.pid)) continue
-    found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'waiting', since: Date.parse(info.startedAt), ahead: running.length + order.findIndex(one => one.name === name) })
+    // P4, core review 4: a run that gave way to a gate waits since it first came, and says how often it gave way.
+    found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'waiting', since: Date.parse(info.gaveWaySince ?? info.startedAt), ahead: running.length + order.findIndex(one => one.name === name), ...gaveWayOf(info) })
   }
   // S3: the runs that wait for an idle PC (the tool's idle room), after every ticket, oldest first: `idle` marks them, and `since` is
   // when they came, so the board can say "waiting for an idle PC since 14:02". One that holds a slot or stands in the queue for its
@@ -74,11 +75,14 @@ function collectTestQueue({ tool, env, now, runs, read, list }) {
   if (typeof tool.idleRoomOf === 'function') {
     const idle = ticketsOf(tool.idleRoomOf(file)).filter(one => !running.some(run => run.pid === one.info.pid) && !tickets.some(ticket => ticket.info.pid === one.info.pid))
     idle.forEach(({ info }, index) => {
-      found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'waiting', idle: true, since: Date.parse(info.startedAt), ahead: running.length + order.length + index })
+      found.push({ cwd: info.cwd ?? '', label: info.label ?? '', state: 'waiting', idle: true, since: Date.parse(info.gaveWaySince ?? info.startedAt), ahead: running.length + order.length + index, ...gaveWayOf(info) })
     })
   }
   return found
 }
+
+/** P4: how often a waiting run gave way to a gate in a row (its ticket's `gaveWay`), as `{ gaveWay }`, or nothing. */
+const gaveWayOf = info => (Number.isInteger(info?.gaveWay) && info.gaveWay > 0 ? { gaveWay: info.gaveWay } : {})
 
 /** F56: the folder of a landing's gate, as tools/land.ps1 names it in the temp folder: `land-gate-` and 8 hex characters. */
 export const LAND_GATE = /^land-gate-[0-9a-f]{8}$/

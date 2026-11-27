@@ -899,9 +899,10 @@ function Invoke-Gate {
     $code = Invoke-GateCommand $gateBoardCommand $temp $script:gateLog
     # P4 (keep the tests fast): the branch's new or changed test files over 5 s, from the light check's line. A report, not a gate:
     # the landing goes on; the step's report gives one line of reason for each.
-    $slowNew = Select-String -LiteralPath $script:gateLog -Pattern '^slow new or changed test files \(over \d+ s\): (.+)$' -Encoding UTF8 | Select-Object -Last 1
-    if ($null -ne $slowNew -and $slowNew.Matches[0].Groups[1].Value.Trim() -ne 'none') {
-      Say "note: slow new or changed test files (over 5 s): $($slowNew.Matches[0].Groups[1].Value.Trim()); give one line of reason for each in the step's report"
+    # P4 (nit of the core review): the threshold as the light check says it (tools/test.mjs SLOW_NEW_S), not a second copy here.
+    $slowNew = Select-String -LiteralPath $script:gateLog -Pattern '^slow new or changed test files \(over ([\d.]+) s\): (.+)$' -Encoding UTF8 | Select-Object -Last 1
+    if ($null -ne $slowNew -and $slowNew.Matches[0].Groups[2].Value.Trim() -ne 'none') {
+      Say "note: slow new or changed test files (over $($slowNew.Matches[0].Groups[1].Value) s): $($slowNew.Matches[0].Groups[2].Value.Trim()); give one line of reason for each in the step's report"
     }
     $checked = Invoke-Landing @('gate-check', '--kind', 'board', '--file', $script:gateLog, '--exit', "$code")
     if ($null -eq $checked.json) { Refuse "the gate's result could not be read: $($checked.err) (see $($script:gateLog))" }
