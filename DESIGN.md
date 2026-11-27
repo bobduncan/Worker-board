@@ -9396,8 +9396,10 @@ The delivery review: the go-live check doubled in three weeks (median 6.8 to 16.
     a trial or an in-place mutant was never asked to survive a kill). A first-class run (a gate, its rerun) never gives way, nor does
     a run under another (HEAVY_RUN_HELD); the command sees neither HEAVY_RUN_YIELD nor the caller's mark.
   - When: while it holds the slot it looks every quarter poll (1.25 s at the default 5 s poll, never more often than every 250 ms)
-    whether the next ticket in the queue's own order (queueOrder: an ordinary ticket 30+ minutes older still goes first) is
-    first-class and no slot is free for it (core review 2).
+    whether a first-class ticket waits in the queue and no slot is free (`gateWaits`), also when older ordinary tickets go first in
+    the queue's own order (queueOrder: one 30+ minutes older than the gate). Those then run, and the gate right after them (chat 1,
+    2026-11-27, in place of core review 2's "only when the gate is next": a gate waited 50 minutes behind a yield run that kept its
+    slot for one ordinary run ahead of the gate; stopping a background run costs only its restart).
   - How: it stops its command's whole tree (taskkill /T /F), and once the command ended gives the slot back, trying again for up to
     10 s while a reader holds the slot file open (core review 1; a slot file that names the waiting run itself is free to it). It says
     "gives way to a gate (its command starts over at its next turn)", writes a record to the run log, and waits again where it came

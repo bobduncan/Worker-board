@@ -395,12 +395,13 @@ function queueOf(folder, now = Date.now()) {
 }
 
 /**
- * P4: whether a run that holds a slot must give way now: the next ticket in the queue's own order (queueOrder, core review 2: not
- * just any) is first-class (a landing's gate or its rerun, of any copy), and no slot of `slots` is free for it to take itself.
+ * P4: whether a run that holds a slot must give way now: a first-class ticket waits in the queue (a landing's gate or its rerun, of
+ * any copy), also behind older ordinary tickets that go first in the queue's order, and no slot of `slots` is free. Chat 1,
+ * 2026-11-27, in place of core review 2's "only when the gate is next": a gate waited 50 minutes behind a yield run that kept its
+ * slot for one ordinary run ahead of the gate; stopping a background run costs its restart, keeping it costs the gate the whole run.
  */
-export function gateIsNext(file, slots = 1) {
-  const head = queueOrder(queueOf(`${file}.queue`))[0]
-  if (head?.first !== true) return false
+export function gateWaits(file, slots = 1) {
+  if (!queueOf(`${file}.queue`).some((one) => one.first)) return false
   for (let n = 1; n <= slots; n += 1) if (!existsSync(slotPath(file, n))) return false
   return true
 }
@@ -538,7 +539,8 @@ async function takeTurn({ file, label, cwd, timing, say, stop, slots = 1, first 
   mkdirSync(path.dirname(file), { recursive: true })
   const queue = `${file}.queue`
   mkdirSync(queue, { recursive: true })
-  const came = Date.now()
+  // A test's seam (HEAVY_RUN_CAME_AT, ms): the moment its ticket says it came, to stand for a run that came long before (today's case).
+  const came = timing.cameAt ?? Date.now()
   // P4: the words of a run that gave way three times or more in a row, in every waiting line.
   const gaveSaid = gaveWay === null ? '' : gaveWayWords(gaveWay.times, gaveWay.since)
   // P4, core review 3: a run that gave way and queues again never waits behind its own ticket of before (Windows may refuse a removal).
@@ -872,7 +874,7 @@ export async function runOneAtATime({
     // P4: one pass per hold; a hold that gave way to a gate waits again where it came from, and its command starts over.
     for (;;) {
       if (env.HEAVY_RUN_HELD !== '1') {
-        const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS), settle: positive(env.HEAVY_RUN_SETTLE_MS, GATE_SETTLE_MS), now }
+        const timing = { poll: positive(env.HEAVY_RUN_POLL_MS, POLL_MS), say: positive(env.HEAVY_RUN_SAY_MS, SAY_MS), beat: positive(env.HEAVY_RUN_BEAT_MS, BEAT_MS), settle: positive(env.HEAVY_RUN_SETTLE_MS, GATE_SETTLE_MS), cameAt: positive(env.HEAVY_RUN_CAME_AT, undefined), now }
         giveLockBack = await takeTurn({ file: lockPath(env), label, cwd, timing, say, stop, slots: slotsOf(env), first: env.HEAVY_RUN_FIRST === '1', idle, holdMaxMs: positive(env.HEAVY_RUN_MAX_MS, HOLD_MAX_MS), gaveWay: mayGiveWay ? gaveWay : null, mark, yields: mayGiveWay })
         if (!giveLockBack || signalled) {
           code = signalExit(signalled)
@@ -908,14 +910,14 @@ export async function runOneAtATime({
           resolve(127)
         })
         child.on('exit', (code, signal) => resolve(givingWay ? GAVE_WAY : capped ? 124 : signalled ? signalExit(signalled) : (code ?? signalExit(signal))))
-        // P4: a gate is next in line and no slot is free for it: the whole tree stops and the hold ends as "gave way" once the command
+        // P4: a gate waits in the line and no slot is free: the whole tree stops and the hold ends as "gave way" once the command
         // has ended (its exit event, within ms of taskkill /T /F); never at the cap, after a stop signal, or in a kept turn. A command that
         // does not end within GIVE_WAY_STOP_MS ends the run instead of starting a second copy (core review, nit).
         if (mayGiveWay && !keepsTurn) {
           const file = lockPath(env)
           const slots = slotsOf(env)
           const look = setInterval(() => {
-            if (givingWay || capped || signalled || !gateIsNext(file, slots)) return
+            if (givingWay || capped || signalled || !gateWaits(file, slots)) return
             givingWay = true
             clearInterval(look)
             stopTree(child, 'SIGTERM')

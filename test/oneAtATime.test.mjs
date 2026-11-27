@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, gateIsNext, giveWayLookOf, givesWay, idleRoomOf, isIdleRun, markOf, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
+import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, gateWaits, giveWayLookOf, givesWay, idleRoomOf, isIdleRun, markOf, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'heavy-run-test-'))
@@ -595,20 +595,22 @@ test('P4: the runs that give way to a gate: those safe to kill and rerun (yield:
   assert.equal(markOf({ HEAVY_RUN_MARK: 'not hex at all' }), '')
 })
 
-test('P4, core review 2: gateIsNext: only when the next ticket in the queue\'s order is first-class and no slot is free for it', () => {
+test('P4 (chat 1, 2026-11-27, in place of core review 2): gateWaits: a first-class ticket waits, also behind an older ordinary one, and no slot is free', () => {
   const lock = newLock()
   const queue = `${lock}.queue`
   mkdirSync(queue, { recursive: true })
   const put = (ago, more) => writeFileSync(join(queue, `${String(Date.now() - ago).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`), JSON.stringify({ pid: process.pid, label: 'x', cwd: 'C:/x', startedAt: new Date(Date.now() - ago).toISOString(), order: ORDER_MARK, beat: new Date().toISOString(), ...more }))
   writeFileSync(lock, lockText())
-  assert.equal(gateIsNext(lock, 1), false, 'nobody waits')
+  assert.equal(gateWaits(lock, 1), false, 'nobody waits')
+  put(2000, {})
+  assert.equal(gateWaits(lock, 1), false, 'only an ordinary ticket waits')
   put(1000, { first: true })
-  assert.equal(gateIsNext(lock, 1), true, 'a gate waits and the one slot is held')
-  assert.equal(gateIsNext(lock, 2), false, 'a second slot is free: the gate takes that one')
+  assert.equal(gateWaits(lock, 1), true, 'a gate waits and the one slot is held')
+  assert.equal(gateWaits(lock, 2), false, 'a second slot is free')
   writeFileSync(slotPath(lock, 2), lockText())
-  assert.equal(gateIsNext(lock, 2), true, 'both slots held')
+  assert.equal(gateWaits(lock, 2), true, 'both slots held')
   put(35 * 60_000, {})
-  assert.equal(gateIsNext(lock, 2), false, 'an ordinary ticket 35 minutes older goes first')
+  assert.equal(gateWaits(lock, 2), true, 'an ordinary ticket 35 minutes older goes first, and the gate waits all the same')
 })
 
 /** P4: a command that notes each start (its pid) in `marks`, and runs `ms` the first `long` times, else ends at once with 0. */
@@ -655,27 +657,25 @@ test('P4, the real case: a gate that comes while a yield: run holds the slot get
   assert.deepEqual(logged.map((one) => [one.stopped ?? null, one.exit, one.gaveWay]), [['gave way to a gate', null, 1], [null, 0, 1]])
 })
 
-test('P4, core review 2: a yield run keeps the slot while only ordinary runs wait, and while a gate waits behind a ticket that came 30+ minutes earlier; it gives way once the gate is next', async () => {
+test('P4, today\'s real case (chat 1, 2026-11-27): a yield run keeps the slot while only an ordinary run waits; a gate comes behind that run (it came 35 min before), the yield run gives way, the ordinary run goes, then the gate, then the yield run starts over', async () => {
   const lock = newLock()
   const marks = join(scratch, `marks-${++counter}.txt`)
-  const run = start(lock, 'yield:x', startsOver(marks), settle)
+  const order = join(scratch, `order-${++counter}.txt`)
+  const note = (name) => node(`require('fs').appendFileSync(${JSON.stringify(order)}, '${name}\\n'); setTimeout(() => process.exit(0), 1000)`)
+  const yieldCommand = node(`const fs = require('fs'); fs.appendFileSync(${JSON.stringify(marks)}, process.pid + '\\n'); fs.appendFileSync(${JSON.stringify(order)}, 'yield\\n'); const n = fs.readFileSync(${JSON.stringify(marks)}, 'utf8').trim().split('\\n').length; setTimeout(() => process.exit(0), n <= 1 ? 60000 : 100)`)
+  const run = start(lock, 'yield:p4-mutants', yieldCommand, settle)
   await until(() => startsOf(marks).length === 1, 'the yield run\'s command running')
-  const check = start(lock, 'check', quick)
-  await until(() => /waiting for yield:x/.test(check.err), 'an ordinary run waiting')
-  // A ticket of 35 minutes ago (this test's own live process): F39's order serves it before a gate that comes now.
-  const ago = Date.now() - 35 * 60_000
-  const old = join(`${lock}.queue`, `${String(ago).padStart(15, '0')}-${String(process.pid).padStart(8, '0')}.json`)
-  writeFileSync(old, JSON.stringify({ pid: process.pid, label: 'a worker\'s test', cwd: 'C:/elsewhere', startedAt: new Date(ago).toISOString(), order: ORDER_MARK, beat: new Date().toISOString() }))
-  const gate = start(lock, 'gate', quick, { HEAVY_RUN_FIRST: '1' })
-  await until(() => /waiting for yield:x/.test(gate.err), 'the gate waiting')
+  // b1568-m2 of today: an ordinary run whose ticket came 35 minutes before the gate, so the queue's order serves it first.
+  const check = start(lock, 'b1568-m2', note('check'), { HEAVY_RUN_CAME_AT: String(Date.now() - 35 * 60_000) })
+  await until(() => /waiting for yield:p4-mutants/.test(check.err), 'the ordinary run waiting')
   await pause(1500)
-  assert.doesNotMatch(run.err, /gives way/, 'no give-way for an ordinary run, nor for a gate that is not next')
-  assert.equal(startsOf(marks).length, 1)
-  rmSync(old)
-  await until(() => /gives way/.test(run.err), 'the give-way once the gate is next')
+  assert.doesNotMatch(run.err, /gives way/, 'no give-way while only an ordinary run waits')
+  const gate = start(lock, 'test', note('gate'), { HEAVY_RUN_FIRST: '1' })
+  await until(() => /gives way to a gate/.test(run.err), 'the give-way, with an ordinary run ahead of the gate')
   const [gateEnd, checkEnd, end] = await Promise.all([gate.done, check.done, run.done])
   assert.deepEqual([gateEnd.code, checkEnd.code, end.code], [0, 0, 0], end.err)
-  assert.equal(startsOf(marks).length, 2)
+  assert.deepEqual(readFileSync(order, 'utf8').trim().split('\n'), ['yield', 'check', 'gate', 'yield'], 'the ordinary run first, the gate right after it, the yield run last')
+  assert.match(gate.err, /waiting for b1568-m2/, 'the gate waited for the ordinary run only')
 })
 
 test('P4, core review 1: a slot file a reader holds open at the give-way is not lost: the run tries again until it is gone, and never waits for itself', { skip: process.platform !== 'win32' && 'Windows file sharing' }, async () => {
