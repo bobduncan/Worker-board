@@ -9452,8 +9452,11 @@ The delivery review: the go-live check doubled in three weeks (median 6.8 to 16.
     "gives way to a gate (its command starts over at its next turn)", writes a record to the run log, and waits again where it came
     from: the idle room, or the back of the queue, never behind its own ticket of before (core review 3). It takes no slot until no
     gate was seen for a minute (HEAVY_RUN_SETTLE_MS; a gate's lock says `first`), so the gaps between a landing's gate and its reruns
-    do not stop it again. At its next turn the command starts over. A command that does not end within 5 s ends the run (125) instead
-    of a second copy. Measured: a gate takes the slot at its first look after the one it came with.
+    do not stop it again. While it settles its ticket goes after every gate in the line, and after what goes before one (queueOrder,
+    by the ticket's `gaveWay`; one reader for the helper and the board's view, `orderEntry`; chat 1's re-check, 2026-11-27: ranked by
+    when it came, a gate 30+ minutes younger waited on it while it waited on the gate, until the landing's queue bound). At its next
+    turn the command starts over. A command that does not end within 5 s ends the run (125) instead of a second copy. Measured: a gate
+    takes the slot at its first look after the one it came with.
   - From the third time in a row its lines (the give-way line and every waiting line) add "gave way to a gate N times in a row, not
     finished since HH:MM"; its ticket carries `gaveWay` and `gaveWaySince`, which the board's queue view reads (src/testQueue.mjs:
     waiting since it first came, "gave way to a gate N times"). Its next turn with no gate in the line is its own ("keeps this turn"):
@@ -9462,7 +9465,9 @@ The delivery review: the go-live check doubled in three weeks (median 6.8 to 16.
     way" lines, and reads only lines with that mark at a line's start: a failing test that quotes such words is no give-way (core
     review 5). At a give-way what the stopped half said is dropped, so its verdict and its start are the new run's, and what it
     started outside its tree inside the folder since its start (a keeper or board a test made through WMI) is ended (tools/test.mjs
-    `stopInside`, never in a board's folder); the folder's clean-up ends such processes first too (core review 6).
+    `stopInside`, never in a board's folder); the folder's clean-up ends such processes first too (core review 6). B1573's `--slot`
+    mode gets the mark too (`--mark`): its "big suite: tests main at <commit> [mark]" line counts only with the run's mark, and the
+    last such line names the commit tested; a run that gave way starts over with `--slot`, so it reads main's head again.
 
 ## F46: a build of the state walks the store once (2026-11-23, chat 4)
 

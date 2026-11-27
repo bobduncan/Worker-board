@@ -388,7 +388,7 @@ function queueOf(folder, now = Date.now()) {
     const ticket = readLock(path.join(folder, name))
     const beat = Date.parse(ticket?.info?.beat)
     const old = !ticket?.info ? false : Number.isFinite(beat) ? now - beat > BEAT_STALE_MS : now - Date.parse(ticket.info.startedAt) > TICKET_MAX_AGE_MS
-    if (ticket?.info && pidRuns(ticket.info.pid) && !old) live.push({ name, first: ticket.info.first === true, fair: ticket.info.order === ORDER_MARK })
+    if (ticket?.info && pidRuns(ticket.info.pid) && !old) live.push(orderEntry(name, ticket.info))
     else if (ticket) removeFile(path.join(folder, name))
   }
   return live
@@ -466,18 +466,32 @@ function ticketsSeen(folder, watched, beatMs, now = Date.now()) {
   return seen
 }
 
+/**
+ * A queue ticket as queueOrder reads it, from its file name and its JSON: one place for every reader (this helper, the board's view
+ * src/testQueue.mjs). `settles`: a run that gave way to a gate (its ticket's `gaveWay`), which takes no slot while a gate is in the line.
+ */
+export function orderEntry(name, info) {
+  return { name, first: info?.first === true, fair: info?.order === ORDER_MARK, settles: Number.isInteger(info?.gaveWay) && info.gaveWay > 0 }
+}
+
 /** When a ticket came, from its name (`<ms, 15 digits>-<pid>.json`). */
 const cameOf = (name) => Number(String(name).slice(0, 15))
 
 /**
  * F39: the queue's order, one pure function for every run: oldest first, a first-class ticket counted as if it came
  * FIRST_LEAD_MS (30 minutes) earlier; the same moment goes by the name. Gives back the tickets in that order.
+ * P4 (chat 1's re-check, 2026-11-27): a settling ticket (`settles`, a run that gave way) goes after every first-class ticket in the
+ * line, and so after every ticket that goes before one: it takes no slot while a gate is in the line, so a gate that came 30 minutes
+ * or more after it would wait on it while it waits on the gate, until the landing's queue bound failed the landing.
  */
 export function queueOrder(tickets) {
   // F39, review: an old copy's ordinary ticket (`fair` false) goes after every other ticket, as that copy ranks itself.
   const late = (one) => (one.fair === false && !one.first ? 1 : 0)
   const rank = (one) => cameOf(one.name) - (one.first ? FIRST_LEAD_MS : 0)
-  return [...tickets].sort((a, b) => late(a) - late(b) || rank(a) - rank(b) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  const lastGate = Math.max(-Infinity, ...tickets.filter((one) => one.first).map(rank))
+  const behind = (one) => (one.settles === true && !one.first && rank(one) <= lastGate ? 1 : 0)
+  const place = (one) => (behind(one) === 1 ? lastGate : rank(one))
+  return [...tickets].sort((a, b) => late(a) - late(b) || place(a) - place(b) || behind(a) - behind(b) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
 }
 
 /** How many tickets go before `ticketName` in the queue's order (`first` is kept for the callers of before F39: the ticket says it). */

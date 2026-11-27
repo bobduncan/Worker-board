@@ -35,7 +35,7 @@ export function readTestQueue({ tool, env = process.env, now = Date.now(), runs 
 }
 
 function collectTestQueue({ tool, env, now, runs, read, list }) {
-  const { BEAT_STALE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, lockPath, queueOrder, slotCountOf, slotPath, slotsOf, whyStale } = tool
+  const { BEAT_STALE_MS, TICKET_MAX_AGE_MS, lockPath, orderEntry, queueOrder, slotCountOf, slotPath, slotsOf, whyStale } = tool
   const file = lockPath(env)
   const found = []
   const running = []
@@ -61,7 +61,8 @@ function collectTestQueue({ tool, env, now, runs, read, list }) {
     }
   }
   const tickets = ticketsOf(`${file}.queue`)
-  const order = queueOrder(tickets.map(one => ({ name: one.name, first: one.info.first === true, fair: one.info.order === ORDER_MARK })))
+  // P4: each ticket as the helper itself reads it (its orderEntry: a settling run goes after every gate), so the view shows the order runs go in.
+  const order = queueOrder(tickets.map(one => orderEntry(one.name, one.info)))
   // In the order they go (F39's queueOrder), not the order of the file names.
   for (const { name, info } of order.map(one => tickets.find(ticket => ticket.name === one.name))) {
     // A run that already holds a slot has left the queue (its ticket goes when it takes its turn): not counted twice.

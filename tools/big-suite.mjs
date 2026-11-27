@@ -59,10 +59,17 @@ export const RUNS_NOW = /one-at-a-time: .+ runs now/
 const escaped = mark => mark.replace(/[^0-9a-f]/gi, '')
 export const runsNowOf = mark => new RegExp(`^one-at-a-time: .+ runs now \\(waited \\d+ s\\) \\[${escaped(mark)}\\]\\r?$`, 'm')
 export const gaveWayOf = mark => new RegExp(`^one-at-a-time: .+ gives way to a gate .*\\[${escaped(mark)}\\]\\r?\\n`, 'gm')
-/** B1573: the line the `--slot` mode prints once it checked out main's newest commit in the run's worktree. */
-export const TESTS_LINE = /^big suite: tests main at ([0-9a-f]{7,40})\s*$/m
-/** The commit a big run tested, from its TESTS_LINE; null when the run never got that far. PURE. */
-export const testedCommit = output => TESTS_LINE.exec(String(output ?? ''))?.[1] ?? null
+/**
+ * B1573: the line the `--slot` mode prints once it checked out main's newest commit in the run's worktree. P4 (chat 1's re-check,
+ * 2026-11-27): with the run's mark last, as one-at-a-time's own lines, so a test that quotes such a line is never read as the run's.
+ */
+export const TESTS_LINE = /^big suite: tests main at ([0-9a-f]{7,40})(?: \[[0-9a-f]+\])?\s*$/m
+const testsLinesOf = mark => (mark ? new RegExp(`^big suite: tests main at ([0-9a-f]{7,40}) \\[${escaped(mark)}\\]\\r?$`, 'gm') : new RegExp(TESTS_LINE.source, 'gm'))
+/**
+ * The commit a big run tested, from its last TESTS_LINE (with `mark`, the last with the run's own mark: after a give-way the run starts
+ * over and says it again, so the newest half's commit counts even if a give-way line were missed); null when it never got that far. PURE.
+ */
+export const testedCommit = (output, mark = null) => [...String(output ?? '').matchAll(testsLinesOf(mark))].at(-1)?.[1] ?? null
 const SELF = fileURLToPath(import.meta.url)
 export { RERUN_LABEL }
 
@@ -76,7 +83,7 @@ const firstLine = out => String(out.stderr || out.stdout || out.error?.message |
  * prints TESTS_LINE, then runs `command` there with this process's stdio. Resolves to its exit code; 127 (no TESTS_LINE) when main
  * cannot be read or checked out.
  */
-export function slotRun(repo, folder, command, say = line => console.log(line)) {
+export function slotRun(repo, folder, command, say = line => console.log(line), mark = '') {
   const head = git(['rev-parse', 'refs/heads/main'], repo)
   if (head.status !== 0) {
     say(`big suite: could not read main of ${repo}: ${firstLine(head)}`)
@@ -88,7 +95,7 @@ export function slotRun(repo, folder, command, say = line => console.log(line)) 
     say(`big suite: could not check out main at ${commit.slice(0, 7)}: ${firstLine(moved)}`)
     return Promise.resolve(127)
   }
-  say(`big suite: tests main at ${commit}`)
+  say(`big suite: tests main at ${commit}${mark ? ` [${escaped(mark)}]` : ''}`)
   return new Promise((resolve) => {
     const child = spawn(command[0], command.slice(1), { cwd: folder, stdio: 'inherit', windowsHide: true })
     child.on('error', () => resolve(127))
@@ -183,7 +190,7 @@ export function bigSuiteSteps(repo, env = process.env) {
         const runsNow = runsNowOf(mark)
         const gaveWay = gaveWayOf(mark)
         const tests = ['node', 'tools/test.mjs', ...only]
-        const command = slot ? ['node', SELF, '--slot', repo, '--', ...tests] : tests
+        const command = slot ? ['node', SELF, '--slot', repo, '--mark', mark, '--', ...tests] : tests
         const child = spawn(process.execPath, [path.join(folder, 'tools', 'one-at-a-time.mjs'), label, '--', ...command], { cwd: folder, env: { ...startEnv(env), HEAVY_RUN_YIELD: '1', HEAVY_RUN_MARK: mark }, windowsHide: true })
         let output = ''
         let ranAt = null
@@ -217,11 +224,11 @@ export function bigSuiteSteps(repo, env = process.env) {
         look.unref()
         child.on('error', () => {
           clearInterval(look)
-          resolve({ code: 127, output, ranAt })
+          resolve({ code: 127, output, ranAt, mark })
         })
         child.on('close', (code) => {
           clearInterval(look)
-          resolve({ code: code ?? 1, output, ranAt })
+          resolve({ code: code ?? 1, output, ranAt, mark })
         })
       })
     },
@@ -311,7 +318,7 @@ export async function playOnce({ files, steps, now = Date.now }) {
     if (Number.isFinite(ran.ranAt)) began = ran.ranAt
     verdict = verdictOf(ran.output, ran.code, folder)
     // B1573: the commit it tested; a run that names none never counts as a run of the queued commit.
-    const tested = testedCommit(ran.output)
+    const tested = testedCommit(ran.output, ran.mark)
     if (tested) commit = tested
     else if (verdict.outcome !== 'could not run') throw new Error('the run named no commit it tested (no "big suite: tests main at" line)')
     if (verdict.outcome === 'failed' && !verdict.stalled && verdict.failed.length > 0) {
@@ -382,7 +389,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (lines.length === 0 && !argv.includes('--quiet')) console.log(results.last ? `big suite: ${results.last.outcome} on main at ${String(results.last.commit).slice(0, 7)} (${results.last.at})` : 'big suite: no run yet')
   } else if (argv[0] === '--slot') {
     const at = argv.indexOf('--')
-    slotRun(argv[1], process.cwd(), at > 0 ? argv.slice(at + 1) : []).then((code) => {
+    const head = at > 0 ? argv.slice(0, at) : argv
+    const mark = head.includes('--mark') ? head[head.indexOf('--mark') + 1] ?? '' : ''
+    slotRun(argv[1], process.cwd(), at > 0 ? argv.slice(at + 1) : [], undefined, mark).then((code) => {
       process.exitCode = code
     })
   } else if (argv.includes('--run')) {

@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, gateWaits, giveWayLookOf, givesWay, idleRoomOf, isIdleRun, markOf, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
+import { BEAT_STALE_MS, DEFAULT_SLOTS, FIRST_LEAD_MS, HOLD_MAX_MS, MAX_AGE_MS, ORDER_MARK, TICKET_MAX_AGE_MS, aheadOf, gateWaits, giveWayLookOf, givesWay, idleRoomOf, isIdleRun, markOf, orderEntry, pidRuns, queueOrder, runOneAtATime, slotPath, slotsOf, whyStale } from '../tools/one-at-a-time.mjs'
 
 const HELPER = fileURLToPath(new URL('../tools/one-at-a-time.mjs', import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), 'heavy-run-test-'))
@@ -676,6 +676,42 @@ test('P4, today\'s real case (chat 1, 2026-11-27): a yield run keeps the slot wh
   assert.deepEqual([gateEnd.code, checkEnd.code, end.code], [0, 0, 0], end.err)
   assert.deepEqual(readFileSync(order, 'utf8').trim().split('\n'), ['yield', 'check', 'gate', 'yield'], 'the ordinary run first, the gate right after it, the yield run last')
   assert.match(gate.err, /waiting for b1568-m2/, 'the gate waited for the ordinary run only')
+})
+
+test('P4 (chat 1\'s re-check, 2026-11-27): queueOrder puts a settling ticket (a run that gave way) after every gate in the line, and after what goes before one; with no gate it keeps its place', () => {
+  const at = Date.now()
+  const name = (ago, pid) => `${String(at - ago).padStart(15, '0')}-${String(pid).padStart(8, '0')}.json`
+  const settling = { name: name(35 * 60_000, 1), first: false, fair: true, settles: true }
+  const ordinary = { name: name(33 * 60_000, 2), first: false, fair: true, settles: false }
+  const gate = { name: name(0, 3), first: true, fair: true, settles: false }
+  const order = (tickets) => queueOrder(tickets).map((one) => one.name)
+  assert.deepEqual(order([settling, ordinary, gate]), [ordinary.name, gate.name, settling.name], 'a gate 35 minutes younger goes before it; the run that goes before the gate too')
+  assert.equal(aheadOf([settling, ordinary, gate], gate.name, true), 1, 'the gate waits for the ordinary run only')
+  assert.deepEqual(order([settling, ordinary]), [settling.name, ordinary.name], 'no gate in the line: its own place')
+  const later = { ...settling, name: name(-1000, 4) }
+  assert.deepEqual(order([gate, later]), [gate.name, later.name], 'one that came after the gate stays after it')
+  assert.deepEqual(orderEntry('x.json', { first: true, order: ORDER_MARK, gaveWay: 2 }), { name: 'x.json', first: true, fair: true, settles: true }, 'a ticket as every reader reads it')
+  assert.equal(orderEntry('x.json', { order: ORDER_MARK }).settles, false)
+})
+
+test('P4, the real case of chat 1\'s re-check: a yield run that came 35 min before a gate gives way to a first gate; a second gate, 35 min younger than its ticket, goes before it while it settles (no deadlock)', async () => {
+  const lock = newLock()
+  const marks = join(scratch, `marks-${++counter}.txt`)
+  const order = join(scratch, `order-${++counter}.txt`)
+  const said = () => (existsSync(order) ? readFileSync(order, 'utf8').trim().split('\n') : [])
+  const note = (name) => node(`require('fs').appendFileSync(${JSON.stringify(order)}, '${name}\\n'); setTimeout(() => process.exit(0), 1000)`)
+  const yieldCommand = node(`const fs = require('fs'); fs.appendFileSync(${JSON.stringify(marks)}, process.pid + '\\n'); fs.appendFileSync(${JSON.stringify(order)}, 'yield\\n'); const n = fs.readFileSync(${JSON.stringify(marks)}, 'utf8').trim().split('\\n').length; setTimeout(() => process.exit(0), n <= 1 ? 60000 : 100)`)
+  // Its ticket says it came 35 minutes ago, at every turn: so after its give-way it queues again ahead of any gate younger than 30 min.
+  const run = start(lock, 'yield:big-suite', yieldCommand, { ...settle, HEAVY_RUN_CAME_AT: String(Date.now() - 35 * 60_000) })
+  await until(() => startsOf(marks).length === 1, 'the yield run\'s command running')
+  const first = start(lock, 'gate', note('gate1'), { HEAVY_RUN_FIRST: '1' })
+  await until(() => said().includes('gate1'), 'the first gate running')
+  const second = start(lock, 'test', note('gate2'), { HEAVY_RUN_FIRST: '1' })
+  // Without the fix each waits for the other here (until land.ps1's queue bound): the bound of this look fails the case instead.
+  await until(() => said().includes('gate2'), 'the second gate running before the settling run', 20000)
+  const [one, two, end] = await Promise.all([first.done, second.done, run.done])
+  assert.deepEqual([one.code, two.code, end.code], [0, 0, 0], end.err)
+  assert.deepEqual(said(), ['yield', 'gate1', 'gate2', 'yield'], 'both gates first, then the yield run starts over')
 })
 
 test('P4, core review 1: a slot file a reader holds open at the give-way is not lost: the run tries again until it is gone, and never waits for itself', { skip: process.platform !== 'win32' && 'Windows file sharing' }, async () => {

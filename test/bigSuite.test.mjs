@@ -896,6 +896,20 @@ test('B1573, the real case (Windows): a worktree made at A runs in its slot at m
   }
 })
 
+test('P4 with B1573 (chat 1\'s re-check, 2026-11-27): the tested commit is the last "tests main at" line with the run\'s mark; a quoted line, another run\'s or one without the mark never counts', () => {
+  const mark = 'ab12cd34ef567890'
+  const A = 'a'.repeat(40)
+  const B = 'b'.repeat(40)
+  const line = (commit, with_ = mark) => `big suite: tests main at ${commit}${with_ ? ` [${with_}]` : ''}\n`
+  assert.equal(testedCommit(line(A) + 'one-at-a-time: x runs now\n' + line(B), mark), B, 'a missed give-way line: the newest half counts')
+  assert.equal(testedCommit(line(A, null), mark), null, 'a test that quotes the words without the mark')
+  assert.equal(testedCommit(line(A, '0123456789abcdef'), mark), null, 'another run\'s mark')
+  assert.equal(testedCommit(`  ${line(A)}`, mark), null, 'only at the start of a line')
+  assert.equal(testedCommit(line(A).replace('\n', '\r\n'), mark), A, 'Windows line ends')
+  assert.equal(testedCommit(line(A, null)), A, 'no mark asked: the plain line (the fakes, an old run)')
+  assert.equal(testedCommit(line(A)), A, 'no mark asked: a marked line too')
+})
+
 test('P4 with B1573 (chat 1, 2026-11-27), the real case (Windows): a big run in its slot at A gives way to a gate, main moves to B meanwhile, and the run starts over with --slot: it tests, says and records B', { skip: process.platform !== 'win32' && 'junctions are Windows\'', timeout: 90_000 }, async () => {
   const { dir, env } = bigWorld([])
   const repo = join(dir, 'repo')
@@ -932,7 +946,8 @@ test('P4 with B1573 (chat 1, 2026-11-27), the real case (Windows): a big run in 
     const ran = await running
     assert.equal(ran.code, 0, ran.output)
     assert.equal(readFileSync(starts, 'utf8'), 'AB', 'it gave way at A and started over at B')
-    assert.equal(testedCommit(ran.output), B, ran.output)
+    assert.equal(testedCommit(ran.output, ran.mark), B, ran.output)
+    assert.match(ran.output, new RegExp(`^big suite: tests main at ${B} \\[${ran.mark}\\]\\r?$`, 'm'), 'the line carries the run\'s own mark')
     assert.doesNotMatch(ran.output, /version A|fail 3|tests main at [0-9a-f]+\s[\s\S]*tests main at/, 'nothing of the stopped half, one tested commit')
     assert.equal(verdictOf(ran.output, ran.code, folder).outcome, 'passed')
     assert.equal(spawnSync('git', ['rev-parse', 'HEAD'], { cwd: folder, encoding: 'utf8', windowsHide: true }).stdout.trim(), B)
