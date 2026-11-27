@@ -32,6 +32,17 @@ export const LOW_CORES = 2
 /** The passes that give everything back after Low: a process born while Low was on inherits it, and a slow first pass misses some (2026-10-27). */
 export const RESTORE_PASSES = 3
 
+/**
+ * S8 of the PC plan (the person, 2026-11-25: "if i dont game, e.g. watch videos, i dont want my pc to lag. using full power"): how
+ * often Full fences what the chats started. A child born between two passes runs on every core until the next one, so for up to
+ * this long; a tighter loop would cost a process listing (one PowerShell) each time, which is itself load on the person's cores.
+ * The heavy runs, the real load, are fenced at once when they start (tools/one-at-a-time.mjs, S5).
+ */
+export const FULL_FENCE_MS = 30_000
+
+/** S8: what `applied` holds for a process the Full pass put on the work cores. */
+const FENCED = 'fenced'
+
 /** A level from a setting or a click ("Full", " low "), or null when it is none. Levels from before B735 read on: "strong" is Low, "off" and "gentle" are Full. */
 export function parseLevel(value) {
   if (typeof value !== 'string') return null
@@ -265,6 +276,19 @@ export function changesFor(chosen, level, applied, cores, { all = false } = {}) 
   return { changes }
 }
 
+/**
+ * S8: what Full sets. In a restore pass after Low (`isRestore`) every chosen process gets Normal and efficiency mode off, so a helper
+ * Low left at Idle is given back BEFORE it is fenced (chat 1's review: Full keeps a priority as it is, so an Idle helper fenced first
+ * would stay Idle); its cores are the work cores (`fenceMask`) at once, all cores without a map. Between restores only the cores
+ * of what is not fenced yet: `priority: null` leaves the priority as it is. A chat's own claude.exe always keeps all cores (F44).
+ */
+export function fullChanges(chosen, applied, cores, { fenceMask = null, isRestore = false } = {}) {
+  const allCores = affinityMask(cores, 'full')
+  const onWork = one => fenceMask !== null && !isChatProcess(one)
+  if (isRestore) return { changes: chosen.map(one => ({ pid: one.pid, key: one.key, priority: 'Normal', affinity: onWork(one) ? fenceMask : allCores, eco: false })) }
+  return { changes: chosen.filter(one => onWork(one) && applied.get(one.key) !== FENCED).map(one => ({ pid: one.pid, key: one.key, priority: null, affinity: fenceMask, eco: false })) }
+}
+
 /** F44: a chat's own priority under Low: above all Idle work, below a game; Windows hands it to what the chat starts. */
 export const CHAT_PRIORITY = 'BelowNormal'
 
@@ -364,7 +388,7 @@ export const SET_SCRIPT = [
   `try { ${ECO_TYPE} } catch {}`,
   '$changes = [Console]::In.ReadToEnd() | ConvertFrom-Json',
   '$done = @()',
-  "foreach ($c in @($changes)) { try { $p = Get-Process -Id ([int]$c.pid) -ErrorAction Stop; $p.PriorityClass = [string]$c.priority; $p.ProcessorAffinity = [IntPtr][long]$c.affinity; $done += [int]$c.pid; try { [void]$eco::SetProcessInformation($p.Handle, 4, [uint32[]]@(1, 1, [uint32]$(if ($c.eco) { 1 } else { 0 })), 12) } catch {} } catch {} }",
+  "foreach ($c in @($changes)) { try { $p = Get-Process -Id ([int]$c.pid) -ErrorAction Stop; if ($c.priority) { $p.PriorityClass = [string]$c.priority }; $p.ProcessorAffinity = [IntPtr][long]$c.affinity; $done += [int]$c.pid; try { [void]$eco::SetProcessInformation($p.Handle, 4, [uint32[]]@(1, 1, [uint32]$(if ($c.eco) { 1 } else { 0 })), 12) } catch {} } catch {} }",
   'ConvertTo-Json -Compress @($done)',
 ].join('; ')
 // F44: reads the cores of the processes named on its input; it sets nothing.
@@ -452,9 +476,11 @@ export const windowsProcesses = {
  * chat that started the board handed its Idle priority on) gives it Normal and all cores; under Full the first pass
  * does the same (2026-10-19).
  */
-export function cpuLimiter({ file, fallback = 'full', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [], log = () => {}, onLevel = () => {}, note = () => null }) {
+export function cpuLimiter({ file, fallback = 'full', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [], log = () => {}, onLevel = () => {}, note = () => null, fence = () => null }) {
   const available = platform === 'win32'
   let level = null
+  // S8: when the Full pass last fenced (ms); `fence()` gives the work cores' mask (a decimal string as `affinityMask`), or null.
+  let fencedAt = -Infinity
   // S4: the level, since when and by whom, to the board (which writes the heavy-run queue's mode file). Never awaited: the first
   // pass, which gives the board its own Normal priority back (F24), waits on nothing; the board's writer records its own failures.
   const heard = () => { onLevel({ level, since, who }) }
@@ -508,7 +534,11 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
       isRestored = own.every(one => Array.isArray(done) && done.includes(one.pid))
       if (own.length > 0) tell(`CPU for Claude: the board's own processes ${isRestored ? 'are at Normal on all cores' : 'could not be set to Normal yet; tried again next pass'}.`)
     }
-    if (!available || (current === 'full' && restore === 0)) {
+    // S8: Full does nothing between its passes, and nothing at all on a PC without a core map (or a board that is not the mode
+    // writer): then only the restore passes after Low run, as before S8.
+    const fenceMask = current === 'full' ? fence() : null
+    const isFencePass = fenceMask !== null && now() - fencedAt >= FULL_FENCE_MS
+    if (!available || (current === 'full' && restore === 0 && !isFencePass)) {
       count = 0
       fault = null
       return
@@ -532,7 +562,7 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
     const remembered = list.filter(one => loose.has(keyOf(one)) && !inTree.has(one.pid) && !own.has(one.pid))
     const outside = [...new Map([...remembered, ...orphans].map(one => [one.pid, { ...one, key: keyOf(one), parentKey: null }])).values()]
     const chosen = current === 'low' ? [...found.filter(one => !isChatProcess(one)), ...outside] : found
-    const { changes } = changesFor(chosen, current, applied, cores, { all: current === 'full' })
+    const { changes } = current === 'full' ? fullChanges(chosen, applied, cores, { fenceMask, isRestore: restore > 0 }) : changesFor(chosen, current, applied, cores)
     const slowed = list.filter(one => own.has(one.pid) && one.priority !== BASE_PRIORITY.Normal).map(one => one.pid)
     if (current === 'low' && slowed.length > 0) changes.push(...boardChanges(slowed, cores))
     const kept = chatChanges(chats, applied, cores)
@@ -545,7 +575,7 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
         const masks = await processes.masks(candidates.map(one => one.pid)).catch(() => new Map())
         for (const one of strandedProcesses(list, masks, cores, { chosen: found, roots: [...given.keys()] })) if (!given.has(one.pid)) given.set(one.pid, one)
       }
-      stranded = [...given.values()].map(one => ({ pid: one.pid, key: keyOf(one), priority: 'Normal', affinity: affinityMask(cores, 'full'), eco: false }))
+      stranded = [...given.values()].map(one => ({ pid: one.pid, key: keyOf(one), priority: 'Normal', affinity: fenceMask ?? affinityMask(cores, 'full'), eco: false }))
     }
     // The chats first: a pass cut short must not leave them starved.
     const sets = [...kept, ...changes, ...stranded]
@@ -566,8 +596,11 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
     for (const change of kept) if (Array.isArray(done) && done.includes(change.pid)) applied.set(change.key, CHAT_KEPT)
     count = current === 'full' ? 0 : chosen.length
     if (current === 'full') {
-      restore -= 1
-      applied = new Map()
+      restore = Math.max(0, restore - 1)
+      // S8: Full remembers only what it fenced and Windows took, so the next pass sets only new processes; Low's marks go.
+      applied = new Map([...applied].filter(([key, value]) => value === FENCED && living.has(key)))
+      for (const change of changes) if (fenceMask !== null && change.affinity === fenceMask && Array.isArray(done) && done.includes(change.pid)) applied.set(change.key, FENCED)
+      if (isFencePass) fencedAt = now()
     }
   }
 
