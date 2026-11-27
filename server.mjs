@@ -42,7 +42,7 @@ import { findCodex, makePicture } from './src/codex.mjs'
 import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from './src/boardSettings.mjs'
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
-import { cpuLimiter, levelWho, logicalCores, powershell, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
+import { cpuLimiter, helperMask, levelWho, logicalCores, powershell, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
 import { masksOf, modeFileOf, modeWriter, TOPOLOGY_SCRIPT, topologyOf, writesModeOf } from './src/cpuTopology.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
@@ -2765,7 +2765,7 @@ async function main(args) {
       const found = await topologyOf({ file: join(HERE, 'data', 'cpu-topology.json'), logical: logicalCores(), read: () => powershell(TOPOLOGY_SCRIPT, '', 60_000) })
       const masks = found.topology ? masksOf(found.topology) : null
       if (masks === null) coreMapNote = `No core map (${found.none ?? 'no room beside your cores'}): heavy runs are not fenced.`
-      workMask = masks === null ? null : BigInt.asIntN(64, masks.work).toString()
+      workMask = masks === null ? null : helperMask(masks.work, masks.low)
       await heavyMode.masks(masks)
     })
   }

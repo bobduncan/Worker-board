@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { cpuLimiter, fenceableKeys, FULL_FENCE_MS, fullChanges, inProject, isHeavyRun, SET_SCRIPT, strandedProcesses } from '../src/cpu.mjs'
+import { cpuLimiter, fenceableKeys, FULL_FENCE_MS, fullChanges, helperMask, inProject, isBoardStart, isHeavyRun, SET_SCRIPT, strandedProcesses } from '../src/cpu.mjs'
 
 const A = 'aaaaaaaa-1111-2222-3333-444444444444'
 const CLI = 'D:\\Apps\\claude-code\\2.1.0\\claude.exe --output-format stream-json'
@@ -163,7 +163,7 @@ test('S8: the server gives the limiter the work cores of the core map, only on t
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
   assert.match(server, /fence: \(\) => workMask,/)
-  assert.match(server, /if \(heavyMode !== null\) \{[^]*?workMask = masks === null \? null : BigInt\.asIntN\(64, masks\.work\)\.toString\(\)/)
+  assert.match(server, /if \(heavyMode !== null\) \{[^]*?workMask = masks === null \? null : helperMask\(masks\.work, masks\.low\)/)
 })
 
 test('S8 review 1: what the board itself started is never fenced, each change names the process\'s start, and the set script skips a PID given out again', async t => {
@@ -245,4 +245,22 @@ test('S8: fenceableKeys leaves out a chat itself, the board\'s children, heavy r
     { ...boardChild, key: key(boardChild), parentKey: key(board) }, { ...otherVite, key: key(otherVite), parentKey: null }, { ...vite, key: key(vite), parentKey: null },
   ]
   assert.deepEqual([...fenceableKeys(chosen, { own: new Set([board.pid]), project: PROJECT })], [key(bash), key(vite)])
+})
+
+test('S8 (chat 1, F24): Full keeps Low\'s cores free of helpers, and a board a chat starts is never fenced', async t => {
+  assert.equal(helperMask(0xFFFFF0n, 0xC00000n), String(0x3FFFF0))
+  assert.equal(helperMask(0xC00000n, 0xC00000n), null)
+  const HELPERS = String(0x3FFFF0)
+  const starter = { pid: 220, parent: 201, name: 'node.exe', commandLine: 'node D:/x/worker-board/start-board.mjs --port 4399', priority: IDLE, created: 25 }
+  const newBoard = { pid: 221, parent: 220, name: 'node.exe', commandLine: '"D:\\Apps\\node.exe" D:/x/worker-board/server.mjs --launch-entry', priority: IDLE, created: 26 }
+  const boardTool = { pid: 222, parent: 221, name: 'powershell.exe', commandLine: 'powershell -NoProfile', priority: IDLE, created: 27 }
+  const windows = fake([desktop, chat, bash, board, starter, newBoard, boardTool, vitest])
+  for (const one of [starter, newBoard, boardTool]) windows.state.get(one.pid).mask = LOW
+  const clock = { now: 1_000_000 }
+  const cpu = await limiterOn(t, windows, { clock, mask: HELPERS })
+  await cpu.apply()
+  assert.deepEqual(view(windows, vitest.pid), [HELPERS, 'BelowNormal', false], 'a helper is off Low\'s cores')
+  for (const one of [starter, newBoard, boardTool]) assert.deepEqual(view(windows, one.pid), [LOW, 'Idle', false], `${one.commandLine} is left to raise itself`)
+  assert.equal(isBoardStart(newBoard), true)
+  assert.equal(isBoardStart({ name: 'node.exe', commandLine: 'node tools/server.mjs.bak' }), false)
 })

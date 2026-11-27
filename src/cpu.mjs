@@ -281,6 +281,24 @@ export function isHeavyRun(one) {
   return String(one.name).toLowerCase() === 'node.exe' && /one-at-a-time\.mjs/i.test(String(one.commandLine ?? ''))
 }
 
+/**
+ * S8 (chat 1, 2026-11-27): a board starting (start-board.mjs, or server.mjs with its keeper): never fenced with what started it. A
+ * board a chat starts may begin at Idle on Low's cores (F24) and raises itself only once its code has loaded; it must keep every core.
+ */
+export function isBoardStart(one) {
+  return String(one.name).toLowerCase() === 'node.exe' && /(?:^|[\\/\s"'])(?:start-board|server)\.mjs(?:["'\s]|$)/i.test(String(one.commandLine ?? ''))
+}
+
+/**
+ * S8: the cores Full puts the chats' helpers on: the work cores without Low's (chat 1, 2026-11-27). So a board started at Idle on
+ * Low's cores (F24) never waits behind fenced helpers there until it raises itself. Masks as BigInts; the answer as `affinityMask`'s
+ * decimal string, or null when there is nothing left.
+ */
+export function helperMask(work, low) {
+  const mask = BigInt.asUintN(64, work) & ~BigInt.asUintN(64, low)
+  return mask === 0n ? null : BigInt.asIntN(64, mask).toString()
+}
+
 /** S8: whether a command line names a folder inside the project (its checkouts and worktrees live in it), slashes and case aside. */
 export function inProject(commandLine, project) {
   if (typeof project !== 'string' || project === '' || typeof commandLine !== 'string') return false
@@ -295,7 +313,8 @@ export function inProject(commandLine, project) {
 /**
  * S8: the keys of the chosen processes Full may fence (`chosen` parents first, as chosenProcesses answers). Left out with all they
  * started (chat 1's review): what the board itself started (its own listing and setting PowerShells: done in a moment, and a PID given
- * out again must never be the target), a heavy run's tree (S5 fences it already; a gate's tests pin and check their own processes), and
+ * out again must never be the target), a heavy run's tree (S5 fences it already; a gate's tests pin and check their own processes), a
+ * board starting (isBoardStart: it keeps every core, F24), and
  * a project tool found PC-wide whose command line names no folder of the project (a vite, codex or debugged Edge of another program).
  * A chat's own claude.exe is never fenced (F44); what it started is. Not fenced either, said here so nobody takes it for a miss: a
  * Chrome-for-testing or a tsc or vitest whose chat is gone, outside any tree the listing reaches (the heavy runs that matter are fenced
@@ -305,7 +324,7 @@ export function fenceableKeys(chosen, { own = new Set(), project = '' } = {}) {
   const blocked = new Set()
   const fenceable = new Set()
   for (const one of chosen) {
-    const isBlocked = (one.parentKey !== null && blocked.has(one.parentKey)) || own.has(one.parent) || isHeavyRun(one)
+    const isBlocked = (one.parentKey !== null && blocked.has(one.parentKey)) || own.has(one.parent) || isHeavyRun(one) || isBoardStart(one)
       || (one.parentKey === null && isProjectTool(one) && !inProject(one.commandLine, project))
     if (isBlocked) blocked.add(one.key)
     else if (!isChatProcess(one)) fenceable.add(one.key)
