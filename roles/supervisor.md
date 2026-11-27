@@ -83,7 +83,9 @@ sweep is meant to cost little (a few tens of thousands of tokens, mostly cached)
 - A worker that works has a step (its card names one); one that works for long with none is odd.
 - A step in progress gets a checkpoint or a commit now and then; hours with neither is odd. The health summary shows
   each one's last checkpoint, and the rule stale-checkpoint names one its worker works on (busy) for 2 h with no
-  checkpoint: a chat that may loop. A stopped one is the board's timers' (above), never that rule's.
+  checkpoint: a chat that may loop. A stopped one is the board's timers' (above), never that rule's. A step blocked by
+  a step not yet done or dropped waits on purpose (B1571, X263): that rule skips it, and once its blocker ended counts
+  its quiet time from then.
 - A step moves forward: queued, taken, in progress, review, done. One that goes back and forth (queued again, taken
   again, its check failing again) is odd.
 - The board hands out all work (redesign Part 2, 2026-10-25; since T8.5 by one hand-over at the worker's turn end): a

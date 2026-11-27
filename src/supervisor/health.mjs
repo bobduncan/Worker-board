@@ -6,7 +6,7 @@
 // the newest and oddest lines stay, and so do the steps every chat holds. PURE.
 
 import { chatEffort, effortOf, modelOf } from '../work/effort.mjs'
-import { sinceMs, valueOf } from '../work/item.mjs'
+import { openBlockersOf, sinceMs, valueOf } from '../work/item.mjs'
 import { checkpointOf, isHolding } from '../work/pause.mjs'
 import { GO_ON_LINE, continuationOf } from '../work/holderTimers.mjs'
 import { isFailedForGood } from '../work/outboxSweep.mjs'
@@ -250,14 +250,14 @@ const ENDED = ['done', 'dropped']
 
 /**
  * B561 (X15: B531 queued 4 h 35 min, Blocked by B522 in progress 1 h 23 min on the same worker, read as stuck): what a
- * queued step waits for as planned: the steps its `Blocked by` names and those its `Waits for` names that are in the
+ * queued step (B1571: or one in progress) waits for as planned: the steps its `Blocked by` names and those its `Waits for` names that are in the
  * store and not done or dropped (`open`), and which of them are stalled themselves (`stalled`: past their state's
  * limit and not waiting as planned in turn; a loop of waits counts as stalled). Null when it waits for no open step.
  */
 function plannedWait(item, view, now, seen = new Set()) {
-  if (valueOf(item, 'State') !== 'queued') return null
-  const named = field => (valueOf(item, field) ?? '').match(/\bB\d+\b/g) ?? []
-  const open = [...new Set([...named('Blocked by'), ...named('Waits for')])].filter(id => view.items.has(id) && !ENDED.includes(stateIn(view.items, id)))
+  // B1571 (X263): a step in progress blocked by an open step waits as planned too (its age alone is no "!").
+  if (!['queued', 'in progress'].includes(valueOf(item, 'State'))) return null
+  const open = openBlockersOf(item, view.items, ['Blocked by', 'Waits for'])
   if (open.length === 0) return null
   const chain = new Set([...seen, valueOf(item, 'Id')])
   return { open, stalled: open.filter(id => chain.has(id) || isLate(view.items.get(id), view, now, chain)) }

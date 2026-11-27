@@ -17,13 +17,13 @@ import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
 import { SIDE_WORD } from '../../work/sideWord.mjs'
 import { RETIRED_WATCH_RULES, givenBackFrom, goOnWaitMs, isGoOnWord } from '../../work/holderTimers.mjs'
 import { SUPERVISOR_DEFAULTS } from '../../config.mjs'
-import { askFiledMs, sinceMs, valueOf } from '../../work/item.mjs'
+import { askFiledMs, openBlockersOf, sinceMs, valueOf } from '../../work/item.mjs'
 import { overlapIn } from '../../work/guards.mjs'
 import { afterPause as afterPauseOf, checkpointOf, heldMs, holdEndOf, isHolding, pauseEndOf as pauseEnd } from '../../work/pause.mjs'
 import { isFailedForGood, stoppedChats, whyClosed } from '../../work/outboxSweep.mjs'
 import { FIRST_SAYING, chatsByRole, oldModFinding } from '../../oldMods.mjs'
 import { EFFORTS, chatEffort, effortOf, effortSaid, familyOf, modelOf } from '../../work/effort.mjs'
-import { chainTries, chainWaitOf, noTriedBefore, reviewWaitOf, waitsForPerson } from '../../work/resultCheck.mjs'
+import { chainTries, chainWaitOf, noTriedBefore, reviewWaitOf, unblockedOf, waitsForPerson } from '../../work/resultCheck.mjs'
 import { madeAtMs, openQaTaskOf, qaStandOf } from '../../work/qaTask.mjs'
 import { isWordingOnly } from '../../work/recapWords.mjs'
 import { BAN_WHY_MARK, CLEAR_ONLY_CLOSED_WHY, CLEAR_ONLY_TAKEN_WHY, NET_MS, STATES, UNANSWERED_WHY, clearOutcomesOf, envelopesOf } from '../../work/handover.mjs'
@@ -1012,7 +1012,9 @@ const lasting = ms => (ms < HOUR ? `${minutes(ms)} min` : `${Math.floor(ms / HOU
  * since) counts as none: the stretch counts from its start. Null when it is not late, not in progress, the person
  * pauses, a limit is full, or its worker does not work now (paused for the limit, stopped, asleep). B1302 (X211): also null while
  * a run of the step's folder waits or runs in the PC's test queue (`testQueueOf`), and the quiet time counts from the last pass
- * that saw such a run (`queueSeen` in the late record: when, after the checkpoint). `{ kind, step,
+ * that saw such a run (`queueSeen` in the late record: when, after the checkpoint). B1571 (X263): also null while the step is
+ * blocked by a step not yet done or dropped (`openBlockersOf`; one in review still holds), and once its last blocker ended
+ * the quiet time counts from then (`blockEndedAt`). `{ kind, step,
  * checkpoint, quiet }`: `step` how long it has been in progress, `quiet` how long since its last checkpoint (or since
  * the stretch began, without one).
  */
@@ -1022,6 +1024,9 @@ export function checkpointLate(item, view) {
   const owner = workersOf(view).find(lane => plain(lane.name, view.prefix) === plain(valueOf(item, 'Owner'), view.prefix))
   // The asset wait: while the provider draws, the holder runs no turn and writes no checkpoint: a quiet checkpoint is no fault then.
   if (owner?.state !== 'working' || owner.heldBy === 'asset') return null
+  // B1571 (X263: B421 blocked by B1535 on purpose, named after 2 h quiet): a step blocked by a step not yet done or dropped
+  // waits as planned; the blocker's own rules cover a stuck wait. No cap: such a wait has no Late of its own (that is `Waits on`'s).
+  if (openBlockersOf(item, view.items).length > 0) return null
   const stretch = stretchOf(item, view, owner)
   if (stretch === null) return null
   const { began, checkpoint, written, counted } = stretch
@@ -1030,11 +1035,23 @@ export function checkpointLate(item, view) {
   // (queueExcuseOf): past 3 x checkpointMinutes from the last checkpoint the queue excuses nothing, so a chat that loops on test runs is reported.
   const excused = queueExcuseOf(item, view)
   if (excused.run !== null) return null
-  const from = Math.max(written ?? began, excused.seenAt ?? 0)
+  // B1571: once its last blocker ended, the quiet time counts from then (its done or dropped Since while still named, or
+  // the step's own "no longer blocked by B<n>" line: a done blocker leaves its Blocked by, B574), like the queue's seenAt.
+  const unblocked = blockEndedAt(item, view.items)
+  const from = Math.max(written ?? began, excused.seenAt ?? 0, unblocked ?? 0)
   const quiet = counted(from)
   // B1175 (X196): `stopped` is the time its lane stood stopped since the checkpoint (the quiet time already leaves it out).
   const late = { step: view.now - began, checkpoint, quiet, stopped: standingStillMs(view, owner.name, afterPause(view, from)), queueSeen: excused.seenAt !== null && excused.seenAt > (written ?? began) ? excused.seenAt : null }
   return counted(began) > view.settings.checkpointMinutes * MIN && quiet > view.settings.checkpointMinutes * MIN ? { kind: 'old', ...late } : null
+}
+
+/** B1571: when the step's last blocker ended (ms): a named one done or dropped (its Since), or its newest "no longer blocked by" line; null for none. */
+function blockEndedAt(item, items) {
+  const named = String(valueOf(item, 'Blocked by') ?? '').match(/\bB\d+\b/g) ?? []
+  const ended = named.map(id => items?.get(id)).filter(one => one !== undefined && ['done', 'dropped'].includes(valueOf(one, 'State')))
+    .map(one => sinceMs(valueOf(one, 'Since')))
+  const all = [...ended, unblockedOf(item)?.at].filter(Number.isFinite)
+  return all.length === 0 ? null : Math.max(...all)
 }
 
 /**

@@ -220,3 +220,39 @@ test('B1175: the quiet time counts only the time the lane worked: a stop of 2 h 
     assert.deepEqual(check(view(store(), { today: stopped })), [], state)
   }
 })
+
+// B1571 (X263): B421 waited on purpose for B1535 (its Blocked by), 39 h in progress, its checkpoint 2 h 4 min old, and the rule
+// named it. A step blocked by a step not yet done or dropped is quiet; once its last blocker ended it has checkpointMinutes again.
+test('B1571 (X263): a step blocked by an open step is quiet in the rule and the summary; a dropped or unknown blocker does not hold', () => {
+  const blocked = (blocker, more = {}) => items(
+    step('B421', 'in progress', { Since: stamp(ago(39 * 60)), 'Blocked by': 'B1535', Checkpoint: checkpoint('1ddad864', 'Waiting for the go (after B1535)', ago(124)), ...more }),
+    ...(blocker === null ? [] : [blocker]))
+  const blocker = (state, since = ago(60)) => step('B1535', state, { Since: stamp(since), Owner: 'Walker' })
+  const board = view(blocked(blocker('in progress')))
+  assert.deepEqual(check(board), [])
+  assert.match(lineOfStep(healthSummary(board, NOW), 'B421'), /^- B421 in progress for 39 h, Picker \(waits as planned for B1535 \(in progress 1 h\)\)/)
+  // a blocker in review still holds it
+  assert.deepEqual(check(view(blocked(blocker('review')))), [])
+  // the guard: the same step with no Blocked by is named
+  assert.equal(check(view(blocked(blocker('in progress'), { 'Blocked by': '-' }))).length, 1)
+  // a blocker dropped hours ago, or an id the store does not hold, holds nothing: named
+  assert.equal(check(view(blocked(blocker('dropped', ago(300))))).length, 1)
+  // dropped 60 min ago: the quiet time counts from the drop, not late yet
+  assert.deepEqual(check(view(blocked(blocker('dropped')))), [])
+  assert.equal(check(view(blocked(null))).length, 1)
+})
+
+test('B1571: once the last blocker ended, the quiet time counts from then: done 30 min ago is quiet, done 130 min ago with no newer checkpoint is old', () => {
+  const store = (doneAgo, more = {}) => items(
+    step('B421', 'in progress', { Since: stamp(ago(39 * 60)), 'Blocked by': 'B1535', Checkpoint: checkpoint('1ddad864', 'Waiting for the go', ago(300)), ...more }),
+    step('B1535', 'done', { Since: stamp(ago(doneAgo)), Owner: 'Walker' }))
+  assert.deepEqual(check(view(store(30))), [])
+  const late = check(view(store(130)))
+  assert.equal(late.length, 1)
+  assert.equal(late[0].subject, 'B421')
+  // B574: a done blocker leaves the Blocked by, with a "no longer blocked by" line in the step's History: the same
+  const unblocked = minutes => ({ head: new Map([...store(minutes).get('B421').head, ['Blocked by', '-']]),
+    sections: new Map([['History', [`- ${stamp(ago(minutes))} server: no longer blocked by B1535: done`]]]) })
+  assert.deepEqual(check(view(items(unblocked(30)))), [])
+  assert.equal(check(view(items(unblocked(130)))).length, 1)
+})

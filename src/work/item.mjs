@@ -143,6 +143,17 @@ export function valueOf(item, key) {
   return value === undefined || value === '' || value === '-' ? null : value
 }
 
+/**
+ * B1571 (X263): the steps that still hold a step: those its `Blocked by` names (and, with `fields`, its `Waits for` too)
+ * that are in the store and not done or dropped (one in review still holds; an id the store does not hold does not),
+ * each once, in the order named. One rule for the stale-checkpoint rule, the health summary's planned wait and a lane's
+ * held step (`blockedBy`).
+ */
+export function openBlockersOf(item, items, fields = ['Blocked by']) {
+  const named = fields.flatMap(field => String(valueOf(item, field) ?? '').match(/\bB\d+\b/g) ?? [])
+  return [...new Set(named)].filter(id => items?.has(id) === true && !['done', 'dropped'].includes(valueOf(items.get(id), 'State')))
+}
+
 /** B298: a Since as a time; the start of its minute (or second) as written. NaN when it is none. */
 export function sinceMs(value) {
   const found = String(value ?? '').match(/^(\d{4})-(\d\d)-(\d\d)(?: (\d\d):(\d\d)(?::(\d\d))?)?$/)

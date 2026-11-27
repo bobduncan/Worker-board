@@ -28,7 +28,7 @@ import { parsePlanLine } from './planLines.mjs'
 import { splitPicture } from './talkPicture.mjs'
 import { isClockLine } from './rounds.mjs'
 import { taskTimesOf } from './taskTimes.mjs'
-import { isFix, sinceMs, valueOf } from './work/item.mjs'
+import { isFix, openBlockersOf, sinceMs, valueOf } from './work/item.mjs'
 import { planOf } from './work/stepPlan.mjs'
 import { heldOf, lastReportedOf, pickHeld, sizeOf } from './work/held.mjs'
 import { planStarting, planState, withPlanWork } from './plan.mjs'
@@ -2019,8 +2019,7 @@ function builtState(raw, { lines = [], outbox = [], words = null, refineKept = n
     const id = item.head.get('Id')
     const branch = item.head.get('Branch')
     // The person, 2026-10-25: a step parked on purpose waits for the open steps it is blocked by.
-    const blockedBy = (String(item.head.get('Blocked by') ?? '').match(/\bB\d+\b/g) ?? [])
-      .filter(one => !['done', 'dropped'].includes(raw.work.items.get(one)?.head.get('State') ?? 'done'))
+    const blockedBy = openBlockersOf(item, raw.work.items)
     // B363: a step taken with branch none has its work outside git: no branch to show or play.
     // P1: the holder's recorded wait on a chat (`Waits on`), or null.
     // B1307: a wait on a side chat the board asked (its word went): "asked chat 1 at 12:19" on the lane, plain.
