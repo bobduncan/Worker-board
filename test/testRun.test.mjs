@@ -41,7 +41,7 @@ test('2026-11-11: the run lowers itself to below normal before node --test start
     // what was started by then: this process must be low before node --test exists, so it inherits it
     lowered.push({ args, started: calls.length })
   }
-  const code = await runTests({ files: ['test/a.test.mjs'], cores: 24, start, setPriority, node: 'node.exe' })
+  const code = await runTests({ files: ['test/a.test.mjs'], cores: 24, start, setPriority, node: 'node.exe', env: {} })
   assert.equal(code, 0)
   assert.equal(LOW, os.constants.priority.PRIORITY_BELOW_NORMAL)
   assert.deepEqual(lowered, [{ args: [LOW], started: 0 }, { args: [4242, LOW], started: 1 }])
@@ -52,7 +52,7 @@ test('2026-11-11: the run lowers itself to below normal before node --test start
 
 test('2026-11-11: a priority that cannot be set does not stop the run; its exit code is the run\'s', async () => {
   const { start } = standIn(3)
-  const code = await runTests({ files: ['x'], cores: 4, start, setPriority: () => { throw new Error('EACCES') } })
+  const code = await runTests({ files: ['x'], cores: 4, start, setPriority: () => { throw new Error('EACCES') }, env: {} })
   assert.equal(code, 3)
 })
 
@@ -67,7 +67,7 @@ test('2026-11-11: the cores are all the PC\'s (os.cpus), not what this process m
   os.cpus = () => Array.from({ length: 24 }, () => ({}))
   // the board's "CPU for Claude: Low" gives a chat's process tree two cores
   os.availableParallelism = () => 2
-  await runTests({ files: ['x'], start, setPriority: () => {} })
+  await runTests({ files: ['x'], start, setPriority: () => {}, env: {} })
   assert.equal(calls[0].args[1], '--test-concurrency=12')
 })
 
@@ -110,7 +110,7 @@ const hangFolder = (t, name, body) => {
 
 test('F39: node --test gets a per-test timeout and a second reporter that writes the files it takes up and ends', async () => {
   const { calls, start } = standIn(0)
-  await runTests({ files: ['test/a.test.mjs'], cores: 8, start, setPriority: () => {} })
+  await runTests({ files: ['test/a.test.mjs'], cores: 8, start, setPriority: () => {}, env: {} })
   const args = calls[0].args
   assert.deepEqual(args.slice(0, 3), ['--test', '--test-concurrency=4', `--test-timeout=${TEST_TIMEOUT_MS}`])
   assert.equal(args.includes('--test-force-exit'), false, 'it ended files while their tests still waited (the first F39 gate)')
@@ -226,7 +226,7 @@ test('F39 review 10: with piped output the run counts on close, after the tail o
     })
     return child
   }
-  const code = await runTests({ files: ['x'], cores: 2, start, setPriority: () => {}, out: stream, err: stream })
+  const code = await runTests({ files: ['x'], cores: 2, start, setPriority: () => {}, out: stream, err: stream, env: {} })
   assert.equal(code, 0)
   assert.match(seen.text, /ℹ fail 0/)
 })
@@ -249,7 +249,7 @@ test('F68: a run asked for normal priority sets itself and node --test to normal
   const { start } = standIn(0)
   const set = []
   const { seen, stream } = sink()
-  const code = await runTests({ files: ['test/a.test.mjs'], priority: NORMAL, cores: 4, start, setPriority: (...args) => set.push(args), getPriority: pid => (pid === 4242 ? NORMAL : LOW), out: stream, err: stream })
+  const code = await runTests({ files: ['test/a.test.mjs'], priority: NORMAL, cores: 4, start, setPriority: (...args) => set.push(args), getPriority: pid => (pid === 4242 ? NORMAL : LOW), out: stream, err: stream, env: {} })
   assert.equal(code, 0)
   assert.equal(NORMAL, os.constants.priority.PRIORITY_NORMAL)
   assert.deepEqual(set, [[NORMAL], [4242, NORMAL]])
@@ -267,10 +267,10 @@ test('S5: inside a heavy run\'s fence the run never goes above the fence\'s prio
 
 test('F68: the full run says below normal; a priority that cannot be read says the asked one', async () => {
   const low = sink()
-  await runTests({ files: ['x'], cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => LOW, out: low.stream, err: low.stream })
+  await runTests({ files: ['x'], cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => LOW, out: low.stream, err: low.stream, env: {} })
   assert.equal(low.seen.text, 'test run: priority below normal\n')
   const unread = sink()
-  await runTests({ files: ['x'], priority: NORMAL, cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => { throw new Error('ESRCH') }, out: unread.stream, err: unread.stream })
+  await runTests({ files: ['x'], priority: NORMAL, cores: 4, start: standIn(0).start, setPriority: () => {}, getPriority: () => { throw new Error('ESRCH') }, out: unread.stream, err: unread.stream, env: {} })
   assert.equal(unread.seen.text, 'test run: priority normal\n')
   assert.deepEqual([LOW, NORMAL, os.constants.priority.PRIORITY_LOW, 3].map(priorityWord), ['below normal', 'normal', 'idle', 'nice 3'])
 })

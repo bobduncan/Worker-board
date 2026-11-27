@@ -609,6 +609,8 @@ function stopTree(child, name) {
  * The same lines in both repositories' copies of this helper.
  */
 export const FENCE_PRIORITY = { full: 'BelowNormal', low: 'Idle' }
+/** The words a fenced run gives its command (and only a run under it may pass on). */
+export const FENCE_ENV = Object.freeze(['HEAVY_RUN_MASK', 'HEAVY_RUN_CORES', 'HEAVY_RUN_PRIORITY'])
 /** How old the mode file's beat may be (the board beats on every CPU pass, every few seconds). */
 export const MODE_STALE_MS = 2 * 60 * 1000
 
@@ -769,7 +771,10 @@ export async function runOneAtATime({
     const ownerPid = env.HEAVY_RUN_HELD === '1' && env.HEAVY_RUN_PID ? env.HEAVY_RUN_PID : String(process.pid)
     const exited = new Promise((resolve) => {
       forceExit = () => resolve(signalExit(signalled))
-      const { HEAVY_RUN_FIRST: _first, HEAVY_RUN_IDLE: _idle, ...plain } = env
+      // S5 fix (2026-11-27): a run of its own (not under another) never passes on a fence it did not set: a fenced run's
+      // tests start their own runs, and an unfenced one must not say the outer fence's mask or priority to its command.
+      const { HEAVY_RUN_FIRST: _first, HEAVY_RUN_IDLE: _idle, ...kept } = env
+      const plain = env.HEAVY_RUN_HELD === '1' ? kept : Object.fromEntries(Object.entries(kept).filter(([name]) => !FENCE_ENV.includes(name)))
       // S5: the fence's priority; a run under another keeps the one it was born with (an idle fence is never lifted).
       const priority = env.HEAVY_RUN_HELD === '1' ? null : fence.fenced ? fence.priority : null
       child = startWith(priority, () => spawn(commandLine(command), { shell: true, stdio: 'inherit', windowsHide: true, cwd, env: { ...plain, ...fenceEnv, HEAVY_RUN_HELD: '1', HEAVY_RUN_PID: ownerPid } }))

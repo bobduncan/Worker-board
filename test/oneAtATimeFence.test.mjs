@@ -26,7 +26,8 @@ function lockWith(mode) {
 /** A mode file as the person's board writes it (S4): its owner is this test's process, its beat now. */
 const modeNow = (extra = {}) => ({ level: 'full', masks: { person: '0x00000F', work: '0xFFFFF0', low: '0xC00000' }, threads: { work: 20, low: 2 }, since: 1, who: 'the board page', pid: process.pid, port: 4310, project: 'D:\\boards\\x', beat: Date.now(), ...extra })
 const plainEnv = extra => {
-  const { HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, ...plain } = process.env
+  // Never the fence of the run these tests run in (a gate is fenced since S5): its words are cleared here as the launcher clears them.
+  const { HEAVY_RUN_HELD: _held, HEAVY_RUN_FIRST: _first, HEAVY_RUN_PRIORITY: _priority, HEAVY_RUN_MASK: _mask, HEAVY_RUN_CORES: _cores, ...plain } = process.env
   return { ...plain, HEAVY_RUN_POLL_MS: '50', HEAVY_RUN_SAY_MS: '200', HEAVY_RUN_SLOTS: '1', ...extra }
 }
 const PRIORITY_RANK = { Idle: 0, BelowNormal: 1, Normal: 2, AboveNormal: 3, High: 4, RealTime: 5 }
@@ -180,4 +181,16 @@ test('S5, live: without a mode file the run says it runs unfenced and goes as be
   assert.match(done.stderr, /one-at-a-time: fence-none runs unfenced: no mode file/)
   const log = readFileSync(`${lock}.runs.jsonl`, 'utf8').trim().split('\n').map(line => JSON.parse(line)).at(-1)
   assert.equal(log.fence, 'unfenced: no mode file')
+})
+
+test('S5 fix: a run of its own never passes on a fence it did not set (a fenced gate\'s tests start their own runs)', { skip: process.platform !== 'win32' }, () => {
+  const lock = lockWith()
+  const outer = { HEAVY_RUN_MASK: '0xFFFFF0', HEAVY_RUN_CORES: '20', HEAVY_RUN_PRIORITY: 'BelowNormal' }
+  const say = 'node -e "process.stdout.write([process.env.HEAVY_RUN_MASK, process.env.HEAVY_RUN_CORES, process.env.HEAVY_RUN_PRIORITY].join(\' \'))"'
+  const done = spawnSync(process.execPath, [HELPER, 'fence-outer', '--', say], { env: plainEnv({ HEAVY_RUN_LOCK: lock, ...outer }), encoding: 'utf8', windowsHide: true, timeout: 60_000 })
+  assert.equal(done.status, 0, done.stderr)
+  assert.equal(done.stdout, '  ')
+  // A run under another (HEAVY_RUN_HELD) is inside that fence and passes it on.
+  const held = spawnSync(process.execPath, [HELPER, 'fence-held', '--', say], { env: plainEnv({ HEAVY_RUN_LOCK: lock, HEAVY_RUN_HELD: '1', ...outer }), encoding: 'utf8', windowsHide: true, timeout: 60_000 })
+  assert.equal(held.stdout, '0xFFFFF0 20 BelowNormal')
 })
