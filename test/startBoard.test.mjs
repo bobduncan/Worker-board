@@ -128,71 +128,6 @@ function shellScript(t, port) {
 /** Runs the shell inside a job that is then terminated (tools/job-kill.ps1); the helper's words. */
 const jobKill = (file, env = {}) => spawnAsync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', JOB_KILL, '-FileName', process.execPath, '-Arguments', `"${file}"`], { timeout: 90_000, env: { ...startEnv(process.env), ...env } })
 
-describe('B1555: the keeper and its job, side by side', { concurrency: 4 }, () => {
-  test('F10: a board started from a shell inside a job survives the job\'s termination (the keeper\'s parent is WmiPrvSE, not the shell); the line names the keeper\'s pid', windows, async t => {
-    const port = String(await freePort())
-    const said = await jobKill(shellScript(t, port))
-    const pid = Number(said.stdout.match(/process (\d+)/)?.[1])
-    t.after(() => stopDemo(pid, port))
-    assert.equal(said.status, 0, said.stderr)
-    assert.ok(Number.isInteger(pid), said.stdout)
-    assert.doesNotMatch(said.stdout, /started as a child, not through WMI/, 'the WMI route, not the fallback')
-    assert.match(said.stdout, /terminated exited=True/, 'the shell died with its job')
-    assert.equal(parentNameOf(pid), 'WmiPrvSE.exe', 'the keeper was made by WMI, not by the shell')
-    assert.equal(isAlive(pid), true, 'the keeper outlived the job')
-    assert.equal(await boardAt(port), true, 'the board still answers after the job that started it was terminated')
-  })
-
-  test('F10, the mutant: a keeper spawned as the shell\'s child (the old route, WORKER_BOARD_START_ROUTE=child) dies with the job, and so does its board', windows, async t => {
-    const port = String(await freePort())
-    const said = await jobKill(shellScript(t, port), { WORKER_BOARD_START_ROUTE: 'child' })
-    const pid = Number(said.stdout.match(/process (\d+)/)?.[1])
-    t.after(() => stopDemo(pid, port))
-    assert.ok(Number.isInteger(pid), said.stdout)
-    assert.match(said.stdout, /started as a child, not through WMI/, 'the fallback route')
-    assert.match(said.stdout, /terminated exited=True/)
-    const until = Date.now() + 5000
-    while (await boardAt(port) && Date.now() < until) await new Promise(done => setTimeout(done, 200))
-    assert.equal(await boardAt(port), false, 'the old route\'s board died with the job: that is what the update did on 2026-11-11')
-    assert.equal(isAlive(pid), false)
-  })
-
-  test('F10: --stop writes the stop sign first (so the watcher leaves the board down), ends the keeper and its board, and writes the sign again once they are gone; --anew starts a new keeper while one answers', windows, async t => {
-    const port = String(await freePort())
-    const first = run('--demo', '--port', port)
-    const pid = Number(first.stdout.match(/process (\d+)/)?.[1])
-    t.after(() => stopDemo(pid, port))
-    assert.equal(first.status, 0, first.stderr)
-    const anew = run('--demo', '--port', port, '--anew')
-    const second = Number(anew.stdout.match(/process (\d+)/)?.[1])
-    t.after(() => stopDemo(second, port))
-    assert.ok(Number.isInteger(second) && second !== pid, `a second keeper although the board answers: ${anew.stdout} ${anew.stderr}`)
-    // --stop names the board it stops (its port, the demo): a demo keeper of the folder is not the real board's, and the other way round
-    // (round 4). The stop sign is the REAL board's alone: a demo's stop writes none (round-4 check: a sign for a demo would hold the watcher
-    // off the real board after an app update).
-    const sign = join(DATA, 'stop.json')
-    const before = existsSync(sign) ? readFileSync(sign, 'utf8') : null
-    t.after(() => { if (before === null) rmSync(sign, { force: true }); else writeFileSync(sign, before) })
-    rmSync(sign, { force: true })
-    const stopped = run('--stop', '--demo', '--port', port)
-    assert.equal(stopped.status, 0, stopped.stderr)
-    assert.match(stopped.stdout, new RegExp(`^The worker board on port ${port} is stopped \\(keeper .*\\); no stop sign \\(a demo is not this folder's board\\)\\.`))
-    assert.equal(existsSync(sign), false, 'a demo\'s stop writes no stop sign')
-    assert.deepEqual([isAlive(pid), isAlive(second), await boardAt(port)], [false, false, false], 'keepers and board gone')
-    // The real board's --stop (its own port, no keeper running here): the sign, written first and again, with by: 'command'.
-    const began = Date.now()
-    const real = run('--stop')
-    assert.equal(real.status, 0, real.stderr)
-    assert.match(real.stdout, /^No board of this folder was running on port \d+; the stop sign is written; the watcher leaves it down until the next start\.$/m)
-    const written = JSON.parse(readFileSync(sign, 'utf8'))
-    assert.deepEqual([written.why, written.by, written.at >= began], ['stopped', 'command', true])
-    // Another port of the folder: no sign either.
-    rmSync(sign, { force: true })
-    const other = run('--stop', '--port', String(Number(port) + 1))
-    assert.match(other.stdout, /no stop sign \(port \d+ is not this folder's board\)/)
-    assert.equal(existsSync(sign), false)
-  })
-})
 
 // F24a (2026-11-14): a slow board is a running board. A made-up board of this folder (a node process with this folder's server.mjs
 // path on its command line, as a keeper's child has) holds the port and answers late or never: the script starts nothing and says
@@ -215,41 +150,6 @@ async function fakeBoard(t, port, delayMs, script = FAKE) {
   throw new Error('the made-up board did not listen')
 }
 
-describe('B1555: a slow board is a running board, side by side', { concurrency: 4 }, () => {
-  test('F24a: a board that answers in 10 s is a running board: the script waits for it and starts nothing', windows, async t => {
-    const port = String(await freePort())
-    const fake = await fakeBoard(t, port, 10_000)
-    const began = Date.now()
-    const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: startEnv(process.env) })
-    assert.deepEqual([said.status, said.stdout.trim()], [0, `The worker board runs already: http://127.0.0.1:${port}/`], said.stderr)
-    assert.ok(Date.now() - began >= 10_000, 'it waited for the answer')
-    assert.ok(ANSWER_MS > 10_000)
-    // The made-up board still holds the port: nothing else was started on it.
-    assert.equal(fake.exitCode, null)
-    assert.equal(await boardAt(port, ANSWER_MS), true)
-  })
-
-  test('F24a: a board of this folder that never answers is still a running board (its keeper brings it back): nothing started, the line says why', windows, async t => {
-    const port = String(await freePort())
-    const fake = await fakeBoard(t, port, 120_000)
-    const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: startEnv(process.env) })
-    assert.equal(said.status, 0, said.stderr)
-    assert.match(said.stdout.trim(), new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\((a keeper of this folder runs \\(process ${fake.pid}\\)|process ${fake.pid} of this folder holds the port) but did not answer within 15 seconds: slow or starting; nothing started\\)$`))
-    assert.equal(fake.exitCode, null, 'the made-up board was left alone')
-    const quiet = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port, '--quiet'], { timeout: 40_000, env: startEnv(process.env) })
-    assert.deepEqual([quiet.status, quiet.stdout], [0, ''])
-  })
-
-  test('F24a: a listing that fails or takes too long: unknown, nothing started, said with 1 (never a start on a guess)', windows, async t => {
-    const port = String(await freePort())
-    await fakeBoard(t, port, 120_000)
-    // A PATH without PowerShell: the listing cannot start; the holder alone does not decide.
-    const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), PATH: dirname(process.execPath), Path: dirname(process.execPath) } })
-    assert.equal(said.status, 1)
-    assert.match(said.stderr.trim(), new RegExp(`^The worker board on http://127\\.0\\.0\\.1:${port}/ did not answer within 15 seconds and the PC's processes could not be listed \\(.+\\): whether this folder's board runs is unknown; nothing started\\.$`))
-    assert.equal(said.stdout, '')
-  })
-})
 
 test('F24, chat 1\'s review: start-board.mjs itself runs at Normal when a chat under Low starts it at Idle (its helpers and the keeper are born from it)', windows, async t => {
   const port = String(await freePort())
@@ -301,7 +201,108 @@ test('F24, re-check (c): importing start-board.mjs raises nothing (only the scri
   assert.equal(state, `Idle ${mask.toString()}`, 'the importing process keeps its Idle: the raise is the running script\'s alone')
 })
 
-describe('B1555: the port race and the early end, side by side', { concurrency: 4 }, () => {
+// B1555 (faster slow tests): the cases that wait on a slow or made-up board run side by side, each on a port of its own. The keeper's
+// own cases (a job, --stop, --anew) stay one after another among themselves: they start and end real keepers.
+describe('B1555: start-board.mjs against slow, held and lost ports, side by side', { concurrency: 8 }, () => {
+  describe('the keeper and its job, one after another', { concurrency: 1 }, () => {
+    test('F10: a board started from a shell inside a job survives the job\'s termination (the keeper\'s parent is WmiPrvSE, not the shell); the line names the keeper\'s pid', windows, async t => {
+      const port = String(await freePort())
+      const said = await jobKill(shellScript(t, port))
+      const pid = Number(said.stdout.match(/process (\d+)/)?.[1])
+      t.after(() => stopDemo(pid, port))
+      assert.equal(said.status, 0, said.stderr)
+      assert.ok(Number.isInteger(pid), said.stdout)
+      assert.doesNotMatch(said.stdout, /started as a child, not through WMI/, 'the WMI route, not the fallback')
+      assert.match(said.stdout, /terminated exited=True/, 'the shell died with its job')
+      assert.equal(parentNameOf(pid), 'WmiPrvSE.exe', 'the keeper was made by WMI, not by the shell')
+      assert.equal(isAlive(pid), true, 'the keeper outlived the job')
+      // B1555: side by side the page may take more than the probe's 1.5 s; a slow board is a running board (F24a), a dead one is refused at once.
+      assert.equal(await boardAt(port, ANSWER_MS), true, 'the board still answers after the job that started it was terminated')
+    })
+
+    test('F10, the mutant: a keeper spawned as the shell\'s child (the old route, WORKER_BOARD_START_ROUTE=child) dies with the job, and so does its board', windows, async t => {
+      const port = String(await freePort())
+      const said = await jobKill(shellScript(t, port), { WORKER_BOARD_START_ROUTE: 'child' })
+      const pid = Number(said.stdout.match(/process (\d+)/)?.[1])
+      t.after(() => stopDemo(pid, port))
+      assert.ok(Number.isInteger(pid), said.stdout)
+      assert.match(said.stdout, /started as a child, not through WMI/, 'the fallback route')
+      assert.match(said.stdout, /terminated exited=True/)
+      const until = Date.now() + 5000
+      while (await boardAt(port) && Date.now() < until) await new Promise(done => setTimeout(done, 200))
+      assert.equal(await boardAt(port), false, 'the old route\'s board died with the job: that is what the update did on 2026-11-11')
+      assert.equal(isAlive(pid), false)
+    })
+
+    test('F10: --stop writes the stop sign first (so the watcher leaves the board down), ends the keeper and its board, and writes the sign again once they are gone; --anew starts a new keeper while one answers', windows, async t => {
+      const port = String(await freePort())
+      const first = run('--demo', '--port', port)
+      const pid = Number(first.stdout.match(/process (\d+)/)?.[1])
+      t.after(() => stopDemo(pid, port))
+      assert.equal(first.status, 0, first.stderr)
+      const anew = run('--demo', '--port', port, '--anew')
+      const second = Number(anew.stdout.match(/process (\d+)/)?.[1])
+      t.after(() => stopDemo(second, port))
+      assert.ok(Number.isInteger(second) && second !== pid, `a second keeper although the board answers: ${anew.stdout} ${anew.stderr}`)
+      // --stop names the board it stops (its port, the demo): a demo keeper of the folder is not the real board's, and the other way round
+      // (round 4). The stop sign is the REAL board's alone: a demo's stop writes none (round-4 check: a sign for a demo would hold the watcher
+      // off the real board after an app update).
+      const sign = join(DATA, 'stop.json')
+      const before = existsSync(sign) ? readFileSync(sign, 'utf8') : null
+      t.after(() => { if (before === null) rmSync(sign, { force: true }); else writeFileSync(sign, before) })
+      rmSync(sign, { force: true })
+      const stopped = run('--stop', '--demo', '--port', port)
+      assert.equal(stopped.status, 0, stopped.stderr)
+      assert.match(stopped.stdout, new RegExp(`^The worker board on port ${port} is stopped \\(keeper .*\\); no stop sign \\(a demo is not this folder's board\\)\\.`))
+      assert.equal(existsSync(sign), false, 'a demo\'s stop writes no stop sign')
+      assert.deepEqual([isAlive(pid), isAlive(second), await boardAt(port)], [false, false, false], 'keepers and board gone')
+      // The real board's --stop (its own port, no keeper running here): the sign, written first and again, with by: 'command'.
+      const began = Date.now()
+      const real = run('--stop')
+      assert.equal(real.status, 0, real.stderr)
+      assert.match(real.stdout, /^No board of this folder was running on port \d+; the stop sign is written; the watcher leaves it down until the next start\.$/m)
+      const written = JSON.parse(readFileSync(sign, 'utf8'))
+      assert.deepEqual([written.why, written.by, written.at >= began], ['stopped', 'command', true])
+      // Another port of the folder: no sign either.
+      rmSync(sign, { force: true })
+      const other = run('--stop', '--port', String(Number(port) + 1))
+      assert.match(other.stdout, /no stop sign \(port \d+ is not this folder's board\)/)
+      assert.equal(existsSync(sign), false)
+    })
+  })
+  test('F24a: a board that answers in 10 s is a running board: the script waits for it and starts nothing', windows, async t => {
+    const port = String(await freePort())
+    const fake = await fakeBoard(t, port, 10_000)
+    const began = Date.now()
+    const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: startEnv(process.env) })
+    assert.deepEqual([said.status, said.stdout.trim()], [0, `The worker board runs already: http://127.0.0.1:${port}/`], said.stderr)
+    assert.ok(Date.now() - began >= 10_000, 'it waited for the answer')
+    assert.ok(ANSWER_MS > 10_000)
+    // The made-up board still holds the port: nothing else was started on it.
+    assert.equal(fake.exitCode, null)
+    assert.equal(await boardAt(port, ANSWER_MS), true)
+  })
+
+  test('F24a: a board of this folder that never answers is still a running board (its keeper brings it back): nothing started, the line says why', windows, async t => {
+    const port = String(await freePort())
+    const fake = await fakeBoard(t, port, 120_000)
+    const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: startEnv(process.env) })
+    assert.equal(said.status, 0, said.stderr)
+    assert.match(said.stdout.trim(), new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\((a keeper of this folder runs \\(process ${fake.pid}\\)|process ${fake.pid} of this folder holds the port) but did not answer within 15 seconds: slow or starting; nothing started\\)$`))
+    assert.equal(fake.exitCode, null, 'the made-up board was left alone')
+    const quiet = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port, '--quiet'], { timeout: 40_000, env: startEnv(process.env) })
+    assert.deepEqual([quiet.status, quiet.stdout], [0, ''])
+  })
+
+  test('F24a: a listing that fails or takes too long: unknown, nothing started, said with 1 (never a start on a guess)', windows, async t => {
+    const port = String(await freePort())
+    await fakeBoard(t, port, 120_000)
+    // A PATH without PowerShell: the listing cannot start; the holder alone does not decide.
+    const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), PATH: dirname(process.execPath), Path: dirname(process.execPath) } })
+    assert.equal(said.status, 1)
+    assert.match(said.stderr.trim(), new RegExp(`^The worker board on http://127\\.0\\.0\\.1:${port}/ did not answer within 15 seconds and the PC's processes could not be listed \\(.+\\): whether this folder's board runs is unknown; nothing started\\.$`))
+    assert.equal(said.stdout, '')
+  })
   test('F24a: another program on the port is said, and nothing is started on it', windows, async t => {
     const server = createServer((req, res) => res.end('<title>Something else</title>')).listen(0, '127.0.0.1')
     await new Promise(done => server.once('listening', done))
@@ -318,12 +319,13 @@ describe('B1555: the port race and the early end, side by side', { concurrency: 
     // A board of this folder (the demo's own, by its command line) that holds the port and is up after 14 s: the race's winner. The check
     // before the start is skipped by a test hook here (WORKER_BOARD_SKIP_CHECK, this test's alone), as a second keeper's start would be
     // in flight when a chat's start and a landing's restart cross.
+    // B1555: the winner is up 14 s after its own start, so the wait counts from there (side by side, its start to listening takes seconds).
+    const began = Date.now()
     await fakeBoard(t, port, 14_000, RACE_FAKE)
     t.after(() => sweep(port))
-    const began = Date.now()
     const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_SKIP_CHECK: '1' } })
     assert.equal(said.status, 0, `${said.stdout} ${said.stderr}`)
-    assert.ok(Date.now() - began >= 12_000, 'it waited for the winner\'s board, instead of failing on the keeper\'s early end')
+    assert.ok(Date.now() - began >= 13_500, 'it waited for the winner\'s board, instead of failing on the keeper\'s early end')
     assert.match(said.stdout, new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\(another keeper won the port; this one, process \\d+, ended\\)`))
   })
 
