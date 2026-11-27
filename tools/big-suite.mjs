@@ -15,6 +15,9 @@
 // its record, its reruns alone and the probation all go by the commit that line names (none: the run could not run). The folder keeps
 // the name of the commit it was made at (lost() and the clean-up go by that one), and the node_modules junction stays (no checkout
 // touches an ignored folder).
+//
+// B1575: a stalled run reruns alone the files that failed before the stall (tools/test.mjs's "failed before the stall:" line); the
+// files it left open stay red and are never rerun, and the record keeps them apart (`stalled`). A stall is never green.
 import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
@@ -106,9 +109,16 @@ export function stalledFiles(output, folder = null) {
   return line.split(/,\s*/).map(part => repoTestPath(part.replace(/\s*\(.*$/, '').trim(), folder)).filter(part => part.startsWith('test/'))
 }
 
+/** B1575: the files that failed before a stall, from tools/test.mjs's line after the stall line ("failed before the stall: a, b"). PURE. */
+export function failedBeforeStall(output, folder = null) {
+  const line = /^failed before the stall: (.+)$/m.exec(output)?.[1] ?? ''
+  return [...new Set(line.split(/,\s*/).map(part => repoTestPath(part.trim(), folder)))].filter(part => part.startsWith('test/'))
+}
+
 /**
  * The verdict of a big run from its whole output and exit code: `{ outcome, failed, why }`, the files as repository paths. Stopped at
- * the queue's hold cap (124, or one-at-a-time's line): could not run, never red. A stall is red with the files left open. PURE.
+ * the queue's hold cap (124, or one-at-a-time's line): could not run, never red. A stall is red with the files left open (`stalled`)
+ * and the ones that failed before it (`before`, B1575), both in `failed`. PURE.
  */
 export function verdictOf(output, code, folder = null) {
   if (code === STOPPED || /^one-at-a-time: .+ ran longer than \d+ minutes and was stopped\s*$/m.test(output)) {
@@ -116,7 +126,13 @@ export function verdictOf(output, code, folder = null) {
   }
   const passed = gatePassed(output, 'board', code)
   if (passed.ok) return { outcome: 'passed', failed: [], why: null }
-  if (passed.stalled) return { outcome: 'failed', failed: stalledFiles(output, folder), why: passed.why, stalled: true }
+  if (passed.stalled) {
+    // B1575: the files left open stay red and are never rerun; the ones that failed before the stall (tools/test.mjs's second
+    // line) are rerun alone as in a run that ended.
+    const stalled = stalledFiles(output, folder)
+    const before = failedBeforeStall(output, folder).filter(file => !stalled.includes(file))
+    return { outcome: 'failed', failed: [...stalled, ...before], why: passed.why, stalled, before }
+  }
   if (/no summary line/.test(passed.why) && code !== 0 && !/^ℹ tests \d+/m.test(output)) return { outcome: 'could not run', failed: [], why: passed.why }
   // Only test files (verifier: a `location:` line in a helper module is no file to run again alone).
   const failed = [...new Set(failingFiles(output).map(file => repoTestPath(file, folder)))].filter(file => file.startsWith('test/'))
@@ -279,10 +295,12 @@ export async function playOnce({ files, steps, now = Date.now }) {
     const tested = testedCommit(ran.output)
     if (tested) commit = tested
     else if (verdict.outcome !== 'could not run') throw new Error('the run named no commit it tested (no "big suite: tests main at" line)')
-    if (verdict.outcome === 'failed' && !verdict.stalled && verdict.failed.length > 0) {
-      const again = []
+    // B1575: a stalled run reruns alone only the files that failed before the stall; the open ones stay red.
+    const rerun = verdict.stalled ? verdict.before : verdict.failed
+    if (verdict.outcome === 'failed' && rerun.length > 0) {
+      const again = verdict.stalled ? [...verdict.stalled] : []
       const flaky = []
-      for (const [index, file] of verdict.failed.entries()) {
+      for (const [index, file] of rerun.entries()) {
         if (index >= RERUNS_MAX) {
           again.push(file)
           continue
@@ -295,7 +313,8 @@ export async function playOnce({ files, steps, now = Date.now }) {
         if (aloneVerdict.outcome === 'passed') flaky.push(file)
         else again.push(file)
       }
-      verdict = again.length > 0
+      // A stall stays red even when every file rerun passed (also one whose open files had no name).
+      verdict = again.length > 0 || verdict.stalled
         ? { ...verdict, failed: again, flaky }
         : { outcome: 'passed', failed: [], flaky, why: `${flaky.length} file(s) failed in the full run and passed alone` }
     }
@@ -303,7 +322,8 @@ export async function playOnce({ files, steps, now = Date.now }) {
     verdict = { outcome: 'could not run', failed: [], why: error.message }
   }
   if (!touchRunner(files.runner)) return lost()
-  const { stalled: _stalled, ...kept } = verdict
+  // B1575: the record keeps the files a stall left open apart (`stalled`, also in `failed`); `before` was only the rerun's list.
+  const { before: _before, ...kept } = verdict
   const run = { commit, ...kept, label, at: new Date(began).toISOString(), seconds: Math.round((now() - began) / 1000) }
   writeJson(files.results, recordRun(readJson(files.results), run))
   // The result is in: the folder is this runner's (its fresh file keeps any other out, and nobody plays a commit just run).

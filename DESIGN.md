@@ -9232,6 +9232,8 @@ gate's whole hour. At 12:05 the 45-minute age rule removed a live gate's lock, a
   A stall watchdog ends the run with its whole tree when there has been no output for 15 minutes (TEST_STALL_MS): a file
   that hangs at its top level. It ends with "stalled: ...; files still open: ..." (a second reporter, tools/openFilesReporter.mjs,
   writes which files are taken up and ended). Since the review a stall is a refusal with no rerun (see below).
+  B1575: the reporter also writes a line per failed test, and a stall's second line, "failed before the stall: ...", names the
+  files that failed before it and are not open (the big suite reruns those; land.ps1 still refuses the stall).
 
 **F39, chat 1's review (2026-11-21), the fixes:**
 - **Old and new copies side by side** (blocker 1). Copies of before F39 run in open worktrees and the game until they merge main.
@@ -9357,6 +9359,10 @@ fix step itself, and that slow test runs in the light check for a while. Plan: .
     and ran at 01:10 is the night run.
   - Its state lies beside the PC's test lock (`<lock>.board-big-suite.json`), so every gate worktree reads the same probation.
   - A run the queue stopped at its hold cap (124) is "could not run", never red. A stall is red, with the files it left open.
+    B1575: a stall also reruns alone the files that failed before it (the big run of 2093e58, 2026-11-27, stalled on landScript
+    after the carry, F24b and sweep files had failed, and reran nothing). The open files stay red and are never rerun; the record
+    keeps them apart (`stalled`), and a stall stays red even when every rerun passes. The fix step says per file "left open in a
+    stalled run (not rerun)" or "failed again when run alone".
   - Core review: each file that failed in the full run runs again alone once (`big-suite-rerun`, as land.ps1 does). One that passes
     alone is flaky: it is recorded, but it is no red and gets no fix step and no probation. Only the files that fail again are red.
     In 8 of the last 9 full gates a file failed that then passed alone. At most 10 files run again alone (a broken shared module fails

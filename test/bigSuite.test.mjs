@@ -135,6 +135,9 @@ test('S9: a big run\'s verdict: stopped at the hold cap is "could not run", neve
   const stall = 'stalled: no test output for 15 minutes; files still open: test/b.test.mjs (waits), test\\c.test.mjs (x)'
   assert.deepEqual(stalledFiles(stall), ['test/b.test.mjs', 'test/c.test.mjs'])
   assert.deepEqual(verdictOf(`${stall}\n`, 1).failed, ['test/b.test.mjs', 'test/c.test.mjs'])
+  // B1575: the files that failed before the stall are named apart, never the open ones twice.
+  const before = verdictOf(`${stall}\nfailed before the stall: test/a.test.mjs, test/b.test.mjs\n`, 1)
+  assert.deepEqual([before.failed, before.stalled, before.before], [['test/b.test.mjs', 'test/c.test.mjs', 'test/a.test.mjs'], ['test/b.test.mjs', 'test/c.test.mjs'], ['test/a.test.mjs']])
   assert.equal(verdictOf('could not start\n', 127).outcome, 'could not run')
 })
 
@@ -212,6 +215,60 @@ test('S9, core review: each failing file runs again alone once; one that passes 
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// B1575, the real case: the big run of 2093e58 (2026-11-27, 15:42) stalled with landScript.test.mjs open at its top level after the
+// carry, F24b and sweep files had failed; it reran nothing, so those were hidden. Mutants: the stall kept out of the rerun (old
+// `!verdict.stalled`), the open file rerun too, a stall whose reruns all pass counted green, `stalled` dropped from the record.
+test('B1575: a stalled big run reruns alone the files that failed before the stall; the open ones stay red, not rerun, kept apart in the record', async () => {
+  const { dir, files } = world()
+  try {
+    ours(files)
+    const stall = (open, before) => `${TESTED}✖ a set of 5,200 files (247769.3128ms)\n\nstalled: no test output for 15 minutes; files still open: ${open}\n${before ? `failed before the stall: ${before}\n` : ''}`
+    const calls = []
+    const steps = fakeSteps(calls, {
+      run: async (folder, label, { only = [] } = {}) => {
+        calls.push(`run ${label}${only.length > 0 ? ` ${only.join(' ')}` : ''}`)
+        if (only.length === 0) return { code: 1, output: stall('test/landScript.test.mjs (at its top level)', 'test/carryGit.test.mjs, test\\cpuStartIdle.test.mjs, test/landScript.test.mjs') }
+        return only[0] === 'test/carryGit.test.mjs' ? { code: 0, output: GREEN } : { code: 1, output: red(only[0]) }
+      },
+    })
+    const run = await playOnce({ files, steps })
+    assert.deepEqual(calls, ['prepare c1abcdef0000', `run ${ORDINARY_LABEL}`, `run ${RERUN_LABEL} test/carryGit.test.mjs`, `run ${RERUN_LABEL} test/cpuStartIdle.test.mjs`, 'cleanUp'])
+    assert.deepEqual([run.outcome, run.failed, run.flaky, run.stalled], ['failed', ['test/landScript.test.mjs', 'test/cpuStartIdle.test.mjs'], ['test/carryGit.test.mjs'], ['test/landScript.test.mjs']])
+    assert.equal(run.before, undefined, 'the rerun list is no part of the record')
+    const last = readJson(files.results).last
+    assert.deepEqual([last.failed, last.stalled, last.flaky], [run.failed, ['test/landScript.test.mjs'], ['test/carryGit.test.mjs']])
+    assert.deepEqual(Object.keys(readJson(files.results).probation).sort(), ['test/cpuStartIdle.test.mjs', 'test/landScript.test.mjs'])
+    // Every file rerun passes: a stall is still red, with its open file.
+    const still = await playOnce({ files, steps: fakeSteps([], { run: async (folder, label, { only = [] } = {}) => (only.length === 0 ? { code: 1, output: stall('test/landScript.test.mjs (at its top level)', 'test/carryGit.test.mjs') } : { code: 0, output: GREEN }) }) })
+    assert.deepEqual([still.outcome, still.failed, still.flaky], ['failed', ['test/landScript.test.mjs'], ['test/carryGit.test.mjs']])
+    // A stall that named no open file and whose reruns pass is red too (with no file to put on probation).
+    const blind = await playOnce({ files, steps: fakeSteps([], { run: async (folder, label, { only = [] } = {}) => (only.length === 0 ? { code: 1, output: stall('none named', 'test/carryGit.test.mjs') } : { code: 0, output: GREEN }) }) })
+    assert.deepEqual([blind.outcome, blind.failed, blind.stalled], ['failed', [], []])
+    // A stall with nothing failed before it: no rerun at all.
+    const lone = []
+    const quiet = await playOnce({ files, steps: fakeSteps(lone, { run: async (folder, label, { only = [] } = {}) => { lone.push(only.join(' ')); return { code: 1, output: stall('test/landScript.test.mjs (at its top level)', null) } } }) })
+    assert.deepEqual([quiet.outcome, quiet.failed, lone], ['failed', ['test/landScript.test.mjs'], ['prepare c1abcdef0000', '', 'cleanUp']])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('B1575: the fix step of a stalled run says per file whether it was rerun: left open (not rerun), or failed again alone', () => {
+  const both = fixStepOf({ run: { commit: 'c4abcdef', failed: ['test/landScript.test.mjs', 'test/a.test.mjs'], stalled: ['test/landScript.test.mjs'], at: 'T' }, lastGreen: null, goLives: [], log: 'L' }).text
+  assert.match(both[0], /failed on main at c4abcde, in a run that stalled: the files it left open were not rerun, the others failed again when run alone\./)
+  assert.ok(both.includes('Left open in a stalled run (not rerun): test/landScript.test.mjs.'), both.join('\n'))
+  assert.ok(both.includes('Failed again when run alone: test/a.test.mjs.'), both.join('\n'))
+  // The board files only the files no open step names (bigSuitePass): the stalled file alone.
+  const open = fixStepOf({ run: { commit: 'c4abcdef', failed: ['test/landScript.test.mjs'], stalled: ['test/landScript.test.mjs', 'test/b.test.mjs'], at: 'T' }, lastGreen: null, goLives: [], log: 'L' }).text
+  assert.match(open[0], /in a run that stalled: the files it left open were not rerun\./)
+  assert.ok(open.includes('Left open in a stalled run (not rerun): test/landScript.test.mjs.'))
+  assert.ok(!open.some(line => line.startsWith('Failed again when run alone')))
+  // No stall: the line as before.
+  const plain = fixStepOf({ run: { commit: 'c4abcdef', failed: ['test/a.test.mjs'], at: 'T' }, lastGreen: null, goLives: [], log: 'L' }).text
+  assert.match(plain[0], /failed on main at c4abcde, and each failing file failed again when run alone\./)
+  assert.ok(!plain.some(line => /stalled run/.test(line)))
 })
 
 test('S9: a runner whose file another took over keeps its hands off: at every phase it stops, records nothing, and removes its folder only when the new runner plays another commit', async () => {
