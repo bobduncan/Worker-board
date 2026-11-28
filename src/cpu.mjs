@@ -434,7 +434,8 @@ export function chatDescendants(chosen) {
  * limiter saw under a chat before (`seen`: `pid@created` keys from earlier listings, so a number Windows gave out again is another
  * process), or a node.exe whose parent is gone and whose command line names the project or one of its worktrees (`inProject`). What
  * they started comes with them. Never a chat's own process, the board's own (`own`) or what is in a tree already (`inTree`). A Git-Bash
- * tool the person started themselves was never under a chat and names no project folder: it is left alone.
+ * tool the person started themselves was never under a chat and names no project folder: it is left alone. A board (isBoardStart)
+ * whose starter is gone is never adopted by its command line: a board keeps every core (F24).
  */
 export function adoptedOf(list, { seen = new Set(), inTree = new Set(), own = new Set(), project = '' } = {}) {
   const byPid = new Map(list.map(one => [one.pid, one]))
@@ -444,7 +445,7 @@ export function adoptedOf(list, { seen = new Set(), inTree = new Set(), own = ne
     return Number.isFinite(parent.created) && Number.isFinite(one.created) && parent.created > one.created ? null : parent
   }
   const free = one => !inTree.has(one.pid) && !own.has(one.pid) && !isChatProcess(one)
-  const isRoot = one => free(one) && (seen.has(keyOf(one)) || (String(one.name).toLowerCase() === 'node.exe' && parentOf(one) === null && inProject(one.commandLine, project)))
+  const isRoot = one => free(one) && (seen.has(keyOf(one)) || (String(one.name).toLowerCase() === 'node.exe' && parentOf(one) === null && !isBoardStart(one) && inProject(one.commandLine, project)))
   const found = new Set(list.filter(isRoot).map(one => one.pid))
   for (let grew = true; grew;) {
     grew = false

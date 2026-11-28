@@ -105,6 +105,8 @@ test('F87: a node.exe with no parent is adopted when its command line names the 
   assert.deepEqual(pids, [projectNode.pid])
   const parent = { pid: 698, parent: 1, name: 'pwsh.exe', commandLine: null, priority: NORMAL, created: 5 }
   assert.deepEqual(adoptedOf([parent, projectNode], { project: PROJECT }), [], 'with its parent alive it is the parent\'s, not an orphan')
+  const aBoard = { pid: 702, parent: 697, name: 'node.exe', commandLine: 'node D:\\Projects\\game\\worker-board\\server.mjs', priority: NORMAL, created: 72 }
+  assert.deepEqual(adoptedOf([aBoard], { project: PROJECT }), [], 'a board whose starter is gone is no orphan (F24)')
 })
 
 test('F87: never a chat\'s own process, the board\'s own, or what is in a tree already', () => {
