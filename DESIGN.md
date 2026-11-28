@@ -9520,13 +9520,27 @@ work before it reports, in `work report` itself (api.mjs `selfCheckOfReport`): o
 `parsePoints`, so there is no copy of the points and no second parser. The step keeps them under "## Self-check" in the shape of
 "## Checked" (`selfCheckLines`, read back by `selfCheckOf`) and in one History line by the reporter, `self-check: 5 of 6 points pass,
 score 70 of 75`, right after the report's own line; a report again replaces the section and adds a line. A report without `points` on
-such a step is refused at once (400) with the exact points and the Standard line to tick (`selfCheckWanted`; a step without agreed
-points or standard reports as before): a warning after the report is in would change nothing, and a missing field is refused as
-`result` is. A self-check that fails a point or scores under the target (`targetOf` the Standard line, `scoreOf` the score) is taken,
-the honest report stands, and the answer says back what the check will do and to fix it in this step now (`selfCheckWarning`, also in
-the answer's `selfCheck`). The independent check (the Quality Assurance task) stays exactly as it is and decides; its `work next` shows
-the agreed points, never the self-check; roles/worker.md says the self-check is no evidence for the checker. No page change: the record
+such a step, or with fewer points than its agreed points (every step, not only a fix: chat 1's review, 3), is refused at once (400)
+with the exact points and the Standard line to tick (`selfCheckWanted`, the list cut by `selfCheckPointLines` at 160 characters a point
+and 1200 the list, "… and n more"; a Standard line with a target wants the score too, `scoreWanted`; a step without agreed points or
+standard reports as before): a warning after the report is in would change nothing, and a missing field is refused as `result` is. The
+self-check is read after B1081's open-fix refusal, so nobody self-checks a report that is refused anyway. A self-check that fails a point
+or scores under the target (`selfCheckMissOf`: `targetOf` the Standard line, `scoreOf` the score; an ask point is no miss) is refused
+the first time (409, `selfCheckRefused`: fix it in this step now, then report), and the refusal keeps that self-check on the step (the
+section and a History line `self-check refused: …: fix it in this step first`; the state and the holder unchanged, nothing moves). A
+second report with the same miss (`sameMiss`: the same fail texts, under the target alike) goes through: the builder says it cannot pass
+in this step, its result says why, and the answer says the check will fail it (`selfCheckStands`, also in the answer's `selfCheck`).
+No race with the checker, whose task starts once the board's own check passes, and no "report again" advice (chat 1's review, 1). The
+History line carries the counts, `self-check: 5 of 7 points pass, 1 fail, 1 ask, score 70 of 75`. The independent check (the Quality
+Assurance task) stays exactly as it is and decides; its `work next` shows the agreed points, never the self-check; roles/worker.md tells
+the checker to skip the step's `## Self-check` section and the builder's score and tick every point itself. No page change: the record
 carries the lines. The retrospective reads both History lines per step (`.claude/overview/delivery-review/scripts/selfcheck/a.mjs`:
-first-try pass rate with and without a self-check, the score gap, reports over a known miss). Replay: B1352's Play link opened the map
-on World 1's lava; ticking its own point "ember pits and cool light" against that link fails in the self-check, and the fix round
-B1451 is saved. Tests: test/work/selfCheck.test.mjs; the old report fixtures carry their points.
+first-try pass rate with and without a self-check, the score gap, reports over a known miss, a fail or a low score, never an ask).
+Replay: B1352's Play link opened the map on World 1's lava; ticking its own point "ember pits and cool light" against that link fails
+in the self-check, and the fix round B1451 is saved. Tests: test/work/selfCheck.test.mjs; the old report fixtures carry their points
+(test/qaKit.mjs `ticks`: one pass per agreed point).
+
+Known and left (chat 1's review, 6): the Workers mod's tool text still says a report takes id, result and merged, so a first report is
+often refused once, and the refusal says what to send; the text follows in the mod's next release (after B1586's 0.37.1, not in P1).
+taskTimes.mjs ends a task's time at a report call, a refused one too (a refused self-check then counts as the task's end a few minutes
+early). `parsePoints` keeps the first 40 points: a step with more agreed points ticks 40, and the owed count is read on the kept ones.

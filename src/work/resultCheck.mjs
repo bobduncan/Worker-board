@@ -188,24 +188,51 @@ export const scoreOf = score => {
 }
 
 /**
- * What the report's answer says back about a self-check that fails a point or scores under the step's target: the honest report
- * stands (the independent check decides), the words name what the check will do and what to do now. '' when nothing is amiss.
+ * Chat 1's core review (1): what a self-check misses: `{ fails: [the fail texts], under: { scored, target } | null }`, or null when
+ * every point passes (an ask point is no miss) and the score is not under the step's target.
  */
-export function selfCheckWarning(id, points, score, item) {
-  const failed = points.filter(one => one.verdict === 'fail').length
+export function selfCheckMissOf(points, score, item) {
+  const fails = points.filter(one => one.verdict === 'fail').map(one => one.text)
   const target = targetOf(standardOf(item))
   const scored = scoreOf(score)
-  const under = target !== null && scored !== null && scored < target ? `scores ${scored} under its target ${target}` : null
-  const amiss = [failed > 0 ? `fails ${failed} point${failed === 1 ? '' : 's'}` : null, under].filter(Boolean)
-  if (amiss.length === 0) return ''
-  return `Your self-check ${amiss.join(' and ')}: the result check will fail ${failed > 0 && under === null ? (failed === 1 ? 'it' : 'them') : 'that'} and make a fix step. Fix it in ${id} now and report again (a report again replaces the self-check); a point only the person can judge is an "ask:" point.`
+  const under = target !== null && scored !== null && scored < target ? { scored, target } : null
+  return fails.length === 0 && under === null ? null : { fails, under }
 }
+
+/**
+ * Whether the step's recorded self-check (`selfCheckOf`, the one a refusal kept) misses the same: the same fail texts (any order)
+ * and under the target alike. The second report with the same miss goes through: the builder says it cannot pass in this step.
+ */
+export function sameMiss(recorded, miss, item) {
+  if (recorded === null || miss === null) return false
+  const before = selfCheckMissOf(recorded.points, recorded.score ?? '', item)
+  if (before === null) return false
+  const sorted = list => [...list].sort().join('\n')
+  return sorted(before.fails) === sorted(miss.fails) && (before.under === null) === (miss.under === null)
+}
+
+const missWords = miss => [miss.fails.length > 0 ? `fails ${miss.fails.length} point${miss.fails.length === 1 ? '' : 's'}` : null, miss.under === null ? null : `scores ${miss.under.scored} under its target ${miss.under.target}`].filter(Boolean).join(' and ')
+const missIt = miss => (miss.fails.length > 0 && miss.under === null ? (miss.fails.length === 1 ? 'it' : 'them') : 'that')
+
+/** The refusal (409) of a first report whose self-check misses: fix it in this step now; a second report with the same miss goes through. */
+export const selfCheckRefused = (id, miss) => `Your self-check ${missWords(miss)}: fix ${missIt(miss)} in ${id} now, then report (a point only the person can judge is an "ask:" point). When it cannot pass in this step, report again with the same points and say why in the result: the result check then decides.`
+
+/** What the answer says when a report with the same miss goes through: the check will fail it. */
+export const selfCheckStands = miss => `Your self-check still ${missWords(miss)}: the result check will fail ${missIt(miss)} and make a fix step.`
 
 /** The lines of the "## Self-check" section a report writes: the shape of "## Checked" (Evidence, Score, the points). */
 export const selfCheckLines = (points, score, evidence) => [...(evidence === '' ? [] : [`Evidence: ${evidence}`]), ...(score === '' ? [] : [`Score: ${score}`]), ...points.map(one => `- ${one.verdict}: ${one.text}`)]
 
-/** The History line's words of a self-check: "self-check: 5 of 6 points pass, score 70 of 75". */
-export const selfCheckWords = (points, score) => `self-check: ${points.filter(one => one.verdict === 'pass').length} of ${points.length} points pass${score === '' ? '' : `, score ${score}`}`
+/**
+ * The History line's words of a self-check: "self-check: 5 of 7 points pass, 1 fail, 1 ask, score 70 of 75" (the fail and ask counts
+ * when there are any; chat 1's review (5)); `refused` for the first report a miss sent back: "self-check refused: ...: fix it in this
+ * step first". The retrospective (selfcheck/a.mjs) reads both.
+ */
+export function selfCheckWords(points, score, refused = false) {
+  const count = verdict => points.filter(one => one.verdict === verdict).length
+  const counts = [`${count('pass')} of ${points.length} points pass`, count('fail') > 0 ? `${count('fail')} fail` : null, count('ask') > 0 ? `${count('ask')} ask` : null, score === '' ? null : `score ${score}`].filter(Boolean).join(', ')
+  return refused ? `self-check refused: ${counts}: fix it in this step first` : `self-check: ${counts}`
+}
 
 /**
  * The step's self-check as its "## Self-check" section keeps it: `{ evidence, score, points, passed, total }`, or null when its last

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { valueOf } from '../../src/work/item.mjs'
-import { owedPoints, scoreOf, SELF_CHECK_LIST_CHARS, selfCheckOf, selfCheckPointLines, selfCheckWanted, selfCheckWarning, selfCheckedSinceReport, targetOf } from '../../src/work/resultCheck.mjs'
+import { owedPoints, sameMiss, scoreOf, SELF_CHECK_LIST_CHARS, selfCheckMissOf, selfCheckOf, selfCheckPointLines, selfCheckRefused, selfCheckStands, selfCheckWanted, selfCheckWords, selfCheckedSinceReport, targetOf } from '../../src/work/resultCheck.mjs'
 import { standardOf } from '../../src/work/standard.mjs'
 import { queueFor } from '../queueFor.mjs'
 import { LAMP, NOW, fileCheck, fresh, item, remove } from '../qaKit.mjs'
@@ -122,7 +122,9 @@ test('the QA task\'s work next names the agreed points, not the self-check', asy
   const store = await fresh()
   try {
     const id = await taken(store)
-    assert.equal((await report(store, id, { points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white (the bench lamps are white)'], score: '60 of 75' })).ok, true)
+    const failing = { points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white (the bench lamps are white)'], score: '60 of 75' }
+    assert.equal((await report(store, id, failing)).status, 409, 'the first report with a miss is refused')
+    assert.equal((await report(store, id, failing)).ok, true, 'the second with the same miss goes through')
     await store.server({ action: 'check', id, passed: true, lines: ['work in garden', 'branch gone', 'result named'] })
     const made = await store.server({ action: 'qa-task', id })
     assert.equal(made.ok, true, made.why)
@@ -136,55 +138,101 @@ test('the QA task\'s work next names the agreed points, not the self-check', asy
   }
 })
 
-test('a self-check that fails a point is taken, kept with its fail, and said back in the answer with what to do now', async () => {
+test('chat 1\'s review (1): a self-check that fails a point is refused the first time (409) with the fix-it-now words, the step stays in progress and keeps the self-check; the same miss again goes through, said back; a new miss is refused again', async () => {
   const store = await fresh()
   try {
     const id = await taken(store)
-    const sent = await report(store, id, { points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white (the bench lamps are white)'] })
-    assert.equal(sent.ok, true, sent.why)
-    const words = `Your self-check fails 1 point: the result check will fail it and make a fix step. Fix it in ${id} now and report again (a report again replaces the self-check); a point only the person can judge is an "ask:" point.`
-    assert.equal(sent.result.selfCheck, words)
-    assert.ok(sent.result.text.endsWith(`\n${words}`), sent.result.text)
-    const step = await item(store.dir, id)
-    assert.equal(valueOf(step, 'State'), 'review')
-    assert.ok(history(step).some(one => one.endsWith('Lamplighter: self-check: 1 of 2 points pass')), history(step).join('\n'))
+    const failing = ['pass: a lamp at every bench', 'fail: warm yellow light, never white (the bench lamps are white)']
+    const first = await report(store, id, { points: failing })
+    assert.deepEqual([first.ok, first.status], [false, 409])
+    assert.equal(first.why, `Your self-check fails 1 point: fix it in ${id} now, then report (a point only the person can judge is an "ask:" point). When it cannot pass in this step, report again with the same points and say why in the result: the result check then decides.`)
+    let step = await item(store.dir, id)
+    assert.equal(valueOf(step, 'State'), 'in progress', 'a refused report moves nothing')
+    assert.equal(valueOf(step, 'Owner'), 'Lamplighter')
+    assert.ok(!history(step).some(one => / → review\b/.test(one)))
+    assert.ok(history(step).at(-1).endsWith('Lamplighter: self-check refused: 1 of 2 points pass, 1 fail: fix it in this step first'), history(step).join('\n'))
     assert.deepEqual(selfCheckOf(step).points[1], { verdict: 'fail', text: 'warm yellow light, never white (the bench lamps are white)' })
-    // Two fails: "them"; an ask point is no fail.
-    assert.ok(selfCheckWarning('B2', [{ verdict: 'fail', text: 'a' }, { verdict: 'fail', text: 'b' }, { verdict: 'ask', text: 'c' }], '', step).startsWith('Your self-check fails 2 points: the result check will fail them and make a fix step.'))
-    assert.equal(selfCheckWarning('B2', [{ verdict: 'pass', text: 'a' }, { verdict: 'ask', text: 'c' }], '', step), '')
+    // A different miss (another point fails): refused again, and the kept self-check is now that one.
+    const other = await report(store, id, { points: ['fail: a lamp at every bench (two benches have none)', 'pass: warm yellow light, never white'] })
+    assert.equal(other.status, 409)
+    assert.deepEqual(selfCheckOf(await item(store.dir, id)).points[0], { verdict: 'fail', text: 'a lamp at every bench (two benches have none)' })
+    // The same miss as the last refusal, in another order and with the pass text changed: the builder says it cannot pass here; it goes through.
+    const stands = await report(store, id, { points: ['pass: warm yellow light, never white, all twelve', 'fail: a lamp at every bench (two benches have none)'], result: 'Every path has a lamp but two benches: their posts are gone; the check decides.' })
+    assert.equal(stands.ok, true, stands.why)
+    const words = 'Your self-check still fails 1 point: the result check will fail it and make a fix step.'
+    assert.equal(stands.result.selfCheck, words)
+    assert.ok(stands.result.text.endsWith(`\n${words}`), stands.result.text)
+    step = await item(store.dir, id)
+    assert.equal(valueOf(step, 'State'), 'review')
+    const lines = history(step).filter(one => one.includes('self-check'))
+    assert.equal(lines.length, 3, history(step).join('\n'))
+    assert.ok(lines[1].endsWith('self-check refused: 1 of 2 points pass, 1 fail: fix it in this step first'))
+    assert.ok(lines[2].endsWith('Lamplighter: self-check: 1 of 2 points pass, 1 fail'))
+    assert.deepEqual(selfCheckOf(step).points.map(one => one.verdict), ['pass', 'fail'], 'the section is the report that went through')
   } finally {
     await remove(store.dir)
   }
 })
 
-test('a score under the step\'s target is said back too, with or without a fail; a score at the target is not', () => {
+test('the miss, its words and the History counts: fails and a score under the target count, ask points do not', () => {
   const step = { head: new Map([['Id', 'B9']]), sections: new Map([['What we build', ['- the map painted whole']], ['Standard', [STANDARD]]]) }
   const pass = [{ verdict: 'pass', text: 'the map painted whole' }]
-  assert.equal(selfCheckWarning('B9', pass, '66 of 75', step), 'Your self-check scores 66 under its target 75: the result check will fail that and make a fix step. Fix it in B9 now and report again (a report again replaces the self-check); a point only the person can judge is an "ask:" point.')
-  assert.equal(selfCheckWarning('B9', pass, '75 of 75', step), '')
-  assert.equal(selfCheckWarning('B9', pass, '', step), '')
-  assert.ok(selfCheckWarning('B9', [{ verdict: 'fail', text: 'the map painted whole' }], '66 of 75', step).startsWith('Your self-check fails 1 point and scores 66 under its target 75: the result check will fail that and make a fix step.'))
+  assert.deepEqual(selfCheckMissOf(pass, '66 of 75', step), { fails: [], under: { scored: 66, target: 75 } })
+  assert.equal(selfCheckMissOf(pass, '75 of 75', step), null)
+  assert.equal(selfCheckMissOf(pass, '', step), null)
+  assert.equal(selfCheckMissOf([{ verdict: 'pass', text: 'a' }, { verdict: 'ask', text: 'c' }], '80 of 75', step), null, 'an ask point is no miss')
+  assert.deepEqual(selfCheckMissOf([{ verdict: 'fail', text: 'a' }, { verdict: 'fail', text: 'b' }, { verdict: 'ask', text: 'c' }], '', step), { fails: ['a', 'b'], under: null })
   // No target: a score alone is never under anything.
   const bare = { head: new Map([['Id', 'B9']]), sections: new Map([['What we build', ['- the map painted whole']]]) }
-  assert.equal(selfCheckWarning('B9', pass, '10 of 75', bare), '')
+  assert.equal(selfCheckMissOf(pass, '10 of 75', bare), null)
+  assert.equal(selfCheckRefused('B9', { fails: [], under: { scored: 66, target: 75 } }), 'Your self-check scores 66 under its target 75: fix that in B9 now, then report (a point only the person can judge is an "ask:" point). When it cannot pass in this step, report again with the same points and say why in the result: the result check then decides.')
+  assert.ok(selfCheckRefused('B9', { fails: ['a', 'b'], under: null }).startsWith('Your self-check fails 2 points: fix them in B9 now'))
+  assert.ok(selfCheckRefused('B9', { fails: ['a'], under: { scored: 66, target: 75 } }).startsWith('Your self-check fails 1 point and scores 66 under its target 75: fix that in B9 now'))
+  assert.equal(selfCheckStands({ fails: ['a', 'b'], under: null }), 'Your self-check still fails 2 points: the result check will fail them and make a fix step.')
+  // The same miss: the fail texts as a set, under the target alike; a recorded self-check without a miss is never the same.
+  const recorded = { points: [{ verdict: 'fail', text: 'b' }, { verdict: 'fail', text: 'a' }], score: '66 of 75' }
+  assert.equal(sameMiss(recorded, { fails: ['a', 'b'], under: { scored: 60, target: 75 } }, step), true)
+  assert.equal(sameMiss(recorded, { fails: ['a', 'b'], under: null }, step), false, 'now at the target: not the same miss')
+  assert.equal(sameMiss(recorded, { fails: ['a'], under: { scored: 60, target: 75 } }, step), false)
+  assert.equal(sameMiss({ points: pass, score: '80 of 75' }, { fails: ['a'], under: null }, step), false)
+  assert.equal(sameMiss(null, { fails: ['a'], under: null }, step), false)
+  // The History words (chat 1's review, 5).
+  const mixed = [{ verdict: 'pass', text: 'a' }, { verdict: 'fail', text: 'b' }, { verdict: 'ask', text: 'c' }]
+  assert.equal(selfCheckWords(mixed, '70 of 75'), 'self-check: 1 of 3 points pass, 1 fail, 1 ask, score 70 of 75')
+  assert.equal(selfCheckWords(pass, ''), 'self-check: 1 of 1 points pass')
+  assert.equal(selfCheckWords(mixed, '', true), 'self-check refused: 1 of 3 points pass, 1 fail, 1 ask: fix it in this step first')
 })
 
-test('a report again replaces the self-check (section and a new History line); the first stays in History', async () => {
+test('a report again replaces the self-check (section and a new History line); the earlier lines stay in History', async () => {
   const store = await fresh()
   try {
     const id = await taken(store)
-    assert.equal((await report(store, id, { points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white'] })).ok, true)
+    assert.equal((await report(store, id, { points: SELF })).ok, true)
     // The board's own check fails (the branch is still there): the step may be reported again.
     await store.server({ action: 'check', id, passed: false, lines: ['the branch b-lamps is still there'] })
-    const again = await store.later(5 * 60_000, 'Lamplighter')({ action: 'report', id, result: 'Every path has a warm lamp, yellow now.', merged: 'c0ffee2', points: SELF, score: '80 of 75' })
+    const again = await store.later(5 * 60_000, 'Lamplighter')({ action: 'report', id, result: 'Every path has a warm lamp, the branch gone.', merged: 'c0ffee2', points: ['pass: a lamp at every bench', 'ask: warm yellow light, never white (the person judges the hue)'], score: '80 of 75' })
     assert.equal(again.ok, true, again.why)
     const step = await item(store.dir, id)
-    assert.deepEqual(step.sections.get('Self-check'), ['Score: 80 of 75', '- pass: a lamp at every bench', '- pass: warm yellow light, never white'])
+    assert.deepEqual(step.sections.get('Self-check'), ['Score: 80 of 75', '- pass: a lamp at every bench', '- ask: warm yellow light, never white (the person judges the hue)'])
     const lines = history(step).filter(one => one.includes('self-check'))
     assert.equal(lines.length, 2, history(step).join('\n'))
-    assert.ok(lines[0].endsWith('self-check: 1 of 2 points pass'))
-    assert.ok(lines[1].endsWith('self-check: 2 of 2 points pass, score 80 of 75'))
+    assert.ok(lines[0].endsWith('self-check: 2 of 2 points pass'))
+    assert.ok(lines[1].endsWith('self-check: 1 of 2 points pass, 1 ask, score 80 of 75'))
     assert.equal(selfCheckedSinceReport(step), true)
+  } finally {
+    await remove(store.dir)
+  }
+})
+
+test('chat 1\'s review (3): every step owes every agreed point: fewer are refused with the count', async () => {
+  const store = await fresh()
+  try {
+    const id = await taken(store)
+    const few = await report(store, id, { points: ['pass: done'] })
+    assert.deepEqual([few.ok, few.status], [false, 400])
+    assert.equal(few.why, `${id} has 2 agreed points: tick each of them in "points" (pass:, fail: or ask:), not 1.`)
+    assert.equal(valueOf(await item(store.dir, id), 'State'), 'in progress')
+    assert.equal((await report(store, id, { points: SELF })).ok, true)
   } finally {
     await remove(store.dir)
   }
@@ -213,6 +261,23 @@ test('a fix step owes every fail text and every Makes pass line, as its check do
     const whole = await store.lamplighter({ action: 'report', id: fixId, result: 'The bench lamps are yellow now.', merged: 'c0ffee3', points: ['pass: warm yellow light, never white (the bench lamps are white): yellow now', 'pass: Makes pass: warm yellow light, never white'] })
     assert.equal(whole.ok, true, whole.why)
     assert.ok(history(await item(store.dir, fixId)).some(one => one.endsWith('Lamplighter: self-check: 2 of 2 points pass')))
+  } finally {
+    await remove(store.dir)
+  }
+})
+
+test('chat 1\'s review (4): a report again of a step with an open fix is refused for the fix (B1081), before any word about the self-check', async () => {
+  const store = await fresh()
+  try {
+    const id = await taken(store)
+    assert.equal((await report(store, id, { points: SELF })).ok, true)
+    await store.server({ action: 'check', id, passed: true, lines: ['work in garden', 'branch gone', 'result named'] })
+    const filed = await fileCheck(store, id, { evidence: 'pictures/b2/evidence.png', points: ['pass: a lamp at every bench', 'fail: warm yellow light, never white (white)'], score: '60 of 75' })
+    assert.equal(filed.ok, true, filed.why)
+    const again = await store.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })
+    assert.deepEqual([again.ok, again.status], [false, 409])
+    assert.match(again.why, new RegExp(`^${id} waits for its fix ${filed.result.fix}: do not report ${id} again`))
+    assert.ok(!again.why.includes('self-check'), again.why)
   } finally {
     await remove(store.dir)
   }

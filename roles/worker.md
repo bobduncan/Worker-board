@@ -269,10 +269,11 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
   never on substance. A near miss is fixed in this step first, then you report. `work report` carries it: `points` (every agreed
   point but the Not in it lines, each `pass: <point>`, `fail: <point>` or `ask: <point>` for a point only the person can judge; a
   fix: every fail text and every `Makes pass` line), `score` ("70 of 75") and, at will, `evidence` (your after picture's path). The
-  board refuses a report without `points` on such a step and lists the points to tick; it keeps your self-check on the step
-  (`## Self-check`, one History line) and takes a self-check that fails a point or scores under the target, saying back what
-  the check will do: fix it now and report again (a report again replaces it). The independent result check still decides;
-  your self-check is no evidence for the checker, who ticks every point itself.
+  board refuses a report without `points` on such a step (or with fewer than its agreed points) and lists the points to tick; it
+  keeps your self-check on the step (`## Self-check`, one History line). A self-check that fails a point or scores under the
+  target is refused the first time: fix it in this step now, then report. Only when it cannot pass in this step, report again
+  with the same points and say why in the result: that report goes through, and the result check decides. The independent
+  result check still decides every point; your self-check is no evidence for the checker, who ticks every point itself.
 - Tests bite (B527): when your change touches a test file, make the mutant before you report: in a scratch copy
   (never on your branch), undo the fix, run the new tests, see which assertion fails, then delete the copy. Your
   report's result then holds one line `Tests bite: <what was undone in a copy> → <the assertion that
@@ -355,7 +356,8 @@ person what they answered there. The board gives the task Sonnet at medium effor
 on Opus (the task's Model and Effort lines); it switches your model and effort for it as for any step.
 
 1. Read the step's record (`work list`, its file in the work store): its agreed points, its `Standard:` line (the kind, its
-   reference picture, the target; the kind's definition of done stands in the project's briefing) and its report. A step on the
+   reference picture, the target; the kind's definition of done stands in the project's briefing) and its report. Skip its
+   `## Self-check` section and the builder's score (P1): you tick every point yourself, from the result, never from them. A step on the
    worker board itself is also checked against the board's design principles (`PRINCIPLES.md` in the board's folder): one point
    per principle it touches, a break a fail unless the step says why. A change to what the page shows is checked against
    principle 16 (a clean page) on its before/after picture: no picture, or anything on it nobody asked for or without a label,
