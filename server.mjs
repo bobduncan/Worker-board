@@ -70,6 +70,7 @@ import { parseHistory } from './src/history.mjs'
 import { hearingLog, sentAtOf } from './src/hearing.mjs'
 import { callTracer, pcTop, slowCause } from './src/callTrace.mjs'
 import { stallLog, watchLoop } from './src/stalls.mjs'
+import { rebuildMarks, withHolds } from './src/rebuildMarks.mjs'
 import { callFrom, workCallRecord } from './src/workCalls.mjs'
 import { KEPT_STATE_MS, keptStateWhy } from './src/keptState.mjs'
 import { readReports, reportsSaver } from './src/reportsKept.mjs'
@@ -97,8 +98,7 @@ import { goalsToFree, rethinkHolds } from './src/work/rethink.mjs'
 import { rowWordsOf, rowWordsText } from './src/work/rowWords.mjs'
 import { PARTNER_MODES, effortBack, fableBack, partnerEffortWords } from './src/partnerEffort.mjs'
 import { evaluationFor } from './src/goalGuard.mjs'
-import { productPlanFile, readMove, readSources } from './src/sources.mjs'
-import { partnerPageAt } from './src/planWrite.mjs'
+import { productPlanFile, readMove } from './src/sources.mjs'
 import { backgroundRunning, parseTail, readTail } from './src/transcript.mjs'
 import { modAtLeast } from './src/clearOwed.mjs'
 import { ARCHIVE_MOD, archiveJobId, archivedBy, hasNothingUncommitted, replacedChats } from './src/replacedChats.mjs'
@@ -111,8 +111,9 @@ import { assetReader, listAssets } from './src/assets.mjs'
 import { assetQueue, providerAskTitle } from './src/assetQueue.mjs'
 import { titleProblem } from './src/work/askWords.mjs'
 import { recapRoundDue } from './src/recapCard.mjs'
-import { buildState, fullStepOf, lightState } from './src/state.mjs'
+import { fullStepOf, lightState } from './src/state.mjs'
 import { holdBuild, stateThread } from './src/stateThread.mjs'
+import { buildFrom } from './src/stateBuild.mjs'
 import { minuteKeeper, stabilityKeeper } from './src/stability.mjs'
 import { handedWithStatuses } from './src/chatStatus.mjs'
 import { withRefineQueue } from './src/work/advisorWork.mjs'
@@ -186,6 +187,8 @@ const STATE_MS = Number(process.env.WORKER_BOARD_STATE_MS) > 0 ? Number(process.
  * rebuild (with WORKER_BOARD_STATE_MS long, only a reset does). '' (none) on a real board.
  */
 const READ_LOG = process.env.WORKER_BOARD_READ_LOG ?? ''
+/** B1579: the tests' log of what each build hands the state thread (one JSON line per build); '' (none) on a real board. */
+const SENT_LOG = process.env.WORKER_BOARD_SENT_LOG ?? ''
 /** Light state: what `GET /api/step?id=` takes, a step's key: its id (B12), or "<activity>:<place>" for an old line without one. */
 const STEP_KEY = /^(?:[A-Za-z][A-Za-z0-9-]{0,40}|\d{1,4}:\d{1,5})$/
 /**
@@ -350,6 +353,7 @@ export const POST_ROUTES = Object.freeze({
 /**
  * The server, not yet listening. Handed in, so the tests need no real files:
  *   `getState()`       the `/api/state` object
+ *   `stateSent(ms)`    B1579: how long the state's JSON took (the rebuild marks)
  *   `step(key)`        light state: one step's full row of the backlog by its key (B12), as the state had it before it
  *                      went light; null for a key the board does not hold
  *   `say(body)`        checks and keeps what the page sent: `{ ok: true, message }` or `{ ok: false, status, why }`
@@ -373,7 +377,7 @@ export const POST_ROUTES = Object.freeze({
  *   `heardActive(h)`   signals change 5: the X-Board-Active header of the page's poll of /api/state (null when none)
  */
 export function createBoard({
-  token, getState, say, picture = async () => null, demo = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
+  token, getState, stateSent = () => {}, say, picture = async () => null, demo = async () => null, gameFile = async () => null, publicDir = join(HERE, 'public'),
   game = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   bridgeKey = null, take = async () => ({ ok: false, status: 404, why: 'Not here.' }), typed = async () => ({ ok: false, status: 404, why: 'Not here.' }),
   report = async () => ({ ok: false, status: 404, why: 'Not here.' }),
@@ -631,7 +635,12 @@ export function createBoard({
       if (!mayUse) return refuse(res, 403, 'Only the board\'s own page may read.')
       // Signals change 5: the poll says whether the person is busy on the page; the self-updater waits for that.
       heardActive(req.headers['x-board-active'] ?? null)
-      return json(res, await getState())
+      // B1579: the state's JSON is made here, on the loop, in one block: timed for the rebuild marks.
+      const value = await getState()
+      const at = performance.now()
+      const text = JSON.stringify(value)
+      stateSent(performance.now() - at)
+      return send(res, 200, 'application/json; charset=utf-8', text)
     }
     // Light state (2026-10-31): a finished step comes light in the state; its window reads its full row here.
     if (pathname === '/api/step') {
@@ -880,6 +889,9 @@ async function main(args) {
   // after 2 s, with the requests and the board's own jobs that ran then, in data/stalls.json; the rule board-slow cites it.
   const stalls = stallLog({ now: clock, file: isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'stalls.json') })
   const trackJob = (words, fn) => stalls.track('job', words, fn)
+  // B1579 (X93): each state rebuild's parts on the loop (src/rebuildMarks.mjs), so a loop stall reads which part held it; with
+  // WORKER_BOARD_PARTS_LOG each rebuild is a line of that file too (the measure).
+  const marks = rebuildMarks({ now: clock, logFile: process.env.WORKER_BOARD_PARTS_LOG || null })
   // board-fast-answer (B1030 way A, 2026-11-11): every work call's time by day and action (src/workCalls.mjs), with the whole state
   // rebuilds that started during it (`rebuilds`, counted below where the state is rebuilt): the proof that a call no longer waits for one.
   const workCalls = workCallRecord({ now: clock, file: isDemo || historyFrom !== undefined ? null : join(HERE, 'data', 'work-calls.json') })
@@ -1118,8 +1130,13 @@ async function main(args) {
   }
   const work = storeWork === null ? async () => undefined : async () => withAway(await storeWork(), await accountNow())
   // The keeper's own calls stay (a write resets the kept read; the health summary reads the last one without waiting).
+  // B1579: how often the store read was reset: the state thread keeps a read of its own and reads anew once this grew.
+  let storeGen = 0
   if (storeWork !== null) {
-    work.reset = () => storeWork.reset()
+    work.reset = () => {
+      storeGen += 1
+      storeWork.reset()
+    }
     work.last = () => withAway(storeWork.last(), account?.now() ?? null)
   }
   // B297: the work store's API (work/api.mjs): the page's actions as the person, the work tool's as its chat. Each
@@ -2120,7 +2137,17 @@ async function main(args) {
   }
 
   let store
+  /** B1579: what the loop hands the state build for its reading of the sources (src/stateBuild.mjs `rawOf`'s facts, but the assets). */
   let readRaw
+  /** B1579: the facts of a board with sources: the working folders and branches (git, cached here), the account, the store's folder and reset count. */
+  const sourceFacts = async accountNow => ({
+    config: { ...config },
+    folders: await folders().catch(() => null),
+    branches: await branches().catch(() => null),
+    account: accountNow,
+    workDir: storeWork === null ? null : workFolder(config),
+    gen: storeGen,
+  })
   // The asset wait (2026-11-11, the B1124 case): the asset requests go into the raw (src/work/assetWait.mjs reads the open ones of a
   // holder as its wait), with the provider's time limit for a job (the Design tab's seconds, once read below) for the Late past it.
   let assetSecondsNow = () => null
@@ -2173,24 +2200,28 @@ async function main(args) {
     demoStability = madeUpDays
     config.pictureRoots = ROOTS
     store = memoryStore()
-    readRaw = () => demoSources(clock())
+    // B1579: the demo's made-up sources go in as they are (src/stateBuild.mjs `rawOf`).
+    readRaw = async () => ({ config: { ...config }, sources: demoSources(clock()) })
     demoSupervisor = madeUp
     demoMods = () => ({ installed: '0.16.0', chats: { Main: '0.16.0', Features: null, Advisor: null } })
   } else {
     folders = hasGame ? cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS) : async () => null
     branches = cached(() => branchesNow(), FOLDERS_MS)
-    readRaw = async () => {
-      // B273: the app may move its folder while the board runs: the board follows it.
-      // B467: as a loop: a failed search shows and is logged; the board reads where it read before.
-      await loops.run('app-folder', () => followApp(config, process.env, process.platform))
-      // B1273: the app's account first (the store read below holds while it is another), then, while away, the board's chats the
-      // app's account alone lists are copied into the board's (at most every minute; never on a copy that only shows).
-      const accountNow = account === null ? null : await loops.run('app-account', () => account.read())
-      // B1283, chat 1's review (the deadlock): the ask is filed and kept AFTER the read, not awaited: it writes through the work API,
-      // whose write waits for a state read, which is this read.
-      if (account !== null && !isShowOnly) void loops.run('app-account-ask', () => account.tend())
-      if (accountNow?.away === true && !isShowOnly) await loops.run('app-account-import', () => account.importMissing())
-      return readSources(config, folders, undefined, branches, work, () => account?.now() ?? null)
+    readRaw = async (mark = marks.begin()) => {
+      await mark.part('app', async () => {
+        // B273: the app may move its folder while the board runs: the board follows it.
+        // B467: as a loop: a failed search shows and is logged; the board reads where it read before.
+        await loops.run('app-folder', () => followApp(config, process.env, process.platform))
+        // B1273: the app's account first (the store read below holds while it is another), then, while away, the board's chats the
+        // app's account alone lists are copied into the board's (at most every minute; never on a copy that only shows).
+        const accountNow = account === null ? null : await loops.run('app-account', () => account.read())
+        // B1283, chat 1's review (the deadlock): the ask is filed and kept AFTER the read, not awaited: it writes through the work API,
+        // whose write waits for a state read, which is this read.
+        if (account !== null && !isShowOnly) void loops.run('app-account-ask', () => account.tend())
+        if (accountNow?.away === true && !isShowOnly) await loops.run('app-account-import', () => account.importMissing())
+      })
+      // B1579: the loop hands the thread only these small results it keeps itself; the thread reads the sources (src/stateBuild.mjs).
+      return mark.part('sources', () => sourceFacts(account?.now() ?? null))
     }
     if (historyFrom === undefined) {
       store = await fileStore(join(HERE, 'data'), clock(), { start: handed.start === 'keeper' ? 'keeper' : startedBy ?? handed.start })
@@ -2211,9 +2242,9 @@ async function main(args) {
       const shared = cached(async () => parseHistory((await readHead(join(resolve(historyFrom), 'history.jsonl'), HISTORY_BYTES))?.text ?? ''), TICK_MS / 2)
       const lines = { now: [] }
       readLines = () => lines.now
-      readRaw = async () => {
+      readRaw = async (mark = marks.begin()) => {
         lines.now = await shared()
-        return readSources(config, folders, undefined, branches, work)
+        return mark.part('sources', () => sourceFacts(null))
       }
     }
   }
@@ -2675,11 +2706,12 @@ async function main(args) {
   // B1535 (X93, chat 1's way A): the state is built in a thread of its own, so the loop answers every other call meanwhile; when
   // the thread fails it builds in the loop as before, and the loops line says so once ("state-thread").
   const builder = stateThread({
-    inLoop: (raw, options) => {
-      holdBuild()
-      return buildState(raw, options)
-    },
+    // B1579: the same build in the loop, its sources read here with the loop's own read of the store (src/stateBuild.mjs).
+    inLoop: (input, options) => buildFrom(input, options, { readWork: storeWork ?? (async () => undefined), hold: () => holdBuild() }),
     failed: error => loops.failed('state-thread', error),
+    // B1579: the tests' board with no thread (every build in the loop, its fallback).
+    ...(process.env.WORKER_BOARD_STATE_THREAD === 'off' ? { start: () => { throw new Error('the state thread is off (WORKER_BOARD_STATE_THREAD)') } } : {}),
+    sent: SENT_LOG === '' ? null : input => appendFileSync(SENT_LOG, `${JSON.stringify(input)}\n`),
     recovered: () => loops.succeeded('state-thread'),
     // Chat 1's core review: off for good is said on a line of its own.
     offForGood: error => loops.failed('state-thread-off', error),
@@ -2691,23 +2723,35 @@ async function main(args) {
     }))?.isServerNewer !== true,
   })
   // F42: an answer built before a PC sleep is read again (src/afterSleep.mjs).
-  const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
+  /** B1579: the light rows of /api/state (src/state.mjs `lightState`), timed as a part of the newest rebuild. */
+  const lightTimed = state => {
+    const at = performance.now()
+    try {
+      return lightState(state)
+    } finally {
+      marks.after('light', performance.now() - at)
+    }
+  }
+  /** One rebuild of the state (`readState` below), its parts on the loop marked on `mark` (B1579). */
+  const rebuild = async (built, mark) => {
     rebuilds += 1
     if (READ_LOG !== '') appendFileSync(READ_LOG, `${Date.now()}\n`)
     await slowRead()
     blockRead()
-    // 2026-11-09: the plan's time as the partner's answer: the board's own write of a decision is not one (src/planWrite.mjs `partnerPageAt`).
-    const fresh = await withAssets(await readRaw())
-    const raw = { ...fresh, productPlanAt: await partnerPageAt(fresh.productPlanAt ?? null, PLAN_WRITES_FILE, productPlanFile(config)) }
+    // B1579 (X93): the loop hands in small facts (src/stateBuild.mjs); the sources are read where the state is built, in its thread.
+    const given = await readRaw(mark)
+    const facts = await mark.part('assets', () => withAssets({ ...given, planWrites: PLAN_WRITES_FILE }))
+    const demoRaw = facts.sources ?? null
     const keptReadings = await readingsOnDisk()
-    // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs).
-    keep.pause = raw.work?.pause ?? null
-    const project = raw.project ?? config.project
+    // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs). B1579: the
+    // loop's own read of the store (the store's items are no longer read here for the build).
+    keep.pause = (demoRaw === null ? (await work())?.pause : demoRaw.work?.pause) ?? null
+    const project = demoRaw?.project ?? config.project
     // B1535: the build, in its thread (the loop runs on), or in the loop when the thread failed; the job's words say where it was made
     // (named again after the build, as a thread may fail during it).
     const buildJob = stalls.begin('job', builder.off() === null ? 'state build (thread)' : 'state build (loop)')
-    const state = await (async () => builder.build(raw, {
-      lines: readLines(raw),
+    const state = await (async () => builder.build({ facts }, {
+      lines: readLines(demoRaw ?? {}),
       outbox: outboxNow(store.outbox(), clock(), keep),
       // P7 (the review): every word, also long ago, timed as outboxNow times them, for the one status per step (src/stepStatus.mjs),
       // and the refine gate's kept first look, for the refines in its line (src/refineGate.mjs `refineQueue`).
@@ -2722,12 +2766,13 @@ async function main(args) {
       wakes: wakeFacts(),
       hearing: hearing?.view(clock()) ?? null,
       // B934: the newest stalls of the board's own loop and calls (src/stalls.mjs), for the rule board-slow.
-      stalls: stalls.recent(),
+      // B1579: each loop stall with the rebuild part that held the loop then, by the rebuild marks (src/rebuildMarks.mjs `withHolds`).
+      stalls: withHolds(stalls.recent(), marks.recent()),
       // board-fast-answer: the day's work-call figures for the Supervisor's health line (src/workCalls.mjs).
       workCalls: workCalls.today(clock()),
       finishedSeen: finishedSeen ?? {},
-      // F42: a kept task without an estimate counts its step's size.
-      taskTimes: withStepSizes(taskTimes.tasks, raw.work?.items),
+      // F42: a kept task without an estimate counts its step's size (B1579: where the store is read, src/stateBuild.mjs).
+      taskTimes: taskTimes.tasks,
       // Stability numbers (2026-11-05, task 4): what the loop above last recorded; the demo shows made-up days.
       stability: isDemo ? demoStability(clock()) : keepStability?.latest() ?? null,
       // B547: the Workers mod each chat's last call said, so a clear owed is named only to a mod that can run it.
@@ -2741,10 +2786,11 @@ async function main(args) {
       noWorkSeen,
       now: built(clock()),
       config: { ...config, project },
-    }))().finally(() => {
+    }, mark))().finally(() => {
       buildJob.as(builder.lastWay() === 'loop' ? 'state build (loop)' : 'state build (thread)')
       buildJob()
     })
+    const afterFrom = performance.eventLoopUtilization()
     // Chat 1's check of the core review fixes: a slow build is awaited here, never answered with the kept state (a caller that may take
     // the kept state never waits for this read: keptState.mjs). A hang (stateThread.mjs LATE) fails this read, and the next is built
     // in the loop.
@@ -2763,10 +2809,21 @@ async function main(args) {
     const shownAside = []
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
     // B1535: what the slow work calls of the last 10 min waited on, the build's way and the PC's busiest programs (the rule board-slow).
-    const cause = tracer === null ? null : slowCause(tracer.lines(), { from: clock() - 10 * 60_000, pc: pcBusy.latest() })
-    return { ...state, slowCause: cause === null ? null : { ...cause, build: builder.lastWay() ?? 'thread' }, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
+    // B1579: and who held the loop in its stalls then (the rebuild part by its marks, or another job).
+    const cause = tracer === null ? null : slowCause(tracer.lines(), { from: clock() - 10 * 60_000, pc: pcBusy.latest(), stalls: withHolds(stalls.recent(), marks.recent()) })
+    const whole = { ...state, slowCause: cause === null ? null : { ...cause, build: builder.lastWay() ?? 'thread' }, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
       // T5.2 A7: the project keys config.json still holds while the project's settings file is in use (ignored: the amber line).
       settingsIgnored: isDemo || typeof config.settingsFile !== 'string' ? null : { file: basename(config.settingsFile), keys: config.settingsIgnored ?? [] }, check: checker?.view() ?? null, clicksUnsent: (await clicks.settle(one => movedOn(one, state, store.outbox()), clock()), await clicks.unsent()) }
+    mark.mark('after', performance.eventLoopUtilization(afterFrom).active)
+    return whole
+  }
+  const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {
+    const mark = marks.begin()
+    try {
+      return await rebuild(built, mark)
+    } finally {
+      mark.end()
+    }
   })), STATE_MS)
 
   // B185: what the workers' transcripts gained since the last look, read on from where it stopped; the past is read
@@ -3460,6 +3517,7 @@ async function main(args) {
     return { ok: true, result: shutdownView(shutdown) }
   }
   const server = createBoard({
+    stateSent: ms => marks.after('json', ms),
     token: pageToken,
     // B319: the demo is no project's.
     project: isDemo ? '' : home ?? '',
@@ -3512,7 +3570,7 @@ async function main(args) {
       // the supervisor's own view of this moment, so a card's "Not picked up" and rule 8's alarm read one function.
       const { waits, asOf: waitsAsOf } = await waitsNow(state, stored ?? (workDir === null ? undefined : await work()), supervised)
       // Light state (2026-10-31): the finished steps go light to the page (src/state.mjs lightState); `step` gives one whole.
-      return lightState({ ...state, advisor, talkPartner, waits, waitsAsOf, waitAgain: !isDemo && !isShowOnly && bridgeKey !== null, stuckTalks: stuckTalksOf({ state, outbox: store.outbox(), now: clock() }), forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), autopilotCleared: await autopilotClearedNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
+      return lightTimed({ ...state, advisor, talkPartner, waits, waitsAsOf, waitAgain: !isDemo && !isShowOnly && bridgeKey !== null, stuckTalks: stuckTalksOf({ state, outbox: store.outbox(), now: clock() }), forYou: oldMods === null ? state.forYou : [oldMods, ...(state.forYou ?? [])], design, bugs, goalsEdit, cpu: cpu?.view() ?? null, loops: { failing: loops.failing(), line: failingLine(loops.failing(), timeOf) }, supervisor: supervised ?? (isDemo ? demoSupervisor(clock(), SUPERVISOR_RULES, incidentCards) : null), boardSettings: boardSettingsNow(), obsolete: await obsoleteNow(state), autopilotCleared: await autopilotClearedNow(), version: { commit: running, since: startedAt, ...(await versionNow()), canRestart, selfUpdate: updateShown },
         // Signals change 1: the board's own clock, its work loop's last run, a restart on its way, and why it was off.
         board: boardView({ now: clock(), startedAt, aliveAt: store.aliveAt?.() ?? null, leaving, waiting: updateShown?.state === 'waiting' ? updateShown : null, lastStop: lastStopOf(store.startedGap ?? null, startedAt) }), mod: await modNow(),
         // Shut down: the shutdown on its way (`{ at, until, isNow }`), and whether this board can be shut down from the page.

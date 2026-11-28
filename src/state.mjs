@@ -3432,20 +3432,38 @@ function askedSteps(state) {
 /** The light backlog made of a backlog, kept by the backlog it was made of and the asked steps (a state is built every 2 s, sent at each page's refresh). */
 const lightKept = new WeakMap()
 
+/** The light backlog of `backlog` for the asked steps `asked` (their rows go whole). */
+const lightOf = (backlog, asked) => backlog.map(activity => (!Array.isArray(activity?.steps) ? activity
+  : { ...activity, steps: activity.steps.map(step => (isLightRow(step) && !asked.has(step.key) ? lightRow(step) : step)) }))
+
+/**
+ * B1579 (X93): the light backlog of a state as `lightState` makes it, `{ sign, backlog }` (`sign` the asked steps it was made for),
+ * made where the state is built (src/stateBuild.mjs, in the state thread), so /api/state hashes no finished step on the loop. Its
+ * open steps are the very rows of `state.backlog`, so the state's copy back carries them once. null for a state without a backlog.
+ */
+export function lightBacklogOf(state) {
+  if (state === null || typeof state !== 'object' || !Array.isArray(state.backlog)) return null
+  const asked = askedSteps(state)
+  return { sign: [...asked].sort().join(' '), backlog: lightOf(state.backlog, asked) }
+}
+
 /**
  * The state as `/api/state` sends it: each finished step of `backlog` a light row (`lightRow`), but the ones an ask
- * names; the rest of the state as it is. A state without a backlog is given back as it is.
+ * names; the rest of the state as it is. A state without a backlog is given back as it is. B1579: the light backlog the build
+ * made (`lightBacklog`, `lightBacklogOf`) is taken when it was made for the same asked steps; else (the fallback's state, an ask
+ * the page's state adds) it is made here, as before. `lightBacklog` itself never goes to the page.
  */
 export function lightState(state) {
-  if (state === null || typeof state !== 'object' || !Array.isArray(state.backlog)) return state
-  const asked = askedSteps(state)
+  if (state === null || typeof state !== 'object') return state
+  const { lightBacklog: made = null, ...rest } = state
+  if (!Array.isArray(rest.backlog)) return made === null ? state : rest
+  const asked = askedSteps(rest)
   const sign = [...asked].sort().join(' ')
-  const kept = lightKept.get(state.backlog)
-  if (kept !== undefined && kept.sign === sign) return { ...state, backlog: kept.backlog }
-  const backlog = state.backlog.map(activity => (!Array.isArray(activity?.steps) ? activity
-    : { ...activity, steps: activity.steps.map(step => (isLightRow(step) && !asked.has(step.key) ? lightRow(step) : step)) }))
-  lightKept.set(state.backlog, { sign, backlog })
-  return { ...state, backlog }
+  const kept = lightKept.get(rest.backlog)
+  if (kept !== undefined && kept.sign === sign) return { ...rest, backlog: kept.backlog }
+  const backlog = made !== null && made.sign === sign && Array.isArray(made.backlog) ? made.backlog : lightOf(rest.backlog, asked)
+  lightKept.set(rest.backlog, { sign, backlog })
+  return { ...rest, backlog }
 }
 
 /**

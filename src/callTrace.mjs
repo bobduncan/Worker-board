@@ -305,7 +305,7 @@ export function sharesOf(calls) {
  * percent: near 100 the board computed, low it waited on the PC or the disk), cpuMax (the PC's CPU share, the most then), loopMax (ms,
  * the loop's longest hold then), pc (`pcTop`'s reading of then, or null) }`; null with no slow call. PURE.
  */
-export function slowCause(lines, { from = -Infinity, overMs = SLOW_CALL_MS, pc = null } = {}) {
+export function slowCause(lines, { from = -Infinity, overMs = SLOW_CALL_MS, pc = null, stalls = [] } = {}) {
   const calls = slowCalls(Array.isArray(lines) ? lines : [], { overMs, from })
   if (calls.length === 0) return null
   const shares = sharesOf(calls)
@@ -319,7 +319,23 @@ export function slowCause(lines, { from = -Infinity, overMs = SLOW_CALL_MS, pc =
   }
   const first = calls[0].arrived
   const reading = pc !== null && typeof pc === 'object' && Number.isFinite(pc.at) && pc.at >= first - PC_TOP_EVERY_MS && Array.isArray(pc.top) ? pc : null
-  return { calls: calls.length, from: first, parts, boardShare, cpuMax: most('cpuMax'), loopMax: most('loopMax'), pc: reading }
+  return { calls: calls.length, from: first, parts, boardShare, cpuMax: most('cpuMax'), loopMax: most('loopMax'), pc: reading, holders: holdersOf(stalls, first) }
+}
+
+/**
+ * B1579 (X93): who held the loop in the loop stalls from `from` on (`stalls` with `held`, rebuildMarks.mjs `withHolds`):
+ * `[[holder, count]]`, most first, the holder a rebuild part ('sources', 'copyIn', ...) or, for a stall no part held, the stall's first
+ * other job ('job:<words>', or 'job:' when it names none). PURE.
+ */
+export function holdersOf(stalls, from = -Infinity) {
+  const counts = new Map()
+  for (const one of Array.isArray(stalls) ? stalls : []) {
+    if (one?.kind !== 'loop' || !Number.isFinite(one.at) || one.at < from) continue
+    const jobs = (Array.isArray(one.jobs) ? one.jobs : []).filter(job => typeof job === 'string' && !job.startsWith('state '))
+    const holder = typeof one.held?.part === 'string' ? one.held.part : `job:${jobs[0] ?? ''}`
+    counts.set(holder, (counts.get(holder) ?? 0) + 1)
+  }
+  return [...counts].sort((a, b) => b[1] - a[1])
 }
 
 /** B1535: how often the PC's busiest programs are looked up at most, and the gap between the two listings that time them. */

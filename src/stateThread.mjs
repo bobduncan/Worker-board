@@ -16,6 +16,7 @@
 // server than the one running (`mayStart` false: a landing or self-update before its restart), no new thread starts: it would load
 // the newer code; the builds are made in the loop until the restart.
 
+import { deserialize } from 'node:v8'
 import { Worker } from 'node:worker_threads'
 
 /**
@@ -53,11 +54,13 @@ export const MOST_FAILURES = 3
  * thread off for good (every build in the loop then). `failed(error)` is said once per spell of failures; `recovered()` once a new
  * thread builds again. `off()` why the thread is off for good (null while threads build), `lastWay()` where the newest build was
  * made ('thread' or 'loop'), `close()` ends the thread. A build over `limitMs` fails with LATE (see above); `mayStart()` false starts
- * no new thread. Ports for the tests: `start(file)` makes the thread, the timers, `soon`, `wall`.
+ * no new thread. Ports for the tests: `start(file)` makes the thread, the timers, `soon`, `wall`; `sent(raw)` is told what each build
+ * handed the thread (B1579: the tests' log). `build(raw, options, mark)`: `mark.mark(part, ms)` is told the loop's time of the copy in
+ * (`copyIn`), the state's copy back (`copyBack`) and a build in the loop (`build`), for the rebuild marks (src/rebuildMarks.mjs).
  */
 export function stateThread({
   inLoop, file = new URL('./stateWorker.mjs', import.meta.url), failed = () => {}, recovered = () => {}, offForGood = () => {},
-  mayStart = () => true, limitMs = BUILD_LIMIT_MS, start = url => new Worker(url), setTimer = setTimeout, clearTimer = clearTimeout,
+  mayStart = () => true, sent = null, limitMs = BUILD_LIMIT_MS, start = url => new Worker(url), setTimer = setTimeout, clearTimer = clearTimeout,
   soon = setImmediate, wall = Date.now,
 } = {}) {
   let worker = null
@@ -79,13 +82,18 @@ export function stateThread({
     }
   }
 
+  // B1579: the build in the loop may await (it reads the sources there too: src/stateBuild.mjs); its mark is the loop's busy time.
   const inLoopFor = (one, raw, options) => {
     way = 'loop'
+    const was = performance.eventLoopUtilization()
+    let made
     try {
-      one.resolve(inLoop(raw, options))
+      made = inLoop(raw, options)
     } catch (error) {
-      one.reject(error)
+      one.mark?.mark('build', performance.eventLoopUtilization(was).active)
+      return one.reject(error)
     }
+    Promise.resolve(made).then(one.resolve, one.reject).finally(() => one.mark?.mark('build', performance.eventLoopUtilization(was).active))
   }
 
   /**
@@ -142,6 +150,18 @@ export function stateThread({
         const error = new Error(String(message.error.message ?? 'the build failed'))
         if (typeof message.error.stack === 'string' && message.error.stack !== '') error.stack = message.error.stack
         one.reject(error)
+      } else if (message.bytes instanceof ArrayBuffer || ArrayBuffer.isView(message.bytes)) {
+        // B1579: the state comes back as its serialized bytes (moved, not copied), read here on the loop: the mark of its copy back.
+        const at = performance.now()
+        let state
+        try {
+          state = deserialize(Buffer.from(message.bytes instanceof ArrayBuffer ? message.bytes : message.bytes.buffer))
+        } catch (error) {
+          return one.reject(error)
+        } finally {
+          one.mark?.mark('copyBack', performance.now() - at)
+        }
+        one.resolve(state)
       } else one.resolve(message.state)
     })
     made.on('error', error => giveUp(error))
@@ -154,11 +174,11 @@ export function stateThread({
   }
 
   return {
-    async build(raw, options) {
+    async build(raw, options, mark = null) {
       // A newer server in the folder: no new thread (it would load the newer code); one that runs builds on. Asked before a start only.
       const startable = off !== null || loopNext || worker !== null ? true : await Promise.resolve().then(mayStart).catch(() => true)
       return new Promise((resolve, reject) => {
-        const one = { raw, options, resolve, reject, timer: null }
+        const one = { raw, options, resolve, reject, timer: null, mark }
         if (off !== null) return inLoopFor(one, raw, options)
         if (loopNext) {
           loopNext = false
@@ -187,8 +207,12 @@ export function stateThread({
           one.timer?.unref?.()
         }
         arm()
+        const at = performance.now()
         try {
           made.postMessage({ id, raw, options })
+          // B1579: the copy into the thread is made here, on the loop, in one block.
+          mark?.mark('copyIn', performance.now() - at)
+          if (sent !== null) say(sent, raw)
         } catch (error) {
           // A value the copy cannot take (DataCloneError): this build and every one after it in the loop.
           giveUp(error, { forGood: true })

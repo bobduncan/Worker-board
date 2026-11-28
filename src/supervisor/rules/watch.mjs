@@ -13,6 +13,7 @@
 // (what it sees now; the loop keeps those and forgets the rest). PURE.
 
 import { linkGoneNames, wordLanesOf } from '../../modGone.mjs'
+import { PART_WORDS as REBUILD_PART_WORDS } from '../../rebuildMarks.mjs'
 import { isCarryWord, plainWhy } from '../../wakeCarry.mjs'
 import { SIDE_WORD } from '../../work/sideWord.mjs'
 import { RETIRED_WATCH_RULES, givenBackFrom, goOnWaitMs, isGoOnWord } from '../../work/holderTimers.mjs'
@@ -1347,6 +1348,20 @@ function causeWords(cause) {
     + (Number.isFinite(cause.cpuMax) ? `; the PC's CPU up to ${cause.cpuMax}%` : '')
     + (cause.pc !== null && cause.pc !== undefined && cause.pc.top.length > 0 ? `; busiest at ${secondsOf(cause.pc.at)}: ${cause.pc.top.map(one => `${one.name} ${one.cores} cores`).join(', ')}` : '')
     + (cause.build === 'loop' ? '; the newest state was built in the loop (its thread failed)' : cause.build === 'thread' ? '; the state is built in its thread' : '')
+    + holderWords(cause.holders)
+}
+
+/**
+ * B1579 (X93): who held the loop in the loop stalls since the first slow call (callTrace.mjs `holdersOf`): a part of the state rebuild
+ * by its marks, or another job of the board (sync, self-update, accept-cards, check:<step>, ...).
+ */
+function holderWords(holders) {
+  if (!Array.isArray(holders) || holders.length === 0) return ''
+  const named = holders.map(([holder, count]) => {
+    const who = holder.startsWith('job:') ? (holder === 'job:' ? 'nothing named' : `the job ${holder.slice(4)}`) : `the state rebuild's ${REBUILD_PART_WORDS[holder] ?? holder}`
+    return `${who} ${count}`
+  })
+  return `; the loop stalls then were held by ${named.join(', ')}`
 }
 
 /** B742, B984: how long a worker may keep working after the board's week-stop word reached it before the rule opens. */

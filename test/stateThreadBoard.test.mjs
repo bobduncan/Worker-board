@@ -138,7 +138,48 @@ async function boardWith(t, env) {
 
   await until(async () => (await report('Digger', 'busy')).status === 200 && (await report('Delver', 'busy')).status === 200 && (await report('Lead', 'busy')).status === 200, 'every chat\'s report kept')
   await until(async () => (await work('Delver', { action: 'pause-state' }).done).status === 200, 'the board answers work calls')
-  return { board, work, report }
+  return { board, work, report, base }
+}
+
+/** B1579: the page's token the copy is started with (WORKER_BOARD_TOKEN), and its /api/state as the page reads it. */
+const TOKEN = 'b'.repeat(64)
+async function pageState(base) {
+  const res = await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': TOKEN } })
+  assert.equal(res.status, 200)
+  return res.json()
+}
+const titlesOf = state => (state.backlog ?? []).flatMap(activity => activity.steps ?? []).map(step => step.title ?? step.text ?? '')
+
+for (const way of ['thread', 'loop']) {
+  const said = way === 'thread'
+    ? 'B1579: the thread reads the sources itself: what goes in holds no store item nor chat file, and a write shows in the next state'
+    : 'B1579: the fallback (no thread) reads the sources in the loop, and a write shows in the next state'
+  test(said, { timeout: 400_000 }, async t => {
+    const sentLog = join(await mkdtemp(join(tmpdir(), 'board-sent-')), 'sent.jsonl')
+    t.after(() => rm(dirname(sentLog), { recursive: true, force: true }))
+    const { work, base } = await boardWith(t, { WORKER_BOARD_TOKEN: TOKEN, WORKER_BOARD_SENT_LOG: sentLog, ...(way === 'loop' ? { WORKER_BOARD_STATE_THREAD: 'off' } : {}) })
+    // The state built from the store as the build's own place read it: the store's step is there.
+    await until(async () => titlesOf(await pageState(base)).some(title => title.includes('Something else')), 'the store\'s step in the state')
+    // A write through the work tool: its reset makes the next state read the store anew, in the thread too: neither the thread's read of
+    // the store (kept 30 s) nor its shared listing (1.5 s, which the loop's write does not drop there) holds it back.
+    const made = await work('Lead', { action: 'new', title: 'Plant the marker bulbs by the gate', activity: 'Garden', text: 'MARKER-B1579 in the bed.' }).done
+    assert.equal(made.status, 200, JSON.stringify(made.body))
+    // The page may be answered from the kept state while the build after the write runs; within that build's time it shows.
+    const madeAt = Date.now()
+    while (!titlesOf(await pageState(base)).some(title => title.includes('Plant the marker bulbs'))) {
+      assert.ok(Date.now() - madeAt < 5_000, `the new step is not in the states 5 s after the write: ${JSON.stringify(titlesOf(await pageState(base)))}`)
+      await pause(100)
+    }
+    // What each build handed the thread: the loop's small facts, never the store's items, the chats' files or their transcripts; with no
+    // thread, nothing was handed (every build in the loop).
+    const sent = (await readFile(sentLog, 'utf8').catch(() => '')).split('\n').filter(Boolean)
+    if (way === 'loop') return assert.deepEqual(sent, [])
+    assert.ok(sent.length >= 2, `${sent.length} builds`)
+    for (const line of sent) {
+      assert.deepEqual(Object.keys(JSON.parse(line)), ['facts'])
+      for (const words of ['Something else', 'MARKER-B1579', 'Garden - Digger', 'On it.']) assert.ok(!line.includes(words), `the thread was handed ${words}: ${line.slice(0, 300)}`)
+    }
+  })
 }
 
 test('the 19:50 and 19:55 cases: while a build of 6 s runs in its thread, other calls are answered within 1 s and the loop stays free', { timeout: 400_000 }, async t => {

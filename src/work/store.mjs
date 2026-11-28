@@ -98,6 +98,17 @@ const sharedOf = (fs, dir) => {
   return byDir.get(key)
 }
 
+/**
+ * B1579 (X93): a write another thread of the board made in `dir` (the state thread reads the store in a thread of its own, where the
+ * loop's writes drop nothing): the shared listing and its stats go, so the next whole read lists and states the folder anew, and a
+ * read that ran meanwhile shares nothing. The parsed copies stay: each is taken again only while its file's stats are the same.
+ */
+export function forgetListing(dir, fs = files) {
+  const one = sharedOf(fs, dir)
+  one.listing = null
+  one.writes += 1
+}
+
 /** B741: the board's own write of an item file: its parsed copy goes, so the next read reads the file anew. */
 function forget(fs, file) {
   const name = file.split(/[\\/]/).at(-1)

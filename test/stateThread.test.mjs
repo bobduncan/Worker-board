@@ -11,7 +11,10 @@ import { pathToFileURL } from 'node:url'
 import { Worker } from 'node:worker_threads'
 
 import { parseConfig } from '../src/config.mjs'
+import { deserialize } from 'node:v8'
+
 import { buildState } from '../src/state.mjs'
+import { withLight } from '../src/stateBuild.mjs'
 import { holdBuild, LATE, MOST_FAILURES, stateThread } from '../src/stateThread.mjs'
 import { answer } from '../src/stateWorker.mjs'
 
@@ -50,7 +53,9 @@ test('the thread builds the same state as the loop does, and an error of the bui
   const builder = stateThread({ inLoop: (raw, options) => buildState(raw, options), failed: error => failed.push(error) })
   t.after(() => builder.close())
   const built = await builder.build(RAW, OPTIONS)
-  assert.deepEqual(built, buildState(RAW, OPTIONS))
+  // B1579: with the light backlog made beside it, in the thread.
+  assert.deepEqual(built, withLight(buildState(RAW, OPTIONS)))
+  assert.deepEqual(built.lightBacklog, { sign: '', backlog: [] })
   assert.deepEqual(built.chats.map(chat => chat.name), ['Lead', 'Digger'])
   // A raw the build throws on (no config): the read fails as it did in the loop; the thread stays on, nothing is said.
   await assert.rejects(builder.build(RAW, { now: NOW }), error => error instanceof Error && error.message !== '')
@@ -171,16 +176,25 @@ test('chat 1\'s core review: while the folder holds a newer server, no new threa
   assert.deepEqual([await builder.build({ n: 3 }, {}), starts], [{ n: 3 }, 1])
 })
 
-test('chat 1\'s core review: the thread\'s own answer: a state it cannot send back is said as a copy failure, a build error as the read\'s', () => {
+test('chat 1\'s core review: the thread\'s own answer: a state it cannot send back is said as a copy failure, a build error as the read\'s', async () => {
   const sent = []
   const cannot = Object.assign(new Error('() => 1 could not be cloned.'), { name: 'DataCloneError' })
-  answer({ id: 7, raw: {}, options: {} }, { build: () => ({ fn: () => 1 }), hold: () => {}, post: one => { if (one.state !== undefined) throw cannot; sent.push(one) } })
+  await answer({ id: 7, raw: {}, options: {} }, { build: () => ({ a: 1 }), hold: () => {}, post: one => { if (one.bytes !== undefined) throw cannot; sent.push(one) } })
   assert.deepEqual(sent.map(one => [one.id, one.copyFailed === true, one.error.message]), [[7, true, '() => 1 could not be cloned.']])
   sent.length = 0
-  answer({ id: 8, raw: {}, options: {} }, { build: () => { throw new Error('no config') }, hold: () => {}, post: one => sent.push(one) })
+  // B1579: a state its serializer cannot take (a function) is a copy failure too.
+  await answer({ id: 6, raw: {}, options: {} }, { build: () => ({ fn: () => 1 }), hold: () => {}, post: one => sent.push(one) })
+  assert.deepEqual(sent.map(one => [one.id, one.copyFailed === true]), [[6, true]])
+  sent.length = 0
+  await answer({ id: 8, raw: {}, options: {} }, { build: () => { throw new Error('no config') }, hold: () => {}, post: one => sent.push(one) })
   assert.deepEqual(sent.map(one => [one.id, one.copyFailed === true, one.error.message]), [[8, false, 'no config']])
-  answer({ id: 9, raw: { a: 1 }, options: {} }, { build: raw => raw, hold: () => {}, post: one => sent.push(one) })
-  assert.deepEqual(sent.at(-1), { id: 9, state: { a: 1 } })
+  // B1579: the state goes back as its bytes, the buffer moved (named in the transfer list), read back whole.
+  const moved = []
+  await answer({ id: 9, raw: { a: 1 }, options: {} }, { build: raw => raw, hold: () => {}, post: (one, list) => { sent.push(one); moved.push(list) } })
+  assert.equal(sent.at(-1).id, 9)
+  assert.ok(sent.at(-1).bytes instanceof ArrayBuffer)
+  assert.deepEqual(moved.at(-1), [sent.at(-1).bytes])
+  assert.deepEqual(deserialize(Buffer.from(sent.at(-1).bytes)), { a: 1 })
 })
 
 test('lens 1: a thread that ended once is replaced, the board builds in its thread again and says the spell is over', { timeout: 60_000 }, async t => {

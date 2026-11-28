@@ -3,6 +3,8 @@
 // B1049 part 2 (2026-11-05): a stall that is a sleep of the PC (the live log held 8.5 h "the loop blocked" from the night)
 // is `kind: 'sleep'`: kept and shown in plain words, never counted as a slow board.
 
+import { PART_WORDS } from './rebuildMarks.mjs'
+
 /** How many requests and jobs one stall names. */
 export const MOST_NAMED = 8
 /** A stall longer than this is a sleep of the PC, never a slow board (also in an entry written before sleeps had a kind). */
@@ -19,7 +21,9 @@ export function stallOf(one) {
   // A sleep names no request or job: none of them was slow.
   if (isSleep(one)) return { at: one.at, ms: one.ms, kind: 'sleep', requests: [], jobs: [] }
   const names = list => (Array.isArray(list) ? list.filter(words => typeof words === 'string' && words !== '').slice(0, MOST_NAMED) : [])
-  return { at: one.at, ms: one.ms, kind: one.kind, ...(typeof one.call === 'string' ? { call: one.call } : {}), requests: names(one.requests), jobs: names(one.jobs) }
+  // B1579: the rebuild part that held the loop (rebuildMarks.mjs `heldBy`), when the marks name one.
+  const held = one.kind === 'loop' && typeof one.held?.part === 'string' && Number.isFinite(one.held?.ms) ? { held: { part: one.held.part, ms: one.held.ms } } : {}
+  return { at: one.at, ms: one.ms, kind: one.kind, ...(typeof one.call === 'string' ? { call: one.call } : {}), requests: names(one.requests), jobs: names(one.jobs), ...held }
 }
 
 /** A length of time in plain words: `8.5 h`, `11 min`, `12.6 s`. */
@@ -32,6 +36,8 @@ export function stallWords(stall, clockOf) {
     stall.kind === 'call' ? `call ${stall.call}` : null,
     stall.requests.length > 0 ? `requests: ${stall.requests.join(', ')}` : null,
     stall.jobs.length > 0 ? `jobs: ${stall.jobs.join(', ')}` : null,
+    // B1579: the rebuild part that held the loop, by the rebuild marks; a loop stall without one was held by another job.
+    stall.kind === 'loop' && stall.held !== undefined && stall.held !== null ? `held by the state rebuild's ${PART_WORDS[stall.held.part] ?? stall.held.part} ${(stall.held.ms / 1000).toFixed(1)} s` : null,
   ].filter(Boolean)
   return `${clockOf(stall.at)} ${(stall.ms / 1000).toFixed(1)} s ${stall.kind === 'loop' ? 'the loop blocked' : 'a call waited'}${what.length === 0 ? ', nothing named' : ` (${what.join('; ')})`}`
 }
