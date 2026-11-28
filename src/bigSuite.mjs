@@ -6,6 +6,8 @@
 // rules (S3): it is alive past its age while its run waits in the idle room or holds a slot, and it renews its file before each phase.
 // B1573 (X264): a run tests main's newest commit at the moment it takes its slot, not the one it queued at (an idle run may wait
 // hours), and every result here names that tested commit.
+// B1575: a stalled run's record keeps the files it left open apart (`stalled`: never rerun alone), and its fix step says per file
+// whether it was rerun.
 
 import { readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -94,12 +96,12 @@ export function labelFor({ results, now }) {
 
 /**
  * The results after a run (`outcome` passed, failed or could not run; `failed` the files that failed again alone, `flaky` the ones that
- * passed alone). A red run puts its failing files on probation and starts every probation count anew (two green runs IN A ROW); each
+ * passed alone, `stalled` the ones a stalled run left open, also in `failed`, never rerun: B1575). A red run puts its failing files on probation and starts every probation count anew (two green runs IN A ROW); each
  * green run counts one for every file there, and a file leaves after PROBATION_GREENS of them. A run that could not run keeps the last
  * result and says so (`couldNotRun`). PURE.
  */
 export function recordRun(results, run) {
-  const entry = { commit: run.commit, outcome: run.outcome, at: run.at, seconds: run.seconds, failed: run.failed ?? [], flaky: run.flaky ?? [], why: run.why ?? null, label: run.label ?? null }
+  const entry = { commit: run.commit, outcome: run.outcome, at: run.at, seconds: run.seconds, failed: run.failed ?? [], flaky: run.flaky ?? [], stalled: run.stalled ?? [], why: run.why ?? null, label: run.label ?? null }
   const lastStart = run.at
   // Core review: the could-not-runs in a row (a suite that never finishes never turns red: the board files a step after 3).
   if (run.outcome === 'could not run') return { ...results, lastStart, lastTry: entry, couldNotRun: entry, notRunInRow: (results.notRunInRow ?? 0) + 1, notRunSince: results.notRunSince ?? run.at }
@@ -154,11 +156,23 @@ export function fixStepOf({ run, lastGreen, goLives, log }) {
   const names = goLives.slice(-GO_LIVES_NAMED).map(one => `${one.branch} (${one.by}, ${short(one.after)})`)
   const more = goLives.length > GO_LIVES_NAMED ? ` (and ${goLives.length - GO_LIVES_NAMED} older)` : ''
   const since = lastGreen ? `since the last green run (${short(lastGreen)})` : 'with no green run before it'
+  // B1575: a file a stalled run left open was never rerun alone; say so per file (the line once claimed every file was rerun).
+  const stalled = run.failed.filter(file => (run.stalled ?? []).includes(file))
+  const alone = run.failed.filter(file => !stalled.includes(file))
+  // A stall's why is gatePassed's "the test run stalled (...)" (chat 1's nit: say so also when it named no open file).
+  const stalledRun = stalled.length > 0 || /^the test run stalled/.test(run.why ?? '')
+  const how = stalledRun && stalled.length === 0
+    ? (alone.length === 0 ? 'in a run that stalled with no open file named (see the log)' : 'in a run that stalled with no open file named; the files named failed again when run alone')
+    : stalled.length === 0
+    ? 'and each failing file failed again when run alone'
+    : alone.length === 0 ? 'in a run that stalled: the files it left open were not rerun' : 'in a run that stalled: the files it left open were not rerun, the others failed again when run alone'
   return {
     title: `Big suite red on main at ${short(run.commit)}: ${run.failed.length} test file(s) fail`,
     text: [
-      `Description: the big suite (every test file, S9) failed on main at ${short(run.commit)}, and each failing file failed again when run alone. A go-live's light check may have left a slow one of them out.`,
+      `Description: the big suite (every test file, S9) failed on main at ${short(run.commit)}, ${how}. A go-live's light check may have left a slow one of them out.`,
       `Failing files: ${run.failed.length > 0 ? run.failed.join(', ') : 'none named (see the log)'}.`,
+      ...(stalled.length > 0 ? [`Left open in a stalled run (not rerun): ${stalled.join(', ')}.`] : []),
+      ...(stalled.length > 0 && alone.length > 0 ? [`Failed again when run alone: ${alone.join(', ')}.`] : []),
       ...(run.flaky?.length > 0 ? [`Passed alone (not counted): ${run.flaky.join(', ')}.`] : []),
       `Go-lives ${since}: ${names.length > 0 ? names.join('; ') + more : 'none found'}.`,
       'Each failing file runs in every light check until two green big runs in a row (probation).',
