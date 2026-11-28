@@ -11,7 +11,7 @@ import test from 'node:test'
 
 import { workApi } from '../../src/work/api.mjs'
 import { queueFor } from '../queueFor.mjs'
-import { checkedBy } from '../qaKit.mjs'
+import { checkedBy, ticks } from '../qaKit.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { informationOf } from '../../src/work/lists.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
@@ -52,7 +52,7 @@ async function reported(one) {
   const id = made.result.id
   assert.equal((await queueFor(one.dir, id, 'Lamplighter', { now: NOW })).ok, true)
   assert.equal((await one.lamplighter({ action: 'take', minutes: 30, id, branch: 'b2-lamps' })).ok, true)
-  assert.equal((await one.lamplighter({ action: 'report', id, result: SAID, merged: 'c0ffee1' })).ok, true)
+  assert.equal((await one.lamplighter({ action: 'report', id, result: SAID, merged: 'c0ffee1', points: await ticks(one, id) })).ok, true)
   assert.equal((await one.server({ action: 'check', id, passed: true, lines: ['branch gone'] })).ok, true)
   return id
 }
@@ -96,7 +96,7 @@ test('a failed check gives no recap; the step it fixes gets one once its fix is 
     assert.deepEqual(await recapNotes(one.dir), [])
     await queueFor(one.dir, fixId, 'Lamplighter', { now: NOW })
     await one.lamplighter({ action: 'take', minutes: 30, id: fixId, branch: 'b-fix-lamps' })
-    await one.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
+    await one.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123', points: await ticks(one, fixId) })
     await one.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
     assert.equal((await one.checks({ ...PASSED, id: fixId, evidence: 'pictures/fix/evidence.png', points: ['pass: two are warm now', 'pass: warm yellow light, never white'] })).ok, true)
     const notes = await recapNotes(one.dir)
@@ -263,7 +263,7 @@ test('the review: when the board\'s own check passes after the result check, the
     const qa = (await one.server({ action: 'qa-task', id })).result.id
     await queueFor(one.dir, qa, 'Checker', { now: NOW })
     assert.equal((await one.checker({ action: 'take', minutes: 30, id: qa })).ok, true)
-    assert.equal((await one.lamplighter({ action: 'report', id, result: SAID, merged: 'c0ffee2' })).ok, true)
+    assert.equal((await one.lamplighter({ action: 'report', id, result: SAID, merged: 'c0ffee2', points: await ticks(one, id) })).ok, true)
     await one.server({ action: 'check', id, passed: false, lines: ['the branch b2-lamps is still there'] })
     assert.equal((await one.checker({ ...PASSED, id })).ok, true)
     assert.deepEqual(await recapNotes(one.dir), [])

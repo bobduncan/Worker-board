@@ -8,7 +8,7 @@ import test from 'node:test'
 
 import { valueOf } from '../../src/work/item.mjs'
 import { queueFor } from '../queueFor.mjs'
-import { NOW, fileCheck, fresh, item, items, openQa, remove, reported } from '../qaKit.mjs'
+import { NOW, fileCheck, fresh, item, items, openQa, remove, reported, ticks } from '../qaKit.mjs'
 
 const qaTasksOf = async (dir, id) => [...(await items(dir)).values()].filter(one => valueOf(one, 'Checks') === id)
 
@@ -83,7 +83,7 @@ test('a fix whose check passes and leaves the step it fixes in review (a point f
     const fixId = checked.result.fix
     assert.equal(await queueFor(store.dir, fixId, 'Lamplighter', { now: NOW + 60_000 }).then(() => true), true)
     await store.lamplighter({ action: 'take', minutes: 30, id: fixId, branch: 'b-fix-lamps' })
-    await store.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
+    await store.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123', points: await ticks(store, fixId) })
     const fixChecked = await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
     // The fix has points of its own, so it waits for its own check first.
     const [fixQa] = await qaTasksOf(store.dir, fixId)

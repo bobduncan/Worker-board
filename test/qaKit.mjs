@@ -11,6 +11,7 @@ import { workApi } from '../src/work/api.mjs'
 import { valueOf } from '../src/work/item.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { openQaTaskOf } from '../src/work/qaTask.mjs'
+import { owedPoints } from '../src/work/resultCheck.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 import { queueFor } from './queueFor.mjs'
 
@@ -36,6 +37,11 @@ export async function fresh(more = {}) {
 }
 export const item = async (dir, id) => (await readStore(dir)).items.get(id)
 export const items = async dir => (await readStore(dir)).items
+/** The points a report of step `id` ticks: "pass: <point>" for each agreed point of it (a fix: its fail texts and "Makes pass" lines). */
+export async function ticks(store, id) {
+  const points = owedPoints(await item(store.dir, id)).map(one => `pass: ${one}`)
+  return points.length === 0 ? ['pass: done'] : points
+}
 export const remove = dir => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
 /** A step made by the partner, given to the builder, taken, reported, and its board check run: passed, or failed. */
@@ -45,7 +51,7 @@ export async function reported(store, { gitPassed = true, lamp = LAMP, builder =
   const id = made.result.id
   assert.equal((await queueFor(store.dir, id, owner, { now: NOW + 60_000 })).ok, true)
   assert.equal((await store[builder]({ action: 'take', minutes: 30, id, branch: 'b-lamps' })).ok, true)
-  assert.equal((await store[builder]({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })).ok, true)
+  assert.equal((await store[builder]({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] })).ok, true)
   const git = await store.server({ action: 'check', id, passed: gitPassed, lines: gitPassed ? ['work in garden', 'branch gone', 'result named'] : ['the branch b-lamps is still there'], ...(warnings.length === 0 ? {} : { warnings }) })
   return { id, git }
 }

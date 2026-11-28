@@ -235,7 +235,8 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
   one line) and `minutes` (the minutes still expected for the whole step: your row counts down from it, "about 1 h 06 left ·
   re-estimated 19:46"; without it the answer asks, and past your estimate the answer of your next `work step` asks once for a
   fresh one, eta-remaining 2026-11-11; on a step in review that the check handed back to you, minutes are left out); after a restart you go on from it (below, "A pause of all chats"). When the work is
-  merged and its worktree removed: `work report B<id>` with what the user gets and the commit; the board checks the
+  merged and its worktree removed: `work report B<id>` with what the user gets and the commit, and on a step with agreed points or a
+  Standard line your self-check (below, "Before you report: the self-check"); the board checks the
   merge itself, and that no worktree of the step is left. The board checks the work, not the wording (the user,
   2026-10-25): it sends a report back only for a fact (a base branch that differs from its remote, a branch or worktree
   left, no result, no file that is there for an outside-git step, work that sits in a repository reported as outside git).
@@ -260,6 +261,18 @@ their words (*What is wrong*, *What was expected*, *Where*) and their screenshot
   file says who moves a step and when; the board refuses a move it does not allow and says why.
 - `npm test` (2026-11-11) runs at low priority on half the PC's cores and waits its turn: one heavy run at a time on the
   PC, across every chat and landing. A "waiting for ..." line is that queue: let it wait, never start a second run.
+- Before you report: the self-check (P1, the delivery review's proposal 1, 2026-11-28: a third of the steps failed their first result
+  check, mostly near misses; those took seven times as long). On a step with agreed points ("What we build") or a Standard line that is
+  not "none", check your own result the way the checker will ("A Quality Assurance task", step 2): look at the result as the user
+  would (the game at that place, the Play link you give, the page, the merged change), tick every agreed point, and score it against
+  the kind's definition of done where that has a rubric (the judges' middle score); a look point against its reference picture,
+  never on substance. A near miss is fixed in this step first, then you report. `work report` carries it: `points` (every agreed
+  point but the Not in it lines, each `pass: <point>`, `fail: <point>` or `ask: <point>` for a point only the person can judge; a
+  fix: every fail text and every `Makes pass` line), `score` ("70 of 75") and, at will, `evidence` (your after picture's path). The
+  board refuses a report without `points` on such a step and lists the points to tick; it keeps your self-check on the step
+  (`## Self-check`, one History line) and takes a self-check that fails a point or scores under the target, saying back what
+  the check will do: fix it now and report again (a report again replaces it). The independent result check still decides;
+  your self-check is no evidence for the checker, who ticks every point itself.
 - Tests bite (B527): when your change touches a test file, make the mutant before you report: in a scratch copy
   (never on your branch), undo the fix, run the new tests, see which assertion fails, then delete the copy. Your
   report's result then holds one line `Tests bite: <what was undone in a copy> → <the assertion that
@@ -353,7 +366,8 @@ on Opus (the task's Model and Effort lines); it switches your model and effort f
    fails, delete the copy), and keep what you found in the check's evidence. A test that still passes without the fix is a
    `fail:` point ("tests do not bite: <what was undone>"), which makes the fix step as any failed point. A report that names its
    `Tests bite:` mutant needs no demand: you may repeat it.
-2. Check it yourself (start no helper chat for it): look at the result as the user would (the game at that place, the page, the
+2. Check it yourself (start no helper chat for it; the builder's self-check on the step, `## Self-check`, is no evidence: tick every
+   point yourself): look at the result as the user would (the game at that place, the page, the
    merged change), tick every agreed point `pass`, `fail` or `ask` (ask: a look only the user can judge), and score it against
    the kind's definition of done where that has a rubric (the judges' middle score). A look point (what the player sees) is
    ticked against its reference picture, never "on substance" (B451): when the result differs from the reference, the point is a

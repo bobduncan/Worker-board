@@ -11,7 +11,7 @@ import { openNaming, renamedItem } from '../../src/work/names.mjs'
 import { barredFrom, buildersWithFixes, fixChainOf } from '../../src/work/qaTask.mjs'
 import { readItemFile, writeItem } from '../../src/work/store.mjs'
 import { queueFor } from '../queueFor.mjs'
-import { NOW, fileCheck, fresh, item, items, qaOf, remove, reported, takeQa } from '../qaKit.mjs'
+import { NOW, fileCheck, fresh, item, items, qaOf, remove, reported, takeQa, ticks } from '../qaKit.mjs'
 
 const MIN = 60_000
 
@@ -27,7 +27,7 @@ async function secondRound(store) {
   const fix = filed.result.fix
   await queueFor(store.dir, fix, 'Spare', { now: NOW + 60_000 })
   assert.equal((await store.spare({ action: 'take', minutes: 30, id: fix, branch: 'b-fix-lamps' })).ok, true)
-  assert.equal((await store.spare({ action: 'report', id: fix, result: 'Every bench has a lamp.', merged: 'beef123' })).ok, true)
+  assert.equal((await store.spare({ action: 'report', id: fix, result: 'Every bench has a lamp.', merged: 'beef123', points: await ticks(store, fix) })).ok, true)
   const git = await store.server({ action: 'check', id: fix, passed: true, lines: ['branch gone'] })
   assert.equal(git.ok, true, git.why)
   await takeQa(store, git.result.qa)

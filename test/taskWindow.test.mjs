@@ -18,7 +18,7 @@ import { checkedOf, parsePoints, triesOf } from '../src/work/resultCheck.mjs'
 import { checkLinesWarning } from '../src/work/recapWords.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 import { queueFor } from './queueFor.mjs'
-import { checkedBy } from './qaKit.mjs'
+import { checkedBy, ticks } from './qaKit.mjs'
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'public')
 const script = await readFile(join(PUBLIC, 'board.js'), 'utf8')
@@ -83,7 +83,7 @@ test('the work store gives a step its tries and its standard, and "checked" file
   assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id: 'B1', what: ['the lava moves', 'the painting sits on the layout'] })).ok, true)
   assert.equal((await queueFor(dir, 'B1', 'Painter', { now: at + 60_000 })).ok, true)
   assert.equal((await as('Painter')({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-lava' })).ok, true)
-  assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Done.', merged: 'c0ffee1' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Done.', merged: 'c0ffee1', points: await ticks({ dir }, 'B1') })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   const checked = await checkedAs('B1', {
     evidence: 'none (nothing on screen)',
@@ -349,7 +349,7 @@ test('a failed check\'s plain lines are checked when it is filed: missing, or wi
     assert.equal((await as('Partner')({ action: 'refined', size: '30 min', id, what: ['it works'] })).ok, true)
     assert.equal((await queueFor(dir, id, 'Painter', { now: at + 60_000 })).ok, true)
     assert.equal((await as('Painter')({ action: 'take', minutes: 30, id, branch: `${id.toLowerCase()}-x` })).ok, true)
-    assert.equal((await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1' })).ok, true)
+    assert.equal((await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1', points: await ticks({ dir }, id) })).ok, true)
     assert.equal((await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   }
   const file = (id, points) => checkedAs(id, { evidence: 'none (x)', points })

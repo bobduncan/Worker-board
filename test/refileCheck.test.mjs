@@ -12,7 +12,7 @@ import test from 'node:test'
 
 import { workApi } from '../src/work/api.mjs'
 import { queueFor } from './queueFor.mjs'
-import { checkedBy } from './qaKit.mjs'
+import { checkedBy, ticks } from './qaKit.mjs'
 import { valueOf } from '../src/work/item.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { answerReading } from '../src/work/resultCheck.mjs'
@@ -36,7 +36,7 @@ async function waiting() {
   const id = made.result.id
   assert.equal((await queueFor(dir, id, 'Lamplighter', { now: clock })).ok, true)
   assert.equal((await store.lamplighter({ action: 'take', minutes: 30, id, branch: 'b3-lamps' })).ok, true)
-  assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every bench has a lamp.', merged: 'c0ffee1' })).ok, true)
+  assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every bench has a lamp.', merged: 'c0ffee1', points: await ticks(store, id) })).ok, true)
   assert.equal((await store.server({ action: 'check', id, passed: true, lines: ['branch gone'] })).ok, true)
   const checked = await checkedBy({ as, server, dir, now: clock }, id, { evidence: 'pictures/b3/evidence.png', points: ['pass: a lamp at every bench', 'ask: the glow feels warm'] })
   assert.equal(checked.ok, true, checked.why)

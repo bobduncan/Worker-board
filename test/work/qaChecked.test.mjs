@@ -8,7 +8,7 @@ import test from 'node:test'
 import { valueOf } from '../../src/work/item.mjs'
 import { openQaTaskOf } from '../../src/work/qaTask.mjs'
 import { queueFor } from '../queueFor.mjs'
-import { NOW, fileCheck, fresh, item, items, openQa, qaOf, remove, reported, takeQa } from '../qaKit.mjs'
+import { NOW, fileCheck, fresh, item, items, openQa, qaOf, remove, reported, takeQa, ticks } from '../qaKit.mjs'
 
 const POINTS = ['pass: a lamp at every bench', 'pass: warm yellow light, never white']
 const CHECK = { evidence: 'pictures/b2/evidence.png', points: POINTS, score: '82 of 75' }
@@ -117,7 +117,7 @@ test('a failed point still makes the fix step and still ends the QA task; the fi
     // The builder fixes it; its board check passes; the fix waits for its own check: a new QA task, for the fix.
     await queueFor(store.dir, fixId, 'Lamplighter', { now: NOW + 60_000 })
     await store.lamplighter({ action: 'take', minutes: 30, id: fixId, branch: 'b-fix-lamps' })
-    await store.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123' })
+    await store.lamplighter({ action: 'report', id: fixId, result: 'All lamps are warm yellow.', merged: 'beef123', points: await ticks(store, fixId) })
     const git = await store.server({ action: 'check', id: fixId, passed: true, lines: ['branch gone'] })
     const fixQa = await item(store.dir, git.result.qa)
     assert.equal(valueOf(fixQa, 'Checks'), fixId)

@@ -18,7 +18,7 @@ import { ANOTHER_WAY, chainTries, noTriedBefore, triedBeforeWanted } from '../..
 import { migrateBacklog, stamp } from '../../src/work/migrate.mjs'
 import { readStore, writeStore } from '../../src/work/store.mjs'
 import { queueFor } from '../queueFor.mjs'
-import { checkedBy } from '../qaKit.mjs'
+import { checkedBy, ticks } from '../qaKit.mjs'
 
 const MIN = 60_000
 const NOW = new Date(2026, 9, 25, 22, 36).getTime()
@@ -68,7 +68,7 @@ async function board(t) {
   const toReview = async (id, branch) => {
     assert.equal((await queueFor(dir, id, 'Painter', { now: at + MIN })).ok, true)
     assert.equal((await as('Painter')({ action: 'take', minutes: 30, id, branch })).ok, true)
-    const reported = await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1' })
+    const reported = await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1', points: await ticks({ dir }, id) })
     assert.equal(reported.ok, true, reported.why)
     assert.equal((await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   }

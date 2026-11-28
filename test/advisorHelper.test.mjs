@@ -20,6 +20,7 @@ import { checkSay } from '../src/say.mjs'
 import { buildState } from '../src/state.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { queueFor } from './queueFor.mjs'
+import { ticks } from './qaKit.mjs'
 import { valueOf } from '../src/work/item.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
@@ -154,7 +155,7 @@ test('the helper no longer files a result check (a worker\'s QA task is the way)
     const id = made.result.id
     assert.equal((await queueFor(store.dir, id, 'Lamplighter', { now: STAMP + MIN })).ok, true)
     assert.equal((await store.lamplighter({ action: 'take', minutes: 30, id, branch: 'b3-lamps' })).ok, true)
-    assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every bench has a lamp.', merged: 'c0ffee1' })).ok, true)
+    assert.equal((await store.lamplighter({ action: 'report', id, result: 'Every bench has a lamp.', merged: 'c0ffee1', points: await ticks(store, id) })).ok, true)
     assert.equal((await store.server({ action: 'check', id, passed: true, lines: ['branch gone'] })).ok, true)
     const checked = await store.second({ action: 'checked', size: '30 min', id, evidence: 'pictures/b3/evidence.png', points: ['pass: a lamp at every bench'] })
     assert.deepEqual([checked.ok, checked.status], [false, 403])

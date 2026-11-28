@@ -17,7 +17,7 @@ import { GUARD_ATTEMPTS, GUARD_NO_PROGRESS, evaluateWords, evaluationState, eval
 import { parseConfig } from '../src/config.mjs'
 import { workApi } from '../src/work/api.mjs'
 import { queueFor } from './queueFor.mjs'
-import { checkedBy } from './qaKit.mjs'
+import { checkedBy, ticks } from './qaKit.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
 
@@ -465,7 +465,7 @@ test('B525: a step already on sonnet and medium keeps sonnet but is lifted to ef
   // The failed result check of B1, still on sonnet, makes a fix step that runs on sonnet and effort high.
   assert.equal((await queueFor(dir, 'B1', 'Painter', { now: at + 60_000 })).ok, true)
   assert.equal((await as('Painter')({ action: 'take', minutes: 30, id: 'B1', branch: 'b1-tiles' })).ok, true)
-  assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Four tiles.', merged: 'c0ffee1' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'report', id: 'B1', result: 'Four tiles.', merged: 'c0ffee1', points: await ticks({ dir }, 'B1') })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B1', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   const checked = await checkedAs('B1', { evidence: 'none (x)', points: ['fail: the tiles do not read'] })
   assert.equal(checked.ok, true, checked.why)
@@ -475,7 +475,7 @@ test('B525: a step already on sonnet and medium keeps sonnet but is lifted to ef
   // A goal that is not in evaluation: the fix step of its failed check keeps the step's sonnet and medium.
   assert.equal((await queueFor(dir, 'B4', 'Painter', { now: at + 60_000 })).ok, true)
   assert.equal((await as('Painter')({ action: 'take', minutes: 30, id: 'B4', branch: 'b4-lantern' })).ok, true)
-  assert.equal((await as('Painter')({ action: 'report', id: 'B4', result: 'A lantern.', merged: 'c0ffee2' })).ok, true)
+  assert.equal((await as('Painter')({ action: 'report', id: 'B4', result: 'A lantern.', merged: 'c0ffee2', points: await ticks({ dir }, 'B4') })).ok, true)
   assert.equal((await workApi({ action: 'check', id: 'B4', passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   const calmChecked = await checkedAs('B4', { evidence: 'none (x)', points: ['fail: the lantern is dark'] })
   assert.equal(calmChecked.ok, true, calmChecked.why)

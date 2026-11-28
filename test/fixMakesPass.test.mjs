@@ -9,7 +9,7 @@ import test from 'node:test'
 
 import { workApi } from '../src/work/api.mjs'
 import { queueFor } from './queueFor.mjs'
-import { checkedBy } from './qaKit.mjs'
+import { checkedBy, ticks } from './qaKit.mjs'
 import { migrateBacklog } from '../src/work/migrate.mjs'
 import { agreedPoints, parentPointsOf } from '../src/work/resultCheck.mjs'
 import { readStore, writeStore } from '../src/work/store.mjs'
@@ -33,7 +33,7 @@ async function board() {
     // Redesign Part 2: the board gives it to the worker (a fix step too: it is on the list, a follow-up of its builder).
     assert.equal((await queueFor(dir, id, 'Painter', { now: at + 60_000 })).ok, true)
     assert.equal((await as('Painter')({ action: 'take', minutes: 30, id, branch })).ok, true)
-    const reported = await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1' })
+    const reported = await as('Painter')({ action: 'report', id, result: 'Done.', merged: 'c0ffee1', points: await ticks({ dir }, id) })
     assert.equal(reported.ok, true, reported.why)
     assert.equal((await workApi({ action: 'check', id, passed: true, lines: ['branch gone'] }, { ...ctx, as: 'server' })).ok, true)
   }

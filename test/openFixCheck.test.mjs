@@ -15,7 +15,7 @@ import { stamp } from '../src/work/migrate.mjs'
 import { notDueWhy } from '../src/work/qaTask.mjs'
 import { openFixesOf, reviewWaitOf } from '../src/work/resultCheck.mjs'
 import { appendHistory, writeItem } from '../src/work/store.mjs'
-import { NOW, fileCheck, fresh, item, items, openQa, remove, reported } from './qaKit.mjs'
+import { NOW, fileCheck, fresh, item, items, openQa, remove, reported, ticks } from './qaKit.mjs'
 
 const MIN = 60_000
 const AT = new Date(2026, 10, 9, 10, 50).getTime()
@@ -100,7 +100,7 @@ test('a report again of a step whose board check passed and whose fix is open is
   const { store, id, fix } = await withOpenFix()
   try {
     const before = (await item(store.dir, id)).sections.get('History').length
-    const again = await store.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp now.', merged: 'c0ffee2' })
+    const again = await store.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp now.', merged: 'c0ffee2', points: await ticks(store, id) })
     assert.equal(again.ok, false)
     assert.equal(again.status, 409)
     assert.match(again.why, new RegExp(`^${id} waits for its fix ${fix}: do not report ${id} again; it closes by itself once ${fix} passes its check`))
@@ -119,7 +119,7 @@ test('a step whose board check failed may still be reported again, its fix open 
   const { store, id } = await withOpenFix()
   try {
     assert.equal((await store.server({ action: 'check', id, passed: false, lines: ['the branch b-lamps is still there'] })).ok, true)
-    const again = await store.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp; the branch is gone.', merged: 'c0ffee2' })
+    const again = await store.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp; the branch is gone.', merged: 'c0ffee2', points: await ticks(store, id) })
     assert.equal(again.ok, true, again.why)
   } finally {
     await remove(store.dir)

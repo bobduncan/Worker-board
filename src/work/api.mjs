@@ -34,7 +34,7 @@ import { acceptRefine, answerRefine } from './refineText.mjs'
 import { gamePageIn, gamePageLabel, localAddressIn, placesIn, playProblem } from '../places.mjs'
 import { DECIDED, GOAL_ID, NEEDS, UNDONE, decidedOf, isDailyNote, needsOf, undoneOf } from './dailyNote.mjs'
 import { HOW_MARK, openAsksOf as openAsksUnder, refineAsksOf as asksCounted } from './stepAsks.mjs'
-import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, acceptStandOf, acceptChoiceOf, NAME_THE_ASK, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, noTriedBefore, openFixesOf, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, triedBeforeWanted, warningLines } from './resultCheck.mjs'
+import { ACCEPT_OPTIONS, ACCEPT_VIA, ANOTHER_WAY, acceptStandOf, acceptChoiceOf, NAME_THE_ASK, NOTES, TRIES_BEFORE_ANOTHER_WAY, WARNINGS_MARK, agreedPoints, acceptCardDue, acceptReading, answerReading, boardWarningsOf, chainTries, checkedOf, checkWhy, fixesOf, fixesThrough, fixTitle, gitCheckPassed, needsResultCheck, noTriedBefore, openFixesOf, owedPoints, parentPointsOf, parsePoints, resultCheckAtMs, resultCheckOf, resultCheckSummary, reportCheckFailedOf, reviewWaitOf, scoreWanted, SELF_CHECK, selfCheckLines, selfCheckWanted, selfCheckWarning, selfCheckWords, targetOf as standardTargetOf, triedBeforeWanted, warningLines } from './resultCheck.mjs'
 import { barredFrom, buildersWithFixes, isQaTask, openQaTaskOf, qaModelEffort, qaTitle } from './qaTask.mjs'
 import { RECAP_ANSWERS, dueRecaps, isRecap, recapMadeSince } from './recap.mjs'
 import { RESULT_CHARS, checkLinesWarning, goalParts, recapParts } from './recapWords.mjs'
@@ -2780,8 +2780,11 @@ async function approveRecaps(body, w) {
   return { ok: true, result: { text: approved.length === 0 ? 'No recap is due.' : `Approved by itself: ${approved.join(', ')}.`, approved, changed: approved.length > 0 } }
 }
 
-/** B883: the target of a step's standard ("ground look · a.png · target 75" → "75"), or null. */
-const targetOf = item => standardOf(item)?.match(/\btarget\s+(\d+)\b/i)?.[1] ?? null
+/** B883: the target of a step's standard ("ground look · a.png · target 75" → "75"), or null. P1: one reading (resultCheck.mjs `targetOf`), as a string here. */
+const targetOf = item => {
+  const target = standardTargetOf(standardOf(item))
+  return target === null ? null : String(target)
+}
 /** B883: what a reported step gives the person: its report's "Change:" words, else its Summary; null for neither. */
 function changeOf(item) {
   const reported = (item.sections.get('Context') ?? []).filter(one => /^\s*Reported by\b/.test(one)).at(-1) ?? ''
@@ -3005,6 +3008,9 @@ async function report(body, w) {
     const open = openAsksOf(w, id)
     return refuse(409, `${id} waits on ${open.join(', ') || 'an ask'}: withdraw it (work withdraw ${open[0] ?? 'Q<n>'}) or wait for the answer.`)
   }
+  // P1 (2026-11-28): the builder's self-check, on a step that needs the result check: the check's own fields, one parser.
+  const self = selfCheckOfReport(id, found.item, body)
+  if (!self.ok) return self
   // B304: a report from review runs the board's check again (the flow's move review → review), say after a fix.
   const isAgain = stateOf(found.item) === 'review'
   // B1081 (B934 reported again at 10:42 while its fix B978 was open, and the board made checks `checked` then refused): a step
@@ -3023,7 +3029,10 @@ async function report(body, w) {
   if (!moved.ok) return moved
   // P1: a report ends the holder's wait on a chat (the step goes to its check; the board holds nothing for the chat now).
   const reported = underStep(waitsOnOf(moved.item) === null ? moved.item : put(copy(moved.item), 'Waits on', null), [`Reported ${isAgain ? 'again ' : ''}by ${w.who} on ${at(w.now)}: ${result}${merged === '' ? '' : ` (merged ${merged})`}`])
-  const item = appendHistory(whole > RESULT_CHARS ? appendHistory(reported, 'server', `result cut: ${whole} characters, the first ${RESULT_CHARS} kept`, w.now) : reported, 'server', 'check pending', w.now)
+  // P1: the self-check kept under "## Self-check" (a report again replaces it) and its own History line, by the reporter.
+  if (self.points !== null) reported.sections.set(SELF_CHECK, selfCheckLines(self.points, self.score, self.evidence))
+  const selfSaid = self.points === null ? reported : appendHistory(reported, w.who, selfCheckWords(self.points, self.score), w.now)
+  const item = appendHistory(whole > RESULT_CHARS ? appendHistory(selfSaid, 'server', `result cut: ${whole} characters, the first ${RESULT_CHARS} kept`, w.now) : selfSaid, 'server', 'check pending', w.now)
   const done = await save(item, found.text, w)
   if (!done.ok) return done
   const resumed = isAgain ? [] : await resumeParked(item, w)
@@ -3034,7 +3043,30 @@ async function report(body, w) {
   // context for it instead of compacting it after this report.
   const more = [...w.store.items.values()].filter(one => kindOf(one) === 'step' && valueOf(one, 'Id') !== id && isOwner(one, w.who, w.prefix) && ['queued', 'taken'].includes(stateOf(one)))
     .map(one => valueOf(one, 'Id')).sort(byId)[0] ?? null
-  return changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result, merged: merged === '' ? lastReport(found.item).merged : merged, touches: touchesLines(item), ...cutField(item) }, more, ...(resumed.length === 0 ? {} : { resumed }) })
+  const answer = changed(item, undefined, { check: { id, branch: valueOf(item, 'Branch'), result, merged: merged === '' ? lastReport(found.item).merged : merged, touches: touchesLines(item), ...cutField(item) }, more, ...(resumed.length === 0 ? {} : { resumed }) })
+  // P1: a self-check that fails a point or scores under the target is taken, and said back in the answer.
+  return self.warning === '' ? answer : { ...answer, result: { ...answer.result, text: `${answer.result.text}\n${self.warning}`, selfCheck: self.warning } }
+}
+
+/**
+ * P1: the self-check a report carries (`points`, `score`, `evidence`; the fields of `checked`): `{ ok: true, points, score, evidence,
+ * warning }`, `points` null when the report has none and the step needs no result check; a refusal when the step needs the check
+ * and the report has no points (`selfCheckWanted`, the exact points), when the points do not parse (`parsePoints`' own words), or
+ * when a fix owes more points than ticked (every fail text and "Makes pass" line, as `checked` demands).
+ */
+function selfCheckOfReport(id, item, body) {
+  const given = Array.isArray(body.points) ? body.points.length > 0 : typeof body.points === 'string' && body.points.trim() !== ''
+  const needed = needsResultCheck(item)
+  if (!given) return needed ? refuse(400, selfCheckWanted(id, item)) : { ok: true, points: null, score: '', evidence: '', warning: '' }
+  const read = parsePoints(body.points)
+  if (!read.ok) return refuse(400, read.why)
+  const owed = valueOf(item, 'Fix of') === null ? 0 : owedPoints(item).length
+  if (read.points.length < owed) return refuse(400, `${id} is a fix of ${valueOf(item, 'Fix of')}: tick each of its ${owed} agreed points, every fail text and every "Makes pass" line of its What we build, not ${read.points.length}.`)
+  const score = line(body.score, 60)
+  // Chat 1's condition (b): a Standard line with a target wants the score too.
+  const target = standardTargetOf(standardOf(item))
+  if (target !== null && score === '') return refuse(400, scoreWanted(id, target))
+  return { ok: true, points: read.points, score, evidence: line(body.evidence, 300), warning: selfCheckWarning(id, read.points, score, item) }
 }
 
 /**
@@ -3377,7 +3409,7 @@ async function checked(body, w) {
   // B526: a fix is done only when the point of the step it fixes passes: its check ticks every fail text and every
   // "Makes pass" line of its What we build.
   const fixOf = valueOf(found.item, 'Fix of')
-  const owed = fixOf === null ? 0 : agreedPoints(found.item).filter(one => !/^Not in it\b/i.test(one)).length
+  const owed = fixOf === null ? 0 : owedPoints(found.item).length
   if (read.points.length < owed) return refuse(400, `${id} is a fix of ${fixOf}: tick each of its ${owed} agreed points, every fail text and every "Makes pass" line of its What we build, not ${read.points.length}.`)
   // One question per task (2026-10-31): what the checker asked while it checked was kept on its task as ask: points; the check
   // carries each one it leaves out.

@@ -11,7 +11,7 @@ import test from 'node:test'
 import { refinedOf } from '../../src/backlog.mjs'
 import { workApi } from '../../src/work/api.mjs'
 import { queueFor } from '../queueFor.mjs'
-import { checkedBy } from '../qaKit.mjs'
+import { checkedBy, ticks } from '../qaKit.mjs'
 import { modelOf } from '../../src/work/effort.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { itemOfStep } from '../../src/work/read.mjs'
@@ -106,7 +106,7 @@ test('a fix step from a failed result check runs on the model of the step it fix
     const id = made.result.id
     assert.equal((await queueFor(store.dir, id, 'Digger', { now: NOW + 60_000 })).ok, true)
     assert.equal((await store.digger({ action: 'take', minutes: 30, id, branch: 'gate' })).ok, true)
-    assert.equal((await store.digger({ action: 'report', id, result: 'A lock on the gate.', merged: 'c0ffee1' })).ok, true)
+    assert.equal((await store.digger({ action: 'report', id, result: 'A lock on the gate.', merged: 'c0ffee1', points: await ticks(store, id) })).ok, true)
     assert.equal((await store.server({ action: 'check', id, passed: true, lines: ['work in garden'] })).ok, true)
     const checked = await store.checks(id, { evidence: 'none (nothing to see)', points: ['fail: a lock on the gate (it opens without a key)'] })
     assert.equal(checked.ok, true, checked.why)

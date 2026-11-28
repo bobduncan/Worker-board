@@ -11,7 +11,7 @@ import test from 'node:test'
 
 import { workApi } from '../../src/work/api.mjs'
 import { queueFor } from '../queueFor.mjs'
-import { checkedBy } from '../qaKit.mjs'
+import { checkedBy, ticks } from '../qaKit.mjs'
 import { valueOf } from '../../src/work/item.mjs'
 import { migrateBacklog } from '../../src/work/migrate.mjs'
 import { boardWarningsOf, hasNoMutantWarning } from '../../src/work/resultCheck.mjs'
@@ -140,7 +140,7 @@ test('a step in review that passed with warnings stays in review for its result 
     const id = made.result.id
     assert.equal((await queueFor(one.dir, id, 'Lamplighter', { now: NOW + 60_000 })).ok, true)
     assert.equal((await one.lamplighter({ action: 'take', minutes: 30, id, branch: 'b2-lamps' })).ok, true)
-    assert.equal((await one.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1' })).ok, true)
+    assert.equal((await one.lamplighter({ action: 'report', id, result: 'Every path has a warm lamp.', merged: 'c0ffee1', points: await ticks(one, id) })).ok, true)
     const noMutant = 'the change touches tests (test/lamps.test.mjs) but the result names no mutant: the result check asks for one (next time add "Tests bite: <what was undone in a copy> → <the assertion that failed>")'
     const git = await one.server({ action: 'check', id, passed: true, lines: ['work in garden'], warnings: [noMutant] })
     assert.equal(valueOf(await item(one.dir, id), 'State'), 'review')
@@ -163,7 +163,7 @@ test('warnings of another kind add no demand to the task; a step without warning
     const id = made.result.id
     await queueFor(one.dir, id, 'Lamplighter', { now: NOW + 60_000 })
     await one.lamplighter({ action: 'take', minutes: 30, id, branch: 'b-sweep' })
-    await one.lamplighter({ action: 'report', id, result: 'Clean.', merged: 'abc1234' })
+    await one.lamplighter({ action: 'report', id, result: 'Clean.', merged: 'abc1234', points: await ticks(one, id) })
     const git = await one.server({ action: 'check', id, passed: true, lines: ['branch gone'], warnings: WARNINGS })
     const lines = (await item(one.dir, git.result.qa)).sections.get('Context').map(line => line.trim())
     assert.ok(lines.some(line => line.startsWith('Board warnings: the result names no Context')))
@@ -172,7 +172,7 @@ test('warnings of another kind add no demand to the task; a step without warning
     const clean = (await one.partner({ ...LAMP, title: 'Polish the lamp glass' })).result.id
     await queueFor(one.dir, clean, 'Sweeper', { now: NOW + 60_000 })
     await one.sweeper({ action: 'take', minutes: 30, id: clean, branch: 'b-glass' })
-    await one.sweeper({ action: 'report', id: clean, result: 'Polished.', merged: 'abc1235' })
+    await one.sweeper({ action: 'report', id: clean, result: 'Polished.', merged: 'abc1235', points: await ticks(one, clean) })
     const other = await one.server({ action: 'check', id: clean, passed: true, lines: ['branch gone'] })
     assert.ok(!(await item(one.dir, other.result.qa)).sections.get('Context').some(line => /Board warnings|Demand:/.test(line)))
   } finally {
@@ -212,7 +212,7 @@ test('the recap card of a step is the board\'s own words: a report with files, i
     assert.equal((await queueFor(one.dir, id, 'Lamplighter', { now: NOW + 60_000 })).ok, true)
     await one.lamplighter({ action: 'take', minutes: 30, id, branch: 'b2-lamps' })
     const result = `Context: The lampPost rule in src/lamps.mjs was wrong. The garden paths were dark at night. Change: Every path has a warm lamp now, see B1. Details: lamps.mjs`
-    assert.equal((await one.lamplighter({ action: 'report', id, result, merged: 'c0ffee1' })).ok, true)
+    assert.equal((await one.lamplighter({ action: 'report', id, result, merged: 'c0ffee1', points: await ticks(one, id) })).ok, true)
     const git = await one.server({ action: 'check', id, passed: true, lines: ['branch gone'], warnings: ['the Context holds file names (src/lamps.mjs), code words (lampPost): the card leaves those words out'] })
     assert.equal(git.ok, true, git.why)
     const checked = await one.checks(id, { evidence: 'none (nothing on screen)', points: ['pass: a lamp at every bench', 'pass: warm yellow light, never white'] })

@@ -123,6 +123,108 @@ export function answerReading(text) {
   return null
 }
 
+/**
+ * P1 (the delivery review's proposal 1, 2026-11-28): the builder checks its own result before it reports. A report of a step that
+ * needs the result check (`needsResultCheck`) carries the check's own fields, `points` (every agreed point, read by `parsePoints`:
+ * one parser) and `score`, and at will `evidence`; the report keeps them under "## Self-check" in the shape of "## Checked" and
+ * writes the History line "self-check: n of m points pass, score s of t". The independent check (`checked`) stays as it is and
+ * decides; the retrospective reads both lines per step. A report with no points on such a step is refused with the points to tick;
+ * one that fails a point or scores under its target is taken and said back (`selfCheckWarning`).
+ */
+export const SELF_CHECK = 'Self-check'
+const SELF_CHECK_LINE = /^self-check: /
+
+/** The agreed points a step's self-check (or its fix's check, `checked`) owes: every agreed point but the "Not in it" lines. */
+export const owedPoints = item => agreedPoints(item).filter(one => !/^Not in it\b/i.test(one))
+
+/** Chat 1's condition (c): the refusal's list of points is cut before the chat's message limit, so the instruction always arrives. */
+export const SELF_CHECK_LIST_CHARS = 1200
+const SELF_CHECK_POINT_CHARS = 160
+
+/**
+ * The points of the refusal, each cut to SELF_CHECK_POINT_CHARS, the list to SELF_CHECK_LIST_CHARS with "… and n more" (the step's
+ * record has them all: `work next`). An empty list for a step with no agreed points (a Standard line alone).
+ */
+export function selfCheckPointLines(points) {
+  const lines = []
+  let used = 0
+  for (const [index, point] of points.entries()) {
+    const text = point.length > SELF_CHECK_POINT_CHARS ? `${point.slice(0, SELF_CHECK_POINT_CHARS - 1).trimEnd()}…` : point
+    if (used + text.length > SELF_CHECK_LIST_CHARS && index > 0) {
+      lines.push(`… and ${points.length - index} more (work next shows them all)`)
+      break
+    }
+    lines.push(`- ${text}`)
+    used += text.length
+  }
+  return lines
+}
+
+/** The refusal of a report without the self-check on a step that needs the result check: the exact points to tick. */
+export function selfCheckWanted(id, item) {
+  const points = owedPoints(item)
+  const standard = standardOf(item)
+  const target = targetOf(standard)
+  return [
+    `Before reporting ${id}, check your own result against its agreed points and standard: tick each in "points" ("pass: <point>", "fail: <point>", or "ask: <point>" for a point only the person can judge)${target === null ? ', score it ("score": "<n> of <target>") where the kind\'s definition of done gives a rubric' : `, and score it against the kind's definition of done ("score": "<n> of ${target}")`}, then report again. A near miss is fixed in this step first.`,
+    ...(points.length === 0 ? [] : ['The points:', ...selfCheckPointLines(points)]),
+    ...(standard === null ? [] : [`Standard: ${standard}`]),
+  ].join('\n')
+}
+
+/** Chat 1's condition (b): the refusal of a self-check without a score on a step whose Standard line has a target. */
+export const scoreWanted = (id, target) => `${id}'s standard has the target ${target}: give your self-check's score too ("score": "<n> of ${target}", the judges' middle score against the kind's definition of done), then report again.`
+
+/** The target of a Standard line ("map · <picture> · target 75"), as a number, or null. */
+export const targetOf = standard => {
+  const found = String(standard ?? '').match(/\btarget\s+(\d{1,4})\b/i)
+  return found === null ? null : Number(found[1])
+}
+
+/** The first number of a score ("66 of 75" → 66), or null. */
+export const scoreOf = score => {
+  const found = String(score ?? '').match(/^\s*(\d{1,4})\b/)
+  return found === null ? null : Number(found[1])
+}
+
+/**
+ * What the report's answer says back about a self-check that fails a point or scores under the step's target: the honest report
+ * stands (the independent check decides), the words name what the check will do and what to do now. '' when nothing is amiss.
+ */
+export function selfCheckWarning(id, points, score, item) {
+  const failed = points.filter(one => one.verdict === 'fail').length
+  const target = targetOf(standardOf(item))
+  const scored = scoreOf(score)
+  const under = target !== null && scored !== null && scored < target ? `scores ${scored} under its target ${target}` : null
+  const amiss = [failed > 0 ? `fails ${failed} point${failed === 1 ? '' : 's'}` : null, under].filter(Boolean)
+  if (amiss.length === 0) return ''
+  return `Your self-check ${amiss.join(' and ')}: the result check will fail ${failed > 0 && under === null ? (failed === 1 ? 'it' : 'them') : 'that'} and make a fix step. Fix it in ${id} now and report again (a report again replaces the self-check); a point only the person can judge is an "ask:" point.`
+}
+
+/** The lines of the "## Self-check" section a report writes: the shape of "## Checked" (Evidence, Score, the points). */
+export const selfCheckLines = (points, score, evidence) => [...(evidence === '' ? [] : [`Evidence: ${evidence}`]), ...(score === '' ? [] : [`Score: ${score}`]), ...points.map(one => `- ${one.verdict}: ${one.text}`)]
+
+/** The History line's words of a self-check: "self-check: 5 of 6 points pass, score 70 of 75". */
+export const selfCheckWords = (points, score) => `self-check: ${points.filter(one => one.verdict === 'pass').length} of ${points.length} points pass${score === '' ? '' : `, score ${score}`}`
+
+/**
+ * The step's self-check as its "## Self-check" section keeps it: `{ evidence, score, points, passed, total }`, or null when its last
+ * report carried none (a report without one, allowed on a step that needs no result check, leaves no section).
+ */
+export function selfCheckOf(item) {
+  const lines = (item?.sections?.get(SELF_CHECK) ?? []).map(one => one.trim()).filter(Boolean)
+  if (lines.length === 0) return null
+  const named = name => lines.find(one => one.startsWith(`${name}: `))?.slice(name.length + 2) ?? null
+  const points = lines.flatMap(one => {
+    const found = one.match(/^-\s+(pass|fail|ask):\s+(.+)$/)
+    return found === null ? [] : [{ verdict: found[1], text: found[2] }]
+  })
+  return { evidence: named('Evidence'), score: named('Score'), points, passed: points.filter(one => one.verdict === 'pass').length, total: points.length }
+}
+
+/** Whether the step's History holds a self-check line since its last report (the retrospective's and the tests' reading). */
+export const selfCheckedSinceReport = item => sinceReport(item).some(one => SELF_CHECK_LINE.test(one))
+
 /** Whether the board's own check (git) passed last: its History's last "check passed", "failed" or "pending". */
 export function gitCheckPassed(item) {
   const last = historyOf(item).map(wordsOf).filter(one => /^check (?:passed|failed|pending)\b/.test(one)).at(-1)

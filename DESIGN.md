@@ -9509,3 +9509,24 @@ lock's `branch` (its `cwd` becomes the branch, `gate` keeps the folder), so b144
 that is unknown, leaves the run as it was, and a branch without a step id stays unmatched. The memory of the last pass keys the branch as
 it keys a folder. Tests: test/supervisor/testQueueWait.test.mjs (the reading, the rule at 130 minutes of quiet, the memory, the server's
 wiring); 4 mutants red.
+
+## P1: the builder checks its own result first (2026-11-28, chat 3, the delivery review's proposal 1)
+
+The review (`.claude/plans/2026-11-26-delivery-review.md`): 35% of steps failed their first result check, mostly near misses (median
+score 66 against 75; 71% of points pass), and those took about seven times as long. Now the builder runs the check's own points on its
+work before it reports, in `work report` itself (api.mjs `selfCheckOfReport`): on a step that needs the result check (resultCheck.mjs
+`needsResultCheck`) the report carries `points` (every agreed point but the Not in it lines, `owedPoints`; a fix every fail text and
+"Makes pass" line, the count `checked` demands, one rule), `score` and at will `evidence`: the fields of `work checked`, read by the same
+`parsePoints`, so there is no copy of the points and no second parser. The step keeps them under "## Self-check" in the shape of
+"## Checked" (`selfCheckLines`, read back by `selfCheckOf`) and in one History line by the reporter, `self-check: 5 of 6 points pass,
+score 70 of 75`, right after the report's own line; a report again replaces the section and adds a line. A report without `points` on
+such a step is refused at once (400) with the exact points and the Standard line to tick (`selfCheckWanted`; a step without agreed
+points or standard reports as before): a warning after the report is in would change nothing, and a missing field is refused as
+`result` is. A self-check that fails a point or scores under the target (`targetOf` the Standard line, `scoreOf` the score) is taken,
+the honest report stands, and the answer says back what the check will do and to fix it in this step now (`selfCheckWarning`, also in
+the answer's `selfCheck`). The independent check (the Quality Assurance task) stays exactly as it is and decides; its `work next` shows
+the agreed points, never the self-check; roles/worker.md says the self-check is no evidence for the checker. No page change: the record
+carries the lines. The retrospective reads both History lines per step (`.claude/overview/delivery-review/scripts/selfcheck/a.mjs`:
+first-try pass rate with and without a self-check, the score gap, reports over a known miss). Replay: B1352's Play link opened the map
+on World 1's lava; ticking its own point "ember pits and cool light" against that link fails in the self-check, and the fix round
+B1451 is saved. Tests: test/work/selfCheck.test.mjs; the old report fixtures carry their points.
