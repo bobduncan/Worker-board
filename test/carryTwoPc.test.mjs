@@ -23,7 +23,8 @@ import { cp } from 'node:fs/promises'
 const fs = { readFile, writeFile, mkdir, rm, stat, readdir, utimes, copyFile, access }
 const slashes = path => String(path).replace(/\\/g, '/')
 const KEY = 'k'.repeat(64)
-const LONG = { timeout: 240_000 }
+// B1575: the two-PC case took 54-224 s in landings and often hit 240 s under load (refused on the cap, not on a fault): room to 480 s.
+const LONG = { timeout: 480_000 }
 
 /** One PC: a home for git's global config, the clones and folders; `autocrlf` for its global config. */
 async function pc(root, name, { autocrlf = false } = {}) {
