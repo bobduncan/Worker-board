@@ -8,7 +8,10 @@ import test from 'node:test'
 
 import { createBoard } from '../server.mjs'
 import { parseConfig } from '../src/config.mjs'
-import { LIGHT_FIELDS, fullStepOf, lightRow, lightState } from '../src/state.mjs'
+import { deserialize, serialize } from 'node:v8'
+
+import { LIGHT_FIELDS, fullStepOf, lightBacklogOf, lightRow, lightState } from '../src/state.mjs'
+import { withLight } from '../src/stateBuild.mjs'
 import { parseItem } from '../src/work/item.mjs'
 import { storeFromText } from '../src/work/read.mjs'
 import { buildState } from './withStore.mjs'
@@ -123,6 +126,24 @@ test('a light row\'s rev stays while its step stays, also a while later, and mov
   const noted = item([...PEAR.head].map(([key, value]) => `${key}: ${value}`).concat(['', '## Summary', 'Plant five pear trees.', '', '## History', '- 2026-10-31 11:00 person: note', '']))
   assert.notEqual(rowOf(lightState(built({ pear: noted })), 'B11').rev, first)
   assert.deepEqual(lightRow({ key: 'B1', id: 'B1', title: 'x', status: 'done', item: null, flow: null }).goal, null, 'a row without an item')
+})
+
+test('B1579: the light backlog is made where the state is built (its thread); /api/state takes it and makes no light row on the loop', () => {
+  // The state as the thread sends it back: its bytes, read on the loop.
+  const state = deserialize(serialize(withLight(built())))
+  assert.deepEqual(state.lightBacklog, lightBacklogOf(built()))
+  // Its open rows are the very rows of the full backlog: the copy back carries them once.
+  assert.equal(rowOf({ backlog: state.lightBacklog.backlog }, 'B12'), rowOf(state, 'B12'))
+  const sent = lightState(state)
+  // The made light backlog itself, as the page gets it; never the field itself.
+  assert.equal(sent.backlog, state.lightBacklog.backlog)
+  assert.equal('lightBacklog' in sent, false)
+  assert.deepEqual(sent, { ...lightState(built()), readAt: sent.readAt })
+  // An ask the page's state names that the build's did not (another sign): made here, as before; that step goes whole.
+  const asked = lightState({ ...state, forYou: [{ of: 'B11' }] })
+  assert.notEqual(asked.backlog, state.lightBacklog.backlog)
+  assert.equal(rowOf(asked, 'B11').light, undefined)
+  assert.equal(rowOf(asked, 'B14').light, true)
 })
 
 test('a state without a backlog is given back as it is', () => {

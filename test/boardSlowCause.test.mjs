@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { busiestOf, pcTop, slowCause } from '../src/callTrace.mjs'
+import { withHolds } from '../src/rebuildMarks.mjs'
 import { WATCH_RULES } from '../src/supervisor/rules/watch.mjs'
 import { buildView } from '../src/supervisor/view.mjs'
 
@@ -88,4 +89,26 @@ test('the PC\'s busiest programs: two listings 3 s apart, by name, in cores; loo
   await slow.look()
   assert.deepEqual(slow.latest().top, busiestOf(before, after, 4500))
   assert.deepEqual(slow.latest().top[0], { name: 'msedge.exe', cores: 4.1 })
+})
+
+// B1579 (X93, the rest): the loop stalls beside the slow calls name who held the loop, by the rebuild marks: a part of the state rebuild,
+// or another job. The live case of 2026-11-27 21:12:21: a loop stall of 11.2 s with a state rebuild in flight, while sync and the check of
+// B1535 ran; the rebuild's marks then held the loop under 100 ms per part, so the stall reads as the job sync's, not the rebuild's.
+test('B1579, the 21:12:21 case: a stall no rebuild part held reads as the other job\'s; one a part held names that part', () => {
+  const at = new Date(2026, 10, 27, 21, 12, 21).getTime()
+  const call = { request: 's-1-1', attempt: 1, sent: at - 6000, arrived: at - 5990, action: 'turn-ended', chat: 'Worker 2', marks: { decide: 5900, answered: 6000 }, total: 6000, beforeBoard: 10, loopMax: 11_200, cpuMax: 96, boardCpuMs: 5000 }
+  const stall = { at, ms: 11_200, kind: 'loop', requests: [], jobs: ['state rebuild', 'state build (thread)', 'sync', 'check:B1535'] }
+  const quiet = [{ from: at - 12_000, to: at - 9000, parts: { app: 2, sources: 40, copyIn: 30, copyBack: 20 } }]
+  const cause = slowCause([call], { from: at - 10 * 60_000, stalls: withHolds([stall], quiet) })
+  assert.deepEqual(cause.holders, [['job:sync', 1]])
+  // The rebuild's reading of the sources held a stall of 6.3 s at 11:40:31 (the copy's measure before the change).
+  const held = slowCause([call], { from: at - 10 * 60_000, stalls: withHolds([stall, { ...stall, at: at + 1000, ms: 4300 }], [{ from: at - 3000, to: at + 2000, parts: { sources: 6300, copyIn: 180 } }]) })
+  assert.deepEqual(held.holders, [['sources', 2]])
+  const rule = WATCH_RULES.find(one => one.id === 'board-slow')
+  const words = state => rule.check(buildView({ state, items: new Map(), now: at + 60_000 }), { seen: new Map(), observed: [] })[0].evidence
+  const late = [{ at: at - 60_000, ms: 30_000 }, { at, ms: 28_000 }]
+  assert.match(words({ lateCalls: late, slowCause: { ...cause, build: 'thread' } }), /; the loop stalls then were held by the job sync 1$/)
+  assert.match(words({ lateCalls: late, slowCause: { ...held, build: 'thread' } }), /; the loop stalls then were held by the state rebuild's reading the sources 2$/)
+  // The stall itself in the evidence names its holder too.
+  assert.match(words({ lateCalls: late, stalls: withHolds([{ ...stall, at: at + 1000, ms: 4300 }], [{ from: at - 3000, to: at + 2000, parts: { sources: 6300 } }]), slowCause: null }), /held by the state rebuild's reading the sources 6\.3 s/)
 })

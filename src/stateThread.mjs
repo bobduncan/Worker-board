@@ -15,6 +15,10 @@
 // error of the build itself (buildState threw) is the read's error, as it was in the loop. While the board's folder holds a newer
 // server than the one running (`mayStart` false: a landing or self-update before its restart), no new thread starts: it would load
 // the newer code; the builds are made in the loop until the restart.
+// B1579 (X93, the rest): what goes in is small: on a real board the loop's facts, and the thread reads the sources itself
+// (src/stateBuild.mjs, the one reading for both ways); the state comes back as its serialized bytes, read on the loop. A build in
+// the loop (`inLoop`) may await, as it reads the sources there. The loop's time of the copy in, the copy back and a build in the
+// loop is told to the rebuild's marks (src/rebuildMarks.mjs).
 
 import { deserialize } from 'node:v8'
 import { Worker } from 'node:worker_threads'

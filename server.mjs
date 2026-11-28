@@ -2704,7 +2704,8 @@ async function main(args) {
   // longest-free worker's since again.
   let noWorkSeen = null
   // B1535 (X93, chat 1's way A): the state is built in a thread of its own, so the loop answers every other call meanwhile; when
-  // the thread fails it builds in the loop as before, and the loops line says so once ("state-thread").
+  // the thread fails it builds in the loop as before, and the loops line says so once ("state-thread"). B1579: it is handed the
+  // loop's small facts and reads the sources itself (src/stateBuild.mjs); the fallback reads them the same way, in the loop.
   const builder = stateThread({
     // B1579: the same build in the loop, its sources read here with the loop's own read of the store (src/stateBuild.mjs).
     inLoop: (input, options) => buildFrom(input, options, { readWork: storeWork ?? (async () => undefined), hold: () => holdBuild() }),

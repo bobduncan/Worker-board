@@ -8101,6 +8101,40 @@ stalls of 19:50; besides, the app's 566 chat files (37 MB of JSON) were read and
   `test/appChatsCache.test.mjs` and `test/boardSlowCause.test.mjs` (the live calls of 19:50 to 19:55). Left for later steps (chat 1):
   fewer rebuilds, the decide without a whole rebuild (B1496), the O(n²) fix scans of a build.
 
+**B1579 (X93, the rest, chat 1's decision B, 2026-11-27): the thread reads its own sources and makes the light rows.** After B1535
+the loop still stalled 2-6 s every few minutes (8.6 an hour over 1 s, one of 11.2 s at 21:12:21), nearly all with a rebuild in flight.
+The rebuild marks (below) on a copy of the board on the live data named the part: reading the sources kept the loop busy 6.3-7.9 s
+every second rebuild (the transcripts' look-backs, the chat files, the store's parse), the copy into the thread 62-166 ms, the state's
+copy back 33-66 ms (logs/b1579-parts-before.jsonl).
+
+- **What goes in** (src/stateBuild.mjs): the loop hands the thread only small facts it keeps itself: config, the working folders and
+  branches (git, cached in the loop), the app's account (the loop still follows the app's folder and account and files their asks), the
+  asset requests, the plan-writes log's path, the store's folder and `gen` (how often the loop's store read was reset), and its memory
+  facts as options (outbox, words, history lines, wakes, stalls, mods). The thread runs `readSources` itself; the store's items, the
+  chats' files and the transcripts are never copied in. ONE `rawOf`/`buildFrom` for both ways: the fallback (no thread, a hang, a newer
+  server in the folder) runs the very same reading in the loop with the loop's own store read, as before B1535.
+- **Freshness as before**: every write's `work.reset()` counts `gen` up; a build with a new `gen` drops the thread's kept store read
+  AND its shared listing (work/store.mjs `forgetListing`: the loop's write drops the listing only in the loop's process, and a listing
+  of 1.5 s shared across a write hid a new step for the 30 s of the thread's read, found by the board test), so a write shows in the
+  next state. The loop's own `work()` reads stay the loop's (the pause for the outbox's late words is read there). The thread keeps its
+  own file-stamp caches (appChats.mjs, the transcripts' starts and look-backs), so a new thread reads all once, then only what changed.
+- **The state comes back as bytes** (v8 `serialize` in the thread, its buffer moved, `deserialize` timed on the loop), with the **light
+  backlog made in the thread** (state.mjs `lightBacklogOf`, `{ sign, backlog }`, its open rows the very rows of the backlog, so they are
+  copied once): /api/state takes it when the page's asked steps are the build's, and makes no light row (no hash of a finished step)
+  on the loop; another sign (an ask only the page's state adds) or a fallback's state makes them there as before. `fullStepOf` still
+  answers a whole row; `lightBacklog` never goes to the page.
+- **The rebuild marks** (src/rebuildMarks.mjs): each rebuild's parts on the loop (`app`, `sources`, `assets`, `copyIn`, `build` in
+  the loop, `copyBack`, `after`, and the page's `light` and `json`): a block by its own clock, an awaited part by the loop's busy time
+  then (an upper bound). Each loop stall in the state carries `held`, the part that held it (the largest over 100 ms of a rebuild that
+  ran then), and board-slow's evidence names it ("held by the state rebuild's reading the sources 6.3 s"); `slowCause.holders` counts
+  the holders of the stalls since the first slow call, a part or the first other job (sync, self-update, accept-cards, check:<step>).
+  WORKER_BOARD_PARTS_LOG writes each rebuild as a line (the measure).
+- Pinned by `test/stateThreadBoard.test.mjs` (B1579: what goes in holds no store item, chat file or transcript; a write shows within a
+  build, in the thread and with no thread), `test/lightState.test.mjs` (the made light backlog taken as is), `test/rebuildMarks.test
+  .mjs` (the marks, the holder, the thread's store read anew at a new `gen`) and `test/boardSlowCause.test.mjs` (the 21:12:21 case).
+  Mutants: the raw copied in again, the light rows back on the loop, a lost reset. Not in it: fewer rebuilds (chat 1's C), the other
+  jobs' own stalls.
+
 ## The boards survive a Claude app update (F10, 2026-11-14)
 
 The person, 2026-11-11 ("Yes, build it"): the Claude app updated itself at 22:42 (AppX Register, "TerminateApplications") and ended
