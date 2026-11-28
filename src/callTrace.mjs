@@ -325,13 +325,16 @@ export function slowCause(lines, { from = -Infinity, overMs = SLOW_CALL_MS, pc =
 /**
  * B1579 (X93): who held the loop in the loop stalls from `from` on (`stalls` with `held`, rebuildMarks.mjs `withHolds`):
  * `[[holder, count]]`, most first, the holder a rebuild part ('sources', 'copyIn', ...) or, for a stall no part held, the stall's first
- * other job ('job:<words>', or 'job:' when it names none). PURE.
+ * other job ('job:<words>', a state job only when it names no other; 'job:' when it names none). PURE.
  */
 export function holdersOf(stalls, from = -Infinity) {
   const counts = new Map()
   for (const one of Array.isArray(stalls) ? stalls : []) {
     if (one?.kind !== 'loop' || !Number.isFinite(one.at) || one.at < from) continue
-    const jobs = (Array.isArray(one.jobs) ? one.jobs : []).filter(job => typeof job === 'string' && !job.startsWith('state '))
+    const all = (Array.isArray(one.jobs) ? one.jobs : []).filter(job => typeof job === 'string')
+    // A state job beside others is named last: its blocks were marked, so another job held the loop; alone, it is the rebuild's own
+    // unmarked part (review lens 2).
+    const jobs = [...all.filter(job => !job.startsWith('state ')), ...all.filter(job => job.startsWith('state '))]
     const holder = typeof one.held?.part === 'string' ? one.held.part : `job:${jobs[0] ?? ''}`
     counts.set(holder, (counts.get(holder) ?? 0) + 1)
   }

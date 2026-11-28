@@ -3437,6 +3437,16 @@ const lightOf = (backlog, asked) => backlog.map(activity => (!Array.isArray(acti
   : { ...activity, steps: activity.steps.map(step => (isLightRow(step) && !asked.has(step.key) ? lightRow(step) : step)) }))
 
 /**
+ * Review lens 1: whether a made light backlog was made of `backlog` (its activities and their steps the same in number, each open row
+ * the very row of the backlog), so a state whose backlog was replaced never takes another's light rows.
+ */
+const madeOf = (light, backlog) => Array.isArray(light) && light.length === backlog.length && light.every((activity, at) => {
+  const full = backlog[at]
+  if (!Array.isArray(activity?.steps) || !Array.isArray(full?.steps)) return activity === full
+  return activity.steps.length === full.steps.length && activity.steps.every((row, index) => row === full.steps[index] || row?.light === true)
+})
+
+/**
  * B1579 (X93): the light backlog of a state as `lightState` makes it, `{ sign, backlog }` (`sign` the asked steps it was made for),
  * made where the state is built (src/stateBuild.mjs, in the state thread), so /api/state hashes no finished step on the loop. Its
  * open steps are the very rows of `state.backlog`, so the state's copy back carries them once. null for a state without a backlog.
@@ -3461,7 +3471,7 @@ export function lightState(state) {
   const sign = [...asked].sort().join(' ')
   const kept = lightKept.get(rest.backlog)
   if (kept !== undefined && kept.sign === sign) return { ...rest, backlog: kept.backlog }
-  const backlog = made !== null && made.sign === sign && Array.isArray(made.backlog) ? made.backlog : lightOf(rest.backlog, asked)
+  const backlog = made !== null && made.sign === sign && madeOf(made.backlog, rest.backlog) ? made.backlog : lightOf(rest.backlog, asked)
   lightKept.set(rest.backlog, { sign, backlog })
   return { ...rest, backlog }
 }

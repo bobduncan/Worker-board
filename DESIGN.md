@@ -8107,8 +8107,9 @@ The rebuild marks (below) on a copy of the board on the live data named the part
 every second rebuild (the transcripts' look-backs, the chat files, the store's parse), the copy into the thread 62-166 ms, the state's
 copy back 33-66 ms (logs/b1579-parts-before.jsonl).
 
-- **What goes in** (src/stateBuild.mjs): the loop hands the thread only small facts it keeps itself: config, the working folders and
-  branches (git, cached in the loop), the app's account (the loop still follows the app's folder and account and files their asks), the
+- **What goes in** (src/stateBuild.mjs): the loop hands the thread only small facts it keeps itself: config, where to read the working
+  folders and branches (the thread runs those git reads too, `gitFacts`, kept a minute as the loop kept them: after the first change the
+  copy's measure showed their 15 git starts a minute keeping the loop busy 2.3-9.7 s, as a start blocks the loop on Windows), the app's account (the loop still follows the app's folder and account and files their asks), the
   asset requests, the plan-writes log's path, the store's folder and `gen` (how often the loop's store read was reset), and its memory
   facts as options (outbox, words, history lines, wakes, stalls, mods). The thread runs `readSources` itself; the store's items, the
   chats' files and the transcripts are never copied in. ONE `rawOf`/`buildFrom` for both ways: the fallback (no thread, a hang, a newer
@@ -8123,17 +8124,19 @@ copy back 33-66 ms (logs/b1579-parts-before.jsonl).
   copied once): /api/state takes it when the page's asked steps are the build's, and makes no light row (no hash of a finished step)
   on the loop; another sign (an ask only the page's state adds) or a fallback's state makes them there as before. `fullStepOf` still
   answers a whole row; `lightBacklog` never goes to the page.
-- **The rebuild marks** (src/rebuildMarks.mjs): each rebuild's parts on the loop (`app`, `sources`, `assets`, `copyIn`, `build` in
-  the loop, `copyBack`, `after`, and the page's `light` and `json`): a block by its own clock, an awaited part by the loop's busy time
-  then (an upper bound). Each loop stall in the state carries `held`, the part that held it (the largest over 100 ms of a rebuild that
-  ran then), and board-slow's evidence names it ("held by the state rebuild's reading the sources 6.3 s"); `slowCause.holders` counts
+- **The rebuild marks** (src/rebuildMarks.mjs): each rebuild's parts on the loop (`app`, `sources`, `assets`, `store`, `copyIn`,
+  `build` in the loop, `copyBack`, `after`, and the page's `light` and `json`). A part in one block (`copyIn`, `copyBack`, `light`,
+  `json`) is timed by its own clock and kept with when it ran (10 minutes); an awaited part by the loop's busy time then, for the
+  measure only: it counts whatever else blocked the loop, so it never holds a stall (review lens 2). Each loop stall in the state
+  carries `held`, the longest block of 100 ms or more that ran within it (from the timer's last run), and board-slow's evidence names it ("held by the state rebuild's reading the sources 6.3 s"); `slowCause.holders` counts
   the holders of the stalls since the first slow call, a part or the first other job (sync, self-update, accept-cards, check:<step>).
   WORKER_BOARD_PARTS_LOG writes each rebuild as a line (the measure).
 - Pinned by `test/stateThreadBoard.test.mjs` (B1579: what goes in holds no store item, chat file or transcript; a write shows within a
   build, in the thread and with no thread), `test/lightState.test.mjs` (the made light backlog taken as is), `test/rebuildMarks.test
   .mjs` (the marks, the holder, the thread's store read anew at a new `gen`) and `test/boardSlowCause.test.mjs` (the 21:12:21 case).
   Mutants: the raw copied in again, the light rows back on the loop, a lost reset. Not in it: fewer rebuilds (chat 1's C), the other
-  jobs' own stalls.
+  jobs' own stalls. Known costs: the fallback's first build in the loop starts cold (its caches of the chat files and transcripts were
+  the thread's), once per failure spell; the loop still reads the store itself for its own calls (and the pause), as before.
 
 ## The boards survive a Claude app update (F10, 2026-11-14)
 

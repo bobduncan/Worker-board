@@ -59,8 +59,8 @@ export const MOST_FAILURES = 3
  * thread builds again. `off()` why the thread is off for good (null while threads build), `lastWay()` where the newest build was
  * made ('thread' or 'loop'), `close()` ends the thread. A build over `limitMs` fails with LATE (see above); `mayStart()` false starts
  * no new thread. Ports for the tests: `start(file)` makes the thread, the timers, `soon`, `wall`; `sent(raw)` is told what each build
- * handed the thread (B1579: the tests' log). `build(raw, options, mark)`: `mark.mark(part, ms)` is told the loop's time of the copy in
- * (`copyIn`), the state's copy back (`copyBack`) and a build in the loop (`build`), for the rebuild marks (src/rebuildMarks.mjs).
+ * handed the thread (B1579: the tests' log). `build(raw, options, mark)`: `mark.block(part, ms)` is told the loop's time of the copy in
+ * (`copyIn`) and the state's copy back (`copyBack`), `mark.busy('build', ms)` a build in the loop, for the rebuild marks (src/rebuildMarks.mjs).
  */
 export function stateThread({
   inLoop, file = new URL('./stateWorker.mjs', import.meta.url), failed = () => {}, recovered = () => {}, offForGood = () => {},
@@ -94,10 +94,10 @@ export function stateThread({
     try {
       made = inLoop(raw, options)
     } catch (error) {
-      one.mark?.mark('build', performance.eventLoopUtilization(was).active)
+      one.mark?.busy('build', performance.eventLoopUtilization(was).active)
       return one.reject(error)
     }
-    Promise.resolve(made).then(one.resolve, one.reject).finally(() => one.mark?.mark('build', performance.eventLoopUtilization(was).active))
+    Promise.resolve(made).then(one.resolve, one.reject).finally(() => one.mark?.busy('build', performance.eventLoopUtilization(was).active))
   }
 
   /**
@@ -159,11 +159,11 @@ export function stateThread({
         const at = performance.now()
         let state
         try {
-          state = deserialize(Buffer.from(message.bytes instanceof ArrayBuffer ? message.bytes : message.bytes.buffer))
+          state = deserialize(message.bytes instanceof ArrayBuffer ? Buffer.from(message.bytes) : Buffer.from(message.bytes.buffer, message.bytes.byteOffset, message.bytes.byteLength))
         } catch (error) {
           return one.reject(error)
         } finally {
-          one.mark?.mark('copyBack', performance.now() - at)
+          one.mark?.block('copyBack', performance.now() - at)
         }
         one.resolve(state)
       } else one.resolve(message.state)
@@ -215,7 +215,7 @@ export function stateThread({
         try {
           made.postMessage({ id, raw, options })
           // B1579: the copy into the thread is made here, on the loop, in one block.
-          mark?.mark('copyIn', performance.now() - at)
+          mark?.block('copyIn', performance.now() - at)
           if (sent !== null) say(sent, raw)
         } catch (error) {
           // A value the copy cannot take (DataCloneError): this build and every one after it in the loop.

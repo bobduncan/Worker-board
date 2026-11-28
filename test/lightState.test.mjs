@@ -193,3 +193,13 @@ test('GET /api/step refuses without the page\'s token, says 404 for a step it do
   assert.equal((await ask('/api/step')).status, 400)
   assert.equal((await ask('/api/step?id=..%2Fconfig.json')).status, 400)
 })
+
+test('B1579, review lens 1: a made light backlog is taken only for the backlog it was made of', () => {
+  const state = deserialize(serialize(withLight(built())))
+  // The same asked steps, but another backlog (an activity fewer): the light rows are made of that one, never the old ones taken.
+  const other = lightState({ ...state, backlog: state.backlog.slice(0, 0) })
+  assert.deepEqual(other.backlog, [])
+  const copied = lightState({ ...state, backlog: state.backlog.map(activity => ({ ...activity, steps: activity.steps.map(step => ({ ...step })) })) })
+  assert.notEqual(copied.backlog, state.lightBacklog.backlog)
+  assert.deepEqual(copied.backlog, state.lightBacklog.backlog)
+})

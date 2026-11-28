@@ -1055,11 +1055,11 @@ async function main(args) {
     now: clock,
   })
   let folders = async () => null
-  let branches = async () => null
   // B110: the repositories whose branches say whether a step's work is merged: the game's, and the board's own.
   // B132: the game's repository only when the settings name one; `git -C ""` would read the board's own folder.
   const hasGame = config.gameRepo !== ''
-  const branchesNow = () => readBranches(hasGame ? [config.gameRepo, HERE] : [HERE], gitRunner())
+  const branchRepos = () => (hasGame ? [config.gameRepo, HERE] : [HERE])
+  const branchesNow = () => readBranches(branchRepos(), gitRunner())
   // B304: the repositories the board knows, each with the branch work is merged into: the game's, and the board's own.
   const knownRepos = () => [...(hasGame ? [{ dir: config.gameRepo, base: config.baseBranch }] : []), { dir: HERE, base: 'main' }]
   /**
@@ -2139,11 +2139,12 @@ async function main(args) {
   let store
   /** B1579: what the loop hands the state build for its reading of the sources (src/stateBuild.mjs `rawOf`'s facts, but the assets). */
   let readRaw
-  /** B1579: the facts of a board with sources: the working folders and branches (git, cached here), the account, the store's folder and reset count. */
+  /** B1579: the facts of a board with sources: where the thread reads the working folders and branches, the account, the store's folder and reset count. */
   const sourceFacts = async accountNow => ({
     config: { ...config },
-    folders: await folders().catch(() => null),
-    branches: await branches().catch(() => null),
+    // B1579: the git reads of the working folders and branches are made in the thread too (src/stateBuild.mjs `gitFacts`): 15 git
+    // starts each minute held the loop 3-7 s (a start blocks the loop on Windows). The loop's own `folders()` stays for its handler.
+    git: { gameRepo: hasGame ? config.gameRepo : null, base: config.baseBranch, repos: branchRepos(), ms: FOLDERS_MS },
     account: accountNow,
     workDir: storeWork === null ? null : workFolder(config),
     gen: storeGen,
@@ -2206,7 +2207,6 @@ async function main(args) {
     demoMods = () => ({ installed: '0.16.0', chats: { Main: '0.16.0', Features: null, Advisor: null } })
   } else {
     folders = hasGame ? cached(() => readFolders(config.gameRepo, gitRunner(), config.baseBranch), FOLDERS_MS) : async () => null
-    branches = cached(() => branchesNow(), FOLDERS_MS)
     readRaw = async (mark = marks.begin()) => {
       await mark.part('app', async () => {
         // B273: the app may move its folder while the board runs: the board follows it.
@@ -2746,7 +2746,7 @@ async function main(args) {
     const keptReadings = await readingsOnDisk()
     // The review of Pause 2: a line the person's pause holds does not grow late (store.mjs isLate, pause.mjs heldMs). B1579: the
     // loop's own read of the store (the store's items are no longer read here for the build).
-    keep.pause = (demoRaw === null ? (await work())?.pause : demoRaw.work?.pause) ?? null
+    keep.pause = (demoRaw === null ? (await mark.part('store', () => work()))?.pause : demoRaw.work?.pause) ?? null
     const project = demoRaw?.project ?? config.project
     // B1535: the build, in its thread (the loop runs on), or in the loop when the thread failed; the job's words say where it was made
     // (named again after the build, as a thread may fail during it).
@@ -2768,7 +2768,7 @@ async function main(args) {
       hearing: hearing?.view(clock()) ?? null,
       // B934: the newest stalls of the board's own loop and calls (src/stalls.mjs), for the rule board-slow.
       // B1579: each loop stall with the rebuild part that held the loop then, by the rebuild marks (src/rebuildMarks.mjs `withHolds`).
-      stalls: withHolds(stalls.recent(), marks.recent()),
+      stalls: withHolds(stalls.recent(), marks.blocks()),
       // board-fast-answer: the day's work-call figures for the Supervisor's health line (src/workCalls.mjs).
       workCalls: workCalls.today(clock()),
       finishedSeen: finishedSeen ?? {},
@@ -2811,11 +2811,11 @@ async function main(args) {
     for (const one of setAside) if (one.aside === null || await stat(join(HERE, 'data', one.aside)).then(() => true, () => false)) shownAside.push(one)
     // B1535: what the slow work calls of the last 10 min waited on, the build's way and the PC's busiest programs (the rule board-slow).
     // B1579: and who held the loop in its stalls then (the rebuild part by its marks, or another job).
-    const cause = tracer === null ? null : slowCause(tracer.lines(), { from: clock() - 10 * 60_000, pc: pcBusy.latest(), stalls: withHolds(stalls.recent(), marks.recent()) })
+    const cause = tracer === null ? null : slowCause(tracer.lines(), { from: clock() - 10 * 60_000, pc: pcBusy.latest(), stalls: withHolds(stalls.recent(), marks.blocks()) })
     const whole = { ...state, slowCause: cause === null ? null : { ...cause, build: builder.lastWay() ?? 'thread' }, spending: { periods: { ...Object.fromEntries([1, 7, 30, null].map(days => [days ?? 'all', spending.summary(days)])), today: spending.summary((Date.now() - new Date().setHours(0, 0, 0, 0)) / 86400000) } }, isDemo, project, rounds, name: config.name, hasGame: isDemo || hasGame, appMoved: isDemo ? null : config.appMoved ?? null, setAside: shownAside,
       // T5.2 A7: the project keys config.json still holds while the project's settings file is in use (ignored: the amber line).
       settingsIgnored: isDemo || typeof config.settingsFile !== 'string' ? null : { file: basename(config.settingsFile), keys: config.settingsIgnored ?? [] }, check: checker?.view() ?? null, clicksUnsent: (await clicks.settle(one => movedOn(one, state, store.outbox()), clock()), await clicks.unsent()) }
-    mark.mark('after', performance.eventLoopUtilization(afterFrom).active)
+    mark.busy('after', performance.eventLoopUtilization(afterFrom).active)
     return whole
   }
   const readState = cached(() => readAfterSleep(built => trackJob('state rebuild', async () => {

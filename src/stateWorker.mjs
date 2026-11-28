@@ -72,6 +72,13 @@ export async function answer({ id, raw, options }, { build, post, hold = () => h
 if (parentPort !== null) {
   let turn = Promise.resolve()
   parentPort.on('message', message => {
-    turn = turn.then(() => answer(message, { post: (one, moved) => parentPort.postMessage(one, moved) })).catch(() => {})
+    // Review lens 1: a build that failed without an answer is answered with its error at once, never left to the 5-minute limit.
+    turn = turn.then(() => answer(message, { post: (one, moved) => parentPort.postMessage(one, moved) })).catch(error => {
+      try {
+        parentPort.postMessage({ id: message?.id, error: errorOf(error) })
+      } catch {
+        // the board's own limit ends it
+      }
+    })
   })
 }
