@@ -21,18 +21,18 @@ export const HOLD_MIN_MS = 100
 /** The stall log's timer runs every 500 ms (stalls.mjs TICK_MS): a stall began up to this long before `at - ms`. */
 export const TICK_SLACK_MS = 500
 
-/** The parts, as the rule board-slow names them. */
+/** The parts, as the rule board-slow names them after "the state rebuild's". */
 export const PART_WORDS = {
-  app: 'the app\'s folder and account',
-  sources: 'reading the facts',
-  assets: 'reading the asset requests',
-  store: 'the loop\'s read of the store',
-  copyIn: 'the copy into the thread',
-  build: 'the build in the loop',
-  copyBack: 'the state\'s copy back',
-  after: 'the work after the build',
-  light: 'the light rows',
-  json: 'the state\'s JSON',
+  app: 'app folder and account',
+  sources: 'fact reading',
+  assets: 'asset reading',
+  store: 'store read in the loop',
+  copyIn: 'copy into the thread',
+  build: 'build in the loop',
+  copyBack: 'copy back',
+  after: 'work after the build',
+  light: 'light rows',
+  json: 'JSON',
 }
 
 /**

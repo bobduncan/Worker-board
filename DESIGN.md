@@ -8128,7 +8128,7 @@ copy back 33-66 ms (logs/b1579-parts-before.jsonl).
   `build` in the loop, `copyBack`, `after`, and the page's `light` and `json`). A part in one block (`copyIn`, `copyBack`, `light`,
   `json`) is timed by its own clock and kept with when it ran (10 minutes); an awaited part by the loop's busy time then, for the
   measure only: it counts whatever else blocked the loop, so it never holds a stall (review lens 2). Each loop stall in the state
-  carries `held`, the longest block of 100 ms or more that ran within it (from the timer's last run), and board-slow's evidence names it ("held by the state rebuild's reading the sources 6.3 s"); `slowCause.holders` counts
+  carries `held`, the longest block of 100 ms or more that ran within it (from the timer's last run), and board-slow's evidence names it ("held by the state rebuild's copy back 4.2 s"); `slowCause.holders` counts
   the holders of the stalls since the first slow call, a part or the first other job (sync, self-update, accept-cards, check:<step>).
   WORKER_BOARD_PARTS_LOG writes each rebuild as a line (the measure).
 - Pinned by `test/stateThreadBoard.test.mjs` (B1579: what goes in holds no store item, chat file or transcript; a write shows within a

@@ -110,7 +110,7 @@ test('B1579, the 21:12:21 case: a stall no rebuild part held reads as the other 
   const words = state => rule.check(buildView({ state, items: new Map(), now: at + 60_000 }), { seen: new Map(), observed: [] })[0].evidence
   const late = [{ at: at - 60_000, ms: 30_000 }, { at, ms: 28_000 }]
   assert.match(words({ lateCalls: late, slowCause: { ...cause, build: 'thread' } }), /; the loop stalls then were held by the job sync 1$/)
-  assert.match(words({ lateCalls: late, slowCause: { ...held, build: 'thread' } }), /; the loop stalls then were held by the state rebuild's the state's copy back 2$/)
+  assert.match(words({ lateCalls: late, slowCause: { ...held, build: 'thread' } }), /; the loop stalls then were held by the state rebuild's copy back 2$/)
   // The stall itself in the evidence names its holder too.
-  assert.match(words({ lateCalls: late, stalls: withHolds([{ ...stall, at: at + 1000, ms: 4300 }], big), slowCause: null }), /held by the state rebuild's the state's copy back 4\.2 s/)
+  assert.match(words({ lateCalls: late, stalls: withHolds([{ ...stall, at: at + 1000, ms: 4300 }], big), slowCause: null }), /held by the state rebuild's copy back 4\.2 s/)
 })

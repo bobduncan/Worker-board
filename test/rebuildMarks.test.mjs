@@ -59,7 +59,7 @@ test('the block that held the loop in a stall: the longest of 100 ms or more tha
   assert.deepEqual(loop.held, { part: 'json', ms: 4100 })
   assert.equal('held' in call, false)
   assert.deepEqual(stallOf(loop).held, { part: 'json', ms: 4100 })
-  assert.match(stallWords(stallOf(loop), () => '11:40:31'), /^11:40:31 4\.3 s the loop blocked \(jobs: state rebuild, sync; held by the state rebuild's the state's JSON 4\.1 s\)$/)
+  assert.match(stallWords(stallOf(loop), () => '11:40:31'), /^11:40:31 4\.3 s the loop blocked \(jobs: state rebuild, sync; held by the state rebuild's JSON 4\.1 s\)$/)
 })
 
 test('the thread\'s read of the store: kept between builds, read anew (its shared listing dropped too) once the loop\'s store read was reset', async () => {
@@ -83,4 +83,28 @@ test('the thread\'s read of the store: kept between builds, read anew (its share
   // Another folder: a keeper of its own.
   await reader({ workDir: 'v', gen: 1 })()
   assert.deepEqual(made.at(-1), 'made v')
+})
+
+test('B1579: the git reads of the working folders and branches are made where the state is built, kept a minute, by the same readers', async () => {
+  const { gitFacts } = await import('../src/stateBuild.mjs')
+  const calls = []
+  const run = async args => {
+    calls.push(args.join(' '))
+    if (args.includes('worktree')) return 'worktree C:/game\nHEAD abc\nbranch refs/heads/main\n\nworktree C:/game-b7\nHEAD def\nbranch refs/heads/b7\n\n'
+    if (args.includes('branch')) return '  b7\n* main\n'
+    if (args.includes('rev-list')) return '2\n'
+    if (args.includes('log')) return '1795632600 abc1234 A commit\n'
+    return ''
+  }
+  const facts = { git: { gameRepo: 'C:/game', base: 'main', repos: ['C:/game', 'C:/board'], ms: 60_000 } }
+  const first = await gitFacts(facts, run)
+  assert.deepEqual(first.folders.map(folder => [folder.path, folder.branch, folder.ahead]), [['C:/game', 'main', 0], ['C:/game-b7', 'b7', 2]])
+  assert.ok(Array.isArray(first.branches) || first.branches === null)
+  const made = calls.length
+  // Kept a minute: a second build reads no git.
+  assert.deepEqual(await gitFacts(facts, run), first)
+  assert.equal(calls.length, made)
+  // A board without a game reads no folders; facts without `git` (the tests', an older loop's) are taken as they are.
+  assert.equal((await gitFacts({ git: { gameRepo: null, base: 'main', repos: ['C:/board2'], ms: 60_000 } }, run)).folders, null)
+  assert.deepEqual(await gitFacts({ folders: [{ path: 'x' }], branches: ['main'] }, run), { folders: [{ path: 'x' }], branches: ['main'] })
 })
