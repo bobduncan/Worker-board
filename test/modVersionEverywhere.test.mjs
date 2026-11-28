@@ -1,4 +1,4 @@
-// Workers mod 0.37.0 (0.36.0, 0.35.0, 0.34.0, 0.33.0, 0.32.0, 0.31.2, 0.31.1, 0.31.0, 0.30.0, 0.29.1, 0.29.0 and 0.28.0 before it): the version stands the same in the plugin's manifest and in the mod's code (the header every call to
+// Workers mod 0.37.1 (0.37.0, 0.36.0, 0.35.0, 0.34.0, 0.33.0, 0.32.0, 0.31.2, 0.31.1, 0.31.0, 0.30.0, 0.29.1, 0.29.0 and 0.28.0 before it): the version stands the same in the plugin's manifest and in the mod's code (the header every call to
 // the board carries), and the manifest's release note names what this release does.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -7,12 +7,12 @@ import { fileURLToPath } from 'node:url'
 
 const mod = path => fileURLToPath(new URL(`../mods/workers/${path}`, import.meta.url))
 
-test('0.37.0 stands in the manifest and in MOD_VERSION, and the release note says what it does', async () => {
+test('0.37.1 stands in the manifest and in MOD_VERSION, and the release note says what it does', async () => {
   const manifest = JSON.parse(await readFile(mod('.claude-plugin/plugin.json'), 'utf8'))
   const code = (await readFile(mod('hooks/board.ts'), 'utf8')).match(/export const MOD_VERSION = '([^']+)'/)?.[1]
-  assert.equal(manifest.version, '0.37.0')
+  assert.equal(manifest.version, '0.37.1')
   // 0.35.0 (B1274): the probe's note and its removal's.
-  assert.ok(manifest.description.includes('0.34.0: a probe, observe only') && manifest.description.includes('0.35.0: the probe is gone') && manifest.description.includes('0.36.0: the work tool offers touches') && manifest.description.includes('0.37.0 (B417)') && manifest.description.includes('forYouText'), 'the notes')
+  assert.ok(manifest.description.includes('0.34.0: a probe, observe only') && manifest.description.includes('0.35.0: the probe is gone') && manifest.description.includes('0.36.0: the work tool offers touches') && manifest.description.includes('0.37.0 (B417)') && manifest.description.includes('forYouText') && manifest.description.includes('0.37.1 (B1586)'), 'the notes')
   // 0.32.0, point 3 (chat 1's verifier 2, finding 16): the block/unblock `on` text keeps "unblock without on" and names the board's wait time.
   const register = await readFile(new URL('../mods/workers/hooks/register.tsx', import.meta.url), 'utf8')
   const on = register.match(/on: \{ type: 'string', description: '((?:[^'\\]|\\.)*)' \}/)?.[1] ?? ''

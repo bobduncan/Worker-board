@@ -1093,7 +1093,10 @@ just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-resu
   routines, one per worker slot up to `maxWorkers` (5 unless set), made once: `<folder>-worker-N` titled
   "<prefix>Worker N" (`workerTaskIds`; "-2" for a second login, as for the shared task). The hands route gives the
   spawn job the new worker's own ids first and the shared task's after them (`nextSpawn`: the lowest free number, its
-  title and the ids), so the mod's rename of a worker's own routine to its own title changes nothing and the board runs
+  title and the ids; B1586 (X2, 2026-11-28: three spawns of Worker 6 failed "not found" with routines stored for Workers
+  1-5 only): only the ids the setup check found stored (`readCodeJobs`, read again before a word is closed), and with
+  none for the new worker the spawn word is closed at once with its why, which the "Start a new worker" row shows as
+  `spawnFail` and board.log names; the mod keeps all four ids, not three, and its why names each id tried), so the mod's rename of a worker's own routine to its own title changes nothing and the board runs
   a worker's routine only when that worker has no chat; a PC without the per-worker routines goes on with the shared
   task. The setup check (`src/codeJobs.mjs`) reads the stored ids of both, counts a routine as a stored task, and
   while some slots have one and others not, says "needs routines for Worker 4, 5" on the "Start a new worker" row

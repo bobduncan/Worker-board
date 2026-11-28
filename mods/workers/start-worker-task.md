@@ -35,7 +35,10 @@ as before. It is made like a routine above, with the title of the first worker.
 The board's `spawn workers` word is a hand job: the Workers mod of a running board chat runs the routine of the new
 worker, one worker per claim, by code. The new worker is "<prefix>Worker N" for the lowest N no chat of the board has,
 and its routine `<folder>-worker-N` is tried first (then its "-2"; renaming it to its own title changes nothing), the
-shared task only after them. The board runs a worker's own routine only when that worker has no chat. The new chat
+shared task only after them. B1586: the board sends only the ids it finds stored on this PC (up to four, in that order),
+and the mod tries each and names every one in its why when none starts; when none is stored for the new worker the
+board closes the word at once, its why ("Worker 6 has no routine of its own yet: the setup check's line makes it") on
+the setup check's "Start a new worker" row. The board runs a worker's own routine only when that worker has no chat. The new chat
 joins the list by itself and reports idle, and the board hands it a task. This needs the app to allow the chat's code
 `mcp__scheduled-tasks__update_scheduled_task` and `mcp__scheduled-tasks__run_scheduled_task` with no question (allow
 rules in the project's `.claude/settings.local.json`; the mod checks them with `$.tool.check`). Without them the word
