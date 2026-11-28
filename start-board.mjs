@@ -48,7 +48,7 @@ import { startAllowed } from './src/shutdown.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const HOST = '127.0.0.1'
-const WAIT_MS = 20_000
+export const WAIT_MS = 20_000
 /** F24a: how long the runs-already check waits for the page of a board that is slow. */
 export const ANSWER_MS = 15_000
 
