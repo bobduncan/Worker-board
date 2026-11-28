@@ -20,7 +20,8 @@
       "tools/remove-task-folder.mjs",
       "tools/big-suite.mjs",
       "src/bigSuite.mjs",
-      "src/lightCheck.mjs"
+      "src/lightCheck.mjs",
+      "test/runTree.mjs"
     ],
     "test/wakeNoHandsBoard.test.mjs": [
       "@board",
