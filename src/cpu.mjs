@@ -411,6 +411,52 @@ function withMarkedChildren(list, marked, roots = []) {
   return list.filter(one => found.has(one.pid) && marked.has(one.pid))
 }
 
+/**
+ * F87 (chat 1, 2026-11-28): the keys of the chosen processes that descend from a chat's own claude.exe (the chat itself left out). The
+ * limiter remembers them across its listings, so what a chat started stays the chat's after the shell between them ended.
+ */
+export function chatDescendants(chosen) {
+  const byKey = new Map(chosen.map(one => [one.key, one]))
+  const underChat = new Map()
+  const isUnder = one => {
+    if (underChat.has(one.key)) return underChat.get(one.key)
+    const parent = one.parentKey === null ? undefined : byKey.get(one.parentKey)
+    const answer = parent !== undefined && (isChatProcess(parent) || isUnder(parent))
+    underChat.set(one.key, answer)
+    return answer
+  }
+  return new Set(chosen.filter(one => !isChatProcess(one) && isUnder(one)).map(one => one.key))
+}
+
+/**
+ * F87 (chat 1, 2026-11-28; the person's lag at 17:15 on 2026-11-27: a `find /` a chat's shell started, left behind when the shell
+ * ended, at Normal on every core): the processes outside every tree that are still the project's. Each one is either a process the
+ * limiter saw under a chat before (`seen`: `pid@created` keys from earlier listings, so a number Windows gave out again is another
+ * process), or a node.exe whose parent is gone and whose command line names the project or one of its worktrees (`inProject`). What
+ * they started comes with them. Never a chat's own process, the board's own (`own`) or what is in a tree already (`inTree`). A Git-Bash
+ * tool the person started themselves was never under a chat and names no project folder: it is left alone.
+ */
+export function adoptedOf(list, { seen = new Set(), inTree = new Set(), own = new Set(), project = '' } = {}) {
+  const byPid = new Map(list.map(one => [one.pid, one]))
+  const parentOf = one => {
+    const parent = byPid.get(one.parent)
+    if (parent === undefined || parent.pid === one.pid) return null
+    return Number.isFinite(parent.created) && Number.isFinite(one.created) && parent.created > one.created ? null : parent
+  }
+  const free = one => !inTree.has(one.pid) && !own.has(one.pid) && !isChatProcess(one)
+  const isRoot = one => free(one) && (seen.has(keyOf(one)) || (String(one.name).toLowerCase() === 'node.exe' && parentOf(one) === null && inProject(one.commandLine, project)))
+  const found = new Set(list.filter(isRoot).map(one => one.pid))
+  for (let grew = true; grew;) {
+    grew = false
+    for (const one of list) {
+      if (found.has(one.pid) || !free(one) || !found.has(parentOf(one)?.pid)) continue
+      found.add(one.pid)
+      grew = true
+    }
+  }
+  return list.filter(one => found.has(one.pid))
+}
+
 /** F44: a time in ms as Windows dates a process (FILETIME: 100 ns since 1601), as the listing's `created`. */
 export const fileTimeOf = ms => (ms + 11_644_473_600_000) * 10_000
 
@@ -534,7 +580,7 @@ export const windowsProcesses = {
  * chat that started the board handed its Idle priority on) gives it Normal and all cores; under Full the first pass
  * does the same (2026-10-19).
  */
-export function cpuLimiter({ file, fallback = 'full', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [], log = () => {}, onLevel = () => {}, note = () => null, fence = () => null, project = '' }) {
+export function cpuLimiter({ file, fallback = 'full', platform = process.platform, cores, sessions, processes = windowsProcesses, now = Date.now, spare = [], log = () => {}, onLevel = () => {}, note = () => null, fence = () => null, project = '', onList = () => {} }) {
   const available = platform === 'win32'
   let level = null
   // S8: when the Full pass last fenced (ms); `fence()` gives the work cores' mask (a decimal string as `affinityMask`), or null.
@@ -551,6 +597,8 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
   let since = null
   let who = null
   let loose = new Set()
+  // F87: the processes seen under a chat in earlier listings (`pid@created`), kept while they live.
+  let seen = new Set()
   let count = 0
   let fault = null
   let running = null
@@ -620,8 +668,16 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
     const inTree = new Set(found.map(one => one.pid))
     const orphans = orphansOf(list, found, { since: Number.isFinite(lowSince) ? fileTimeOf(lowSince) : null, skip: [...own] })
     const remembered = list.filter(one => loose.has(keyOf(one)) && !inTree.has(one.pid) && !own.has(one.pid))
-    const outside = [...new Map([...remembered, ...orphans].map(one => [one.pid, { ...one, key: keyOf(one), parentKey: null }])).values()]
-    const chosen = current === 'low' ? [...found.filter(one => !isChatProcess(one)), ...outside] : found
+    // F87: what a chat started whose shell is gone, and project node runs with no parent: limited in Low, fenced in Full.
+    const living = new Set(list.map(keyOf))
+    seen = new Set([...seen, ...chatDescendants(found)].filter(key => living.has(key)))
+    const adoptedList = adoptedOf(list, { seen, inTree, own, project })
+    const adoptedKeys = new Map(adoptedList.map(one => [one.pid, keyOf(one)]))
+    const adopted = adoptedList.map(one => ({ ...one, key: keyOf(one), parentKey: adoptedKeys.get(one.parent) ?? null }))
+    const outside = [...new Map([...remembered, ...orphans, ...adopted].map(one => [one.pid, { ...one, key: keyOf(one), parentKey: one.parentKey ?? null }])).values()]
+    const chosen = current === 'low' ? [...found.filter(one => !isChatProcess(one)), ...outside] : [...found, ...adopted]
+    // The lag recorder reads every listing the limiter makes (no listing of its own).
+    try { onList({ list, found, adopted, level: current, at: now() }) } catch {}
     const fenceable = current === 'full' && fenceMask !== null ? fenceableKeys(chosen, { own, project }) : new Set()
     const { changes } = current === 'full' ? fullChanges(chosen, applied, cores, { fenceMask, isRestore: restore > 0, fenceable }) : changesFor(chosen, current, applied, cores)
     const slowed = list.filter(one => own.has(one.pid) && one.priority !== BASE_PRIORITY.Normal).map(one => one.pid)
@@ -637,7 +693,9 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
         const masks = await processes.masks(candidates.map(one => one.pid)).catch(() => new Map())
         for (const one of strandedProcesses(list, masks, cores, { chosen: found, roots: [...given.keys()] })) if (!given.has(one.pid)) given.set(one.pid, one)
       }
-      stranded = [...given.values()].map(one => ({ pid: one.pid, key: keyOf(one), priority: 'Normal', affinity: affinityMask(cores, 'full'), eco: false, ...(one.createdText ? { created: one.createdText } : {}) }))
+      // F87: what Full adopted is in `chosen`: its restore (with the fence) is in `changes`, never overwritten with all cores here.
+      const inChosen = new Set(chosen.map(one => one.pid))
+      stranded = [...given.values()].filter(one => !inChosen.has(one.pid)).map(one => ({ pid: one.pid, key: keyOf(one), priority: 'Normal', affinity: affinityMask(cores, 'full'), eco: false, ...(one.createdText ? { created: one.createdText } : {}) }))
     }
     // The chats first: a pass cut short must not leave them starved.
     const sets = [...kept, ...changes, ...stranded]
@@ -652,15 +710,15 @@ export function cpuLimiter({ file, fallback = 'full', platform = process.platfor
     if (stranded.length > 0) tell(`CPU for Claude: ${stranded.length} process${stranded.length === 1 ? '' : 'es'} Low left behind ${stranded.length === 1 ? 'is' : 'are'} back at Normal on all cores.`)
     const alive = new Set(list.map(keyOf))
     loose = new Set([...loose, ...(current === 'low' ? outside.map(one => one.key) : stranded.map(one => one.key))].filter(key => alive.has(key)))
-    const living = new Set([...chosen, ...chats].map(one => one.key))
-    applied = new Map([...applied].filter(([key]) => living.has(key)))
+    const inUse = new Set([...chosen, ...chats].map(one => one.key))
+    applied = new Map([...applied].filter(([key]) => inUse.has(key)))
     for (const change of changes) applied.set(change.key, current)
     for (const change of kept) if (Array.isArray(done) && done.includes(change.pid)) applied.set(change.key, CHAT_KEPT)
     count = current === 'full' ? 0 : chosen.length
     if (current === 'full') {
       restore = Math.max(0, restore - 1)
       // S8: Full remembers only what it fenced and Windows took, so the next pass sets only new processes; Low's marks go.
-      applied = new Map([...applied].filter(([key, value]) => value === FENCED && living.has(key)))
+      applied = new Map([...applied].filter(([key, value]) => value === FENCED && inUse.has(key)))
       for (const change of changes) if (fenceMask !== null && change.affinity === fenceMask && Array.isArray(done) && done.includes(change.pid)) applied.set(change.key, FENCED)
     }
   }
