@@ -8,7 +8,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import test from 'node:test'
+import test, { describe } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
@@ -69,7 +69,12 @@ async function until(check, what) {
   throw new Error(`Not within 90 s: ${what}`)
 }
 
-test('the app on another account: the board holds by itself (no hand-out, no wake, one calm line); back on its account B738 goes to Worker 4', { timeout: 300_000 }, async t => {
+/**
+ * The board over the made-up project with the app on the other account, its chats reported idle. `fast` (B1555): the reconciler every
+ * 5 s (not the 30 s default), so a 6 s wait covers a pass of it and the hand-out comes soon once back; B1577: false runs the board at
+ * its own timings. The account's settle time is 2 s either way (the board itself waits the minute after the app came back).
+ */
+async function awayBoard(t, { fast }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-account-'))
   const started = []
   t.after(async () => {
@@ -103,8 +108,7 @@ test('the app on another account: the board holds by itself (no hand-out, no wak
   const usage = join(appData, 'usage.json')
   await put(usage, JSON.stringify({ version: 2, samples: [{ t: NOW - MIN, org: 'org-1', u: { fh: 10, sd: 10 } }] }))
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'away', project, port, gamePort: 7330, gameRepo: '', appSessions: app, transcripts, usageHistory: usage, refreshSeconds: 5 }))
-  // B1555: the reconciler every 5 s (not the 30 s default), so the 6 s below covers a pass of it and the hand-out comes soon once back.
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'away', project, port, gamePort: 7330, gameRepo: '', appSessions: app, transcripts, usageHistory: usage, ...(fast ? { refreshSeconds: 5 } : {}) }))
   await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_ACCOUNT_SETTLE_MS: '2000' })
   const outbox = async () => JSON.parse(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8').then(text => `[${text.trim().split('\n').filter(Boolean).join(',')}]`, () => '[]'))
   const base = `http://127.0.0.1:${port}`
@@ -118,33 +122,54 @@ test('the app on another account: the board holds by itself (no hand-out, no wak
   }
   const token = /[0-9a-f]{64}/.exec(await fetch(`${base}/`).then(reply => reply.text()))?.[0]
   const state = () => fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
-  await until(async () => (await state()).pause?.state === 'away', 'the away hold in the state')
-  let seen = await state()
-  assert.deepEqual([seen.pause.line, seen.account.app, seen.account.board, seen.account.away], [AWAY_LINE, OTHER, BOARD, true])
-  assert.deepEqual(seen.chats.filter(lane => !lane.isLeftover).map(lane => lane.name).sort(), ['Main', 'Worker 4'], 'the board\'s own chats, read in its account')
-  assert.equal(JSON.parse(await readFile(join(board, 'data', 'app-account.json'), 'utf8')).account, BOARD, 'the board\'s account recorded from its main chat')
-  // Its loops pass a few times: nothing is handed out, nothing is sent.
-  await new Promise(done => setTimeout(done, 6000))
-  seen = await state()
-  assert.deepEqual(seen.readyList.ready.map(one => one.id), ['B738'])
-  assert.equal(seen.reconciled.handOutHeld, true)
-  const early = (await outbox()).filter(one => one.command === 'handover' || one.step === 'B738')
-  assert.deepEqual(early, [], `no hand-out while away: ${JSON.stringify(early).slice(0, 900)}`)
-  // B1283 (F37): past the settle the board filed its one ask in the store (a decide of the board's own, routed to the person).
-  const askOf = async () => [...(await readStore(join(project, '.claude', 'work'))).items.values()].find(item => item.head.get('Kind') === 'ask' && /^The Claude app is on account/.test(item.head.get('Title') ?? ''))
-  await until(async () => (await askOf()) !== undefined, 'the account ask in the store')
-  const asked = await askOf()
-  assert.deepEqual([asked.head.get('State'), asked.head.get('Asks'), asked.head.get('Options')], ['open', 'decide', 'A Run the board on this account | B Keep waiting until I switch back'])
-  assert.equal((await state()).pause.ask, asked.head.get('Id'), 'the away line links to it')
-  await new Promise(done => setTimeout(done, 3000))
-  assert.equal([...(await readStore(join(project, '.claude', 'work'))).items.values()].filter(item => item.head.get('Kind') === 'ask').length, 1, 'one ask, not one per read')
-  // Back on the board's account: after the settle time the hold lifts, the ask closes by itself and B738 goes to Worker 4.
-  await writeFile(appConfig, JSON.stringify({ locale: 'en', lastKnownAccountUuid: BOARD }))
-  await until(async () => (await outbox()).some(one => one.command === 'handover' && one.step === 'B738'), 'the hand-over of B738 once back')
-  assert.equal((await outbox()).find(one => one.step === 'B738').to, 'Worker 4')
-  seen = await state()
-  assert.notEqual(seen.pause?.state, 'away')
-  assert.equal(seen.account.away, false)
-  await until(async () => (await askOf())?.head.get('State') === 'withdrawn', 'the ask withdrawn once home')
-  assert.match((await askOf()).sections.get('History')?.join('\n') ?? '', /withdrawn: the Claude app came back to 26b81206; nothing to decide/)
+  /** The away hold in the state, with its calm line, read in the board's own account. */
+  const held = async () => {
+    await until(async () => (await state()).pause?.state === 'away', 'the away hold in the state')
+    const seen = await state()
+    assert.deepEqual([seen.pause.line, seen.account.app, seen.account.board, seen.account.away], [AWAY_LINE, OTHER, BOARD, true])
+    assert.deepEqual(seen.chats.filter(lane => !lane.isLeftover).map(lane => lane.name).sort(), ['Main', 'Worker 4'], 'the board\'s own chats, read in its account')
+    assert.equal(JSON.parse(await readFile(join(board, 'data', 'app-account.json'), 'utf8')).account, BOARD, 'the board\'s account recorded from its main chat')
+  }
+  const handedOut = async () => (await outbox()).filter(one => one.command === 'handover' || one.step === 'B738')
+  return { project, appConfig, outbox, state, held, handedOut }
+}
+
+// B1555 (faster slow tests): each case starts a board of its own on a port of its own, so they run side by side.
+describe('the app on another account', { concurrency: 2 }, () => {
+  test('B1577, the file\'s real-time case: the board at its own timings (the reconciler every 30 s) holds by itself, and its first pass hands nothing out', { timeout: 300_000 }, async t => {
+    const { state, held, handedOut } = await awayBoard(t, { fast: false })
+    await held()
+    await until(async () => (await state()).reconciled?.handOutHeld === true, 'a reconciler pass that held the hand-out')
+    assert.deepEqual((await state()).readyList.ready.map(one => one.id), ['B738'])
+    assert.deepEqual(await handedOut(), [], 'no hand-out while away')
+  })
+
+  test('the app on another account: the board holds by itself (no hand-out, no wake, one calm line); back on its account B738 goes to Worker 4', { timeout: 300_000 }, async t => {
+    const { project, appConfig, outbox, state, held, handedOut } = await awayBoard(t, { fast: true })
+    await held()
+    // Its loops pass a few times: nothing is handed out, nothing is sent.
+    await new Promise(done => setTimeout(done, 6000))
+    let seen = await state()
+    assert.deepEqual(seen.readyList.ready.map(one => one.id), ['B738'])
+    assert.equal(seen.reconciled.handOutHeld, true)
+    const early = await handedOut()
+    assert.deepEqual(early, [], `no hand-out while away: ${JSON.stringify(early).slice(0, 900)}`)
+    // B1283 (F37): past the settle the board filed its one ask in the store (a decide of the board's own, routed to the person).
+    const askOf = async () => [...(await readStore(join(project, '.claude', 'work'))).items.values()].find(item => item.head.get('Kind') === 'ask' && /^The Claude app is on account/.test(item.head.get('Title') ?? ''))
+    await until(async () => (await askOf()) !== undefined, 'the account ask in the store')
+    const asked = await askOf()
+    assert.deepEqual([asked.head.get('State'), asked.head.get('Asks'), asked.head.get('Options')], ['open', 'decide', 'A Run the board on this account | B Keep waiting until I switch back'])
+    assert.equal((await state()).pause.ask, asked.head.get('Id'), 'the away line links to it')
+    await new Promise(done => setTimeout(done, 3000))
+    assert.equal([...(await readStore(join(project, '.claude', 'work'))).items.values()].filter(item => item.head.get('Kind') === 'ask').length, 1, 'one ask, not one per read')
+    // Back on the board's account: after the settle time the hold lifts, the ask closes by itself and B738 goes to Worker 4.
+    await writeFile(appConfig, JSON.stringify({ locale: 'en', lastKnownAccountUuid: BOARD }))
+    await until(async () => (await outbox()).some(one => one.command === 'handover' && one.step === 'B738'), 'the hand-over of B738 once back')
+    assert.equal((await outbox()).find(one => one.step === 'B738').to, 'Worker 4')
+    seen = await state()
+    assert.notEqual(seen.pause?.state, 'away')
+    assert.equal(seen.account.away, false)
+    await until(async () => (await askOf())?.head.get('State') === 'withdrawn', 'the ask withdrawn once home')
+    assert.match((await askOf()).sections.get('History')?.join('\n') ?? '', /withdrawn: the Claude app came back to 26b81206; nothing to decide/)
+  })
 })

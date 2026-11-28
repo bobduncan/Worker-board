@@ -8,7 +8,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/pro
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import test from 'node:test'
+import test, { describe } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
@@ -65,7 +65,11 @@ async function until(check, what) {
   throw new Error(`Not within 90 s: ${what}`)
 }
 
-test('the Send on a goal demo: feedback.json, the words on the step once, one word to the partner, round 2 shows what came back', { timeout: 300_000 }, async t => {
+/**
+ * The board over the made-up project with G6's demo. `fast` (B1555): the reconciler every 5 s and the look every second; B1577: false
+ * runs the board at its own timings (30 s, a minute).
+ */
+async function demoBoard(t, { fast }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-recap-'))
   const started = []
   t.after(async () => {
@@ -99,8 +103,8 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
   const work = join(project, '.claude', 'work')
   await writeStore(work, migrateBacklog('## Garden\n- [ ] B12 Plant the hedge (for Digger; about 1 h)\n', { now: NOW }), undefined, { now: NOW })
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'recap', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), refreshSeconds: 5 }))
-  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_TICK_MS: '1000' })
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'recap', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), ...(fast ? { refreshSeconds: 5 } : {}) }))
+  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), ...(fast ? { WORKER_BOARD_TICK_MS: '1000' } : {}) })
 
   const base = `http://127.0.0.1:${port}`
   const page = await fetch(`${base}/`).then(reply => reply.text())
@@ -114,81 +118,99 @@ test('the Send on a goal demo: feedback.json, the words on the step once, one wo
   const toPartner = async () => (await outbox()).filter(message => message.to === 'Advisor' && message.command === 'recap-feedback')
   const stepText = async () => readFile(join(work, 'B12.md'), 'utf8')
   const rowsOf = shown => shown.sections.flatMap(section => section.rows.map(row => row.key))
-
-  const first = await demoPage()
-  assert.deepEqual([first.feedback.round, first.feedback.canSend, first.feedback.whyNot, rowsOf(first)], [1, true, null, ['1. Lava', '2. Cliffs', '3. Round shapes']])
-
-  // Refused before anything is written: a part the demo lacks, a part sent back without words.
   const send = body => asPerson('/api/demo-feedback', { path: 'pictures/g6/demo.json', ...body })
-  assert.equal((await send({ round: 1, parts: [{ key: '9. Nothing', verdict: 'approved' }] })).status, 400)
-  assert.equal((await send({ round: 1, parts: [{ key: '3. Round shapes', verdict: 'sent-back', comment: '' }] })).status, 400)
-  assert.equal((await demoPage()).feedback.round, 1)
+  return { project, work, base, token, asPerson, demoPage, outbox, toPartner, stepText, rowsOf, send }
+}
 
-  const sent = await send({ round: 1, parts: [{ key: '1. Lava', verdict: 'approved' }, { key: '2. Cliffs', verdict: 'approved', comment: 'good' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }] })
-  assert.equal(sent.status, 200, sent.body)
-  // T22: with `said`, the id of the word to the partner, by which the page draws the Send's wait line.
-  const { said: firstSaid, ...sentResult } = JSON.parse(sent.body)
-  assert.deepEqual(sentResult, { round: 1, approved: 2, sentBack: 1, looks: 0, lookFailed: [], looksLeft: 0, done: false, notedOn: 'B12', closed: [] })
-  const kept = JSON.parse(await readFile(join(project, 'pictures', 'g6', 'feedback.json'), 'utf8'))
-  assert.deepEqual(kept.rounds[0].parts, [{ key: '1. Lava', verdict: 'approved', comment: '' }, { key: '2. Cliffs', verdict: 'approved', comment: 'good' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }])
-  // The step's "Your words" holds the round as one point (its history line quotes it too).
-  const words = await stepText()
-  const yours = words.split('## Your words')[1].split('\n## ')[0]
-  assert.equal(yours.match(/Sent back: 3\. Round shapes: "still stepped"/g)?.length, 1, 'the words stand once as a point of Your words')
-  assert.match(yours, /Recap feedback, round 1: 2 approved, 1 sent back\./)
-  const toldPartner = await until(async () => { const found = await toPartner(); return found.length > 0 ? found : null }, 'the word to the partner')
-  assert.equal(toldPartner.length, 1)
-  assert.equal(firstSaid, toldPartner[0].id)
-  // T22: the state carries the Send's wait line by that id, until the partner's next tries are filed.
-  const state = await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
-  assert.deepEqual([state.waits?.[firstSaid]?.command, state.waits?.[firstSaid]?.about, state.waits?.[firstSaid]?.state], ['recap-feedback', 'G6', 'sent'])
-  // T22: this board offers Send again; one for a chat it does not show is refused at once, nothing tried.
-  assert.equal(state.waitAgain, true)
-  const refused = await asPerson('/api/say', { command: 'wake-again', chat: 'Nobody', word: firstSaid })
-  assert.deepEqual([refused.status, refused.body.trim()], [404, 'That chat is not on the board.'])
-  assert.match(toldPartner[0].text, /recap feedback: G6 The polish, round 1: 1 part sent back\nStep: B12\n/)
-  assert.match(toldPartner[0].text, /- 3\. Round shapes: "still stepped"/)
+const ROUND_1 = [{ key: '1. Lava', verdict: 'approved' }, { key: '2. Cliffs', verdict: 'approved', comment: 'good' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }]
 
-  // The same round again (a double click, a second tab): refused, nothing is written or typed twice.
-  const again = await send({ round: 1, parts: [{ key: '3. Round shapes', verdict: 'sent-back', comment: 'twice' }] })
-  assert.equal(again.status, 409, again.body)
-  assert.equal((await stepText()).split('## Your words')[1].split('\n## ')[0].match(/Recap feedback, round/g).length, 1)
-  assert.equal((await toPartner()).length, 1)
+// B1555 (faster slow tests): each case starts a board of its own on a port of its own, so they run side by side.
+describe('the Send on a goal demo', { concurrency: 2 }, () => {
+  test('B1577, the file\'s real-time case: the board at its own timings (the reconciler every 30 s, the look every minute): the Send\'s one word to the partner', { timeout: 300_000 }, async t => {
+    const { send, toPartner } = await demoBoard(t, { fast: false })
+    const sent = await send({ round: 1, parts: ROUND_1 })
+    assert.equal(sent.status, 200, sent.body)
+    const toldPartner = await until(async () => { const found = await toPartner(); return found.length > 0 ? found : null }, 'the word to the partner')
+    assert.deepEqual([toldPartner.length, toldPartner[0].id], [1, JSON.parse(sent.body).said])
+    assert.match(toldPartner[0].text, /recap feedback: G6 The polish, round 1: 1 part sent back\nStep: B12\n/)
+  })
 
-  // T17.1 (the person: "the same pictures are provided and i see no evidence of what i asked it to fix"): right after the Send, round 2 is
-  // being made: the part sent back with the person's words and no picture, nothing to send, and a Send is refused.
-  const making = await demoPage()
-  assert.deepEqual([making.feedback.round, making.feedback.making, making.feedback.canSend, rowsOf(making), making.sections[0].rows[0].pictures, making.sections[0].rows[0].reworking], [2, { round: 2 }, false, ['3. Round shapes'], [], true])
-  assert.equal((await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })).status, 409)
-  // T17.1 (the coordinator's review of 6f197a4): a next try (a step of the goal filed after the Send) that turns done while the round is being
-  // made is told to the partner, once for each step: "recap: G6 round 2: B20 is done; write the round with its row, `pending` for the rest".
-  const nextTry = id => [`Id: ${id}`, 'Kind: step', 'Title: Round the shapes again', 'State: done', 'Owner: Digger', 'Activity: Garden', 'Goal: G6', `Since: ${stamp(Date.now())}`, '',
-    '## History', `- ${stamp(Date.now())} Digger: new → done`, ''].join('\n')
-  const nudges = async () => (await outbox()).filter(message => message.command === 'recap-round')
-  await writeFile(join(work, 'B20.md'), nextTry('B20'))
-  const nudged = await until(async () => { const found = await nudges(); return found.length > 0 ? found : null }, 'the word for the next try that is done')
-  assert.equal(nudged.length, 1)
-  assert.equal(nudged[0].text.split('\n')[0], 'recap: G6 round 2: B20 is done; write the round with its row, `pending` for the rest')
-  assert.deepEqual([nudged[0].to, nudged[0].step, nudged[0].about], ['Advisor', 'B20', 'G6'])
-  // The partner writes the demo again (a later minute than the Send), the part sent back with what changed: round 2 is ready.
-  const file = join(project, 'pictures', 'g6', 'demo.json')
-  const written = JSON.parse(await readFile(file, 'utf8'))
-  const later = new Date(Date.now() + 5 * MIN)
-  written.sections[1].rows[0].changed = 'still stepped -> rounded off'
-  written.sections[1].rows[0].play = 'ring'
-  // T17.2: and a checker who did not make its close-up says, after the Send, that it shows their words.
-  written.sections[1].rows[0].shows = { verdict: 'yes', by: 'Checker', at: stamp(later.getTime()), why: 'the ring reads round' }
-  await writeFile(file, JSON.stringify(written))
-  await utimes(file, later, later)
+  test('the Send on a goal demo: feedback.json, the words on the step once, one word to the partner, round 2 shows what came back', { timeout: 300_000 }, async t => {
+    const { project, work, base, token, asPerson, demoPage, outbox, toPartner, stepText, rowsOf, send } = await demoBoard(t, { fast: true })
+    const first = await demoPage()
+    assert.deepEqual([first.feedback.round, first.feedback.canSend, first.feedback.whyNot, rowsOf(first)], [1, true, null, ['1. Lava', '2. Cliffs', '3. Round shapes']])
 
-  // Round 2 shows only the part sent back, with the person's comment and what changed; the approved ones are folded.
-  const second = await demoPage()
-  assert.deepEqual([second.feedback.round, second.feedback.making, second.feedback.canSend, rowsOf(second), second.sections[0].rows[0].said, second.feedback.folded.map(one => one.key)], [2, null, true, ['3. Round shapes'], { comment: 'still stepped', round: 1 }, ['1. Lava', '2. Cliffs']])
-  assert.deepEqual([second.sections[0].rows[0].changed, second.sections[0].rows[0].play, second.sections[0].rows[0].pictures.length], ['still stepped -> rounded off', 'ring', 1])
-  const done = await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })
-  const { said: doneSaid, ...doneResult } = JSON.parse(done.body)
-  assert.deepEqual(doneResult, { round: 2, approved: 1, sentBack: 0, looks: 0, lookFailed: [], looksLeft: 0, done: true, notedOn: 'B12', closed: [] })
-  assert.equal(typeof doneSaid, 'string')
-  const finished = await demoPage()
-  assert.deepEqual([finished.feedback.done, finished.feedback.canSend, rowsOf(finished)], [true, false, []])
+    // Refused before anything is written: a part the demo lacks, a part sent back without words.
+    assert.equal((await send({ round: 1, parts: [{ key: '9. Nothing', verdict: 'approved' }] })).status, 400)
+    assert.equal((await send({ round: 1, parts: [{ key: '3. Round shapes', verdict: 'sent-back', comment: '' }] })).status, 400)
+    assert.equal((await demoPage()).feedback.round, 1)
+
+    const sent = await send({ round: 1, parts: ROUND_1 })
+    assert.equal(sent.status, 200, sent.body)
+    // T22: with `said`, the id of the word to the partner, by which the page draws the Send's wait line.
+    const { said: firstSaid, ...sentResult } = JSON.parse(sent.body)
+    assert.deepEqual(sentResult, { round: 1, approved: 2, sentBack: 1, looks: 0, lookFailed: [], looksLeft: 0, done: false, notedOn: 'B12', closed: [] })
+    const kept = JSON.parse(await readFile(join(project, 'pictures', 'g6', 'feedback.json'), 'utf8'))
+    assert.deepEqual(kept.rounds[0].parts, [{ key: '1. Lava', verdict: 'approved', comment: '' }, { key: '2. Cliffs', verdict: 'approved', comment: 'good' }, { key: '3. Round shapes', verdict: 'sent-back', comment: 'still stepped' }])
+    // The step's "Your words" holds the round as one point (its history line quotes it too).
+    const words = await stepText()
+    const yours = words.split('## Your words')[1].split('\n## ')[0]
+    assert.equal(yours.match(/Sent back: 3\. Round shapes: "still stepped"/g)?.length, 1, 'the words stand once as a point of Your words')
+    assert.match(yours, /Recap feedback, round 1: 2 approved, 1 sent back\./)
+    const toldPartner = await until(async () => { const found = await toPartner(); return found.length > 0 ? found : null }, 'the word to the partner')
+    assert.equal(toldPartner.length, 1)
+    assert.equal(firstSaid, toldPartner[0].id)
+    // T22: the state carries the Send's wait line by that id, until the partner's next tries are filed.
+    const state = await fetch(`${base}/api/state`, { headers: { 'X-Board-Token': token } }).then(reply => reply.json())
+    assert.deepEqual([state.waits?.[firstSaid]?.command, state.waits?.[firstSaid]?.about, state.waits?.[firstSaid]?.state], ['recap-feedback', 'G6', 'sent'])
+    // T22: this board offers Send again; one for a chat it does not show is refused at once, nothing tried.
+    assert.equal(state.waitAgain, true)
+    const refused = await asPerson('/api/say', { command: 'wake-again', chat: 'Nobody', word: firstSaid })
+    assert.deepEqual([refused.status, refused.body.trim()], [404, 'That chat is not on the board.'])
+    assert.match(toldPartner[0].text, /recap feedback: G6 The polish, round 1: 1 part sent back\nStep: B12\n/)
+    assert.match(toldPartner[0].text, /- 3\. Round shapes: "still stepped"/)
+
+    // The same round again (a double click, a second tab): refused, nothing is written or typed twice.
+    const again = await send({ round: 1, parts: [{ key: '3. Round shapes', verdict: 'sent-back', comment: 'twice' }] })
+    assert.equal(again.status, 409, again.body)
+    assert.equal((await stepText()).split('## Your words')[1].split('\n## ')[0].match(/Recap feedback, round/g).length, 1)
+    assert.equal((await toPartner()).length, 1)
+
+    // T17.1 (the person: "the same pictures are provided and i see no evidence of what i asked it to fix"): right after the Send, round 2 is
+    // being made: the part sent back with the person's words and no picture, nothing to send, and a Send is refused.
+    const making = await demoPage()
+    assert.deepEqual([making.feedback.round, making.feedback.making, making.feedback.canSend, rowsOf(making), making.sections[0].rows[0].pictures, making.sections[0].rows[0].reworking], [2, { round: 2 }, false, ['3. Round shapes'], [], true])
+    assert.equal((await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })).status, 409)
+    // T17.1 (the coordinator's review of 6f197a4): a next try (a step of the goal filed after the Send) that turns done while the round is being
+    // made is told to the partner, once for each step: "recap: G6 round 2: B20 is done; write the round with its row, `pending` for the rest".
+    const nextTry = id => [`Id: ${id}`, 'Kind: step', 'Title: Round the shapes again', 'State: done', 'Owner: Digger', 'Activity: Garden', 'Goal: G6', `Since: ${stamp(Date.now())}`, '',
+      '## History', `- ${stamp(Date.now())} Digger: new → done`, ''].join('\n')
+    const nudges = async () => (await outbox()).filter(message => message.command === 'recap-round')
+    await writeFile(join(work, 'B20.md'), nextTry('B20'))
+    const nudged = await until(async () => { const found = await nudges(); return found.length > 0 ? found : null }, 'the word for the next try that is done')
+    assert.equal(nudged.length, 1)
+    assert.equal(nudged[0].text.split('\n')[0], 'recap: G6 round 2: B20 is done; write the round with its row, `pending` for the rest')
+    assert.deepEqual([nudged[0].to, nudged[0].step, nudged[0].about], ['Advisor', 'B20', 'G6'])
+    // The partner writes the demo again (a later minute than the Send), the part sent back with what changed: round 2 is ready.
+    const file = join(project, 'pictures', 'g6', 'demo.json')
+    const written = JSON.parse(await readFile(file, 'utf8'))
+    const later = new Date(Date.now() + 5 * MIN)
+    written.sections[1].rows[0].changed = 'still stepped -> rounded off'
+    written.sections[1].rows[0].play = 'ring'
+    // T17.2: and a checker who did not make its close-up says, after the Send, that it shows their words.
+    written.sections[1].rows[0].shows = { verdict: 'yes', by: 'Checker', at: stamp(later.getTime()), why: 'the ring reads round' }
+    await writeFile(file, JSON.stringify(written))
+    await utimes(file, later, later)
+
+    // Round 2 shows only the part sent back, with the person's comment and what changed; the approved ones are folded.
+    const second = await demoPage()
+    assert.deepEqual([second.feedback.round, second.feedback.making, second.feedback.canSend, rowsOf(second), second.sections[0].rows[0].said, second.feedback.folded.map(one => one.key)], [2, null, true, ['3. Round shapes'], { comment: 'still stepped', round: 1 }, ['1. Lava', '2. Cliffs']])
+    assert.deepEqual([second.sections[0].rows[0].changed, second.sections[0].rows[0].play, second.sections[0].rows[0].pictures.length], ['still stepped -> rounded off', 'ring', 1])
+    const done = await send({ round: 2, parts: [{ key: '3. Round shapes', verdict: 'approved' }] })
+    const { said: doneSaid, ...doneResult } = JSON.parse(done.body)
+    assert.deepEqual(doneResult, { round: 2, approved: 1, sentBack: 0, looks: 0, lookFailed: [], looksLeft: 0, done: true, notedOn: 'B12', closed: [] })
+    assert.equal(typeof doneSaid, 'string')
+    const finished = await demoPage()
+    assert.deepEqual([finished.feedback.done, finished.feedback.canSend, rowsOf(finished)], [true, false, []])
+  })
 })

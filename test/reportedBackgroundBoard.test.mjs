@@ -9,7 +9,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import test from 'node:test'
+import test, { describe } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { answer, typed } from '../fixtures/lines.mjs'
@@ -70,7 +70,11 @@ async function until(check, what) {
 
 const background = at => JSON.stringify({ type: 'user', timestamp: new Date(at).toISOString(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'Command running in background with ID: b1' }] } })
 
-test('a worker that reports and ends its turn with background work running is told once; one with nothing running, or a dropped step, is not', { timeout: 300_000 }, async t => {
+/**
+ * The board over the made-up project: Worker 1 reported B720 with background work running, Worker 2 with nothing running, Worker 3's
+ * step dropped. `fast` (B1555): the reconciler every 5 s and the look every second; B1577: false runs the board at its own timings.
+ */
+async function backgroundBoard(t, { fast }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-background-'))
   const started = []
   t.after(async () => {
@@ -105,9 +109,8 @@ test('a worker that reports and ends its turn with background work running is to
     ].join('\n'))
   }
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'background', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), refreshSeconds: 5 }))
-  // B1555: the reconciler every 5 s (not the 30 s default) and the look every second; each wait below covers one more pass.
-  const env = { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_TICK_MS: '1000' }
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'background', project, port, gamePort: 7340, gameRepo: '', appSessions: app, transcripts, usageHistory: join(app, 'none.json'), ...(fast ? { refreshSeconds: 5 } : {}) }))
+  const env = { WORKER_BOARD_HOME: join(dir, 'pc'), ...(fast ? { WORKER_BOARD_TICK_MS: '1000' } : {}) }
   const told = async () => (await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8').catch(() => ''))
     .split('\n').filter(Boolean).map(text => JSON.parse(text)).filter(message => message.command === 'report-background')
   const first = await run(started, board, env)
@@ -118,19 +121,40 @@ test('a worker that reports and ends its turn with background work running is to
       await fetch(`http://127.0.0.1:${port}/api/bridge/take`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Board-Key': key, 'X-Workers-Mod': '0.17.0' }, body: JSON.stringify({ chat: name, session: `w${index + 1}-old` }) })
     }
   }
-  await ask()
-  await until(async () => { await ask(); return (await told()).length > 0 }, 'the line to Worker 1 in the outbox')
-  // The same pass looked at the other two: they get none. Then wait for further passes: still one.
-  await new Promise(done => setTimeout(done, 6000))
-  const [line, ...more] = await told()
-  assert.deepEqual(more, [])
-  assert.equal(line.to, 'Worker 1')
-  assert.equal(line.text, 'B720 is reported; your background work still runs: stop it or wait for it, then end your turn')
+  const again = async () => {
+    await stop(first)
+    await run(started, board, env)
+  }
+  return { told, ask, again }
+}
 
-  // The board starts anew: the same report is not told again.
-  await stop(first)
-  await run(started, board, env)
-  await ask()
-  await new Promise(done => setTimeout(done, 6000))
-  assert.equal((await told()).length, 1)
+const LINE = 'B720 is reported; your background work still runs: stop it or wait for it, then end your turn'
+
+// B1555 (faster slow tests): each case starts a board of its own on a port of its own, so they run side by side.
+describe('the line to a worker whose background work runs on after its report', { concurrency: 2 }, () => {
+  test('B1577, the file\'s real-time case: the board at its own timings (the reconciler every 30 s, the look every minute) tells Worker 1 alone', { timeout: 300_000 }, async t => {
+    const { told, ask } = await backgroundBoard(t, { fast: false })
+    await ask()
+    await until(async () => { await ask(); return (await told()).length > 0 }, 'the line to Worker 1 in the outbox')
+    assert.deepEqual((await told()).map(line => [line.to, line.text]), [['Worker 1', LINE]])
+  })
+
+  test('a worker that reports and ends its turn with background work running is told once; one with nothing running, or a dropped step, is not', { timeout: 300_000 }, async t => {
+    // B1555: the reconciler every 5 s (not the 30 s default) and the look every second; each wait below covers one more pass.
+    const { told, ask, again } = await backgroundBoard(t, { fast: true })
+    await ask()
+    await until(async () => { await ask(); return (await told()).length > 0 }, 'the line to Worker 1 in the outbox')
+    // The same pass looked at the other two: they get none. Then wait for further passes: still one.
+    await new Promise(done => setTimeout(done, 6000))
+    const [line, ...more] = await told()
+    assert.deepEqual(more, [])
+    assert.equal(line.to, 'Worker 1')
+    assert.equal(line.text, LINE)
+
+    // The board starts anew: the same report is not told again.
+    await again()
+    await ask()
+    await new Promise(done => setTimeout(done, 6000))
+    assert.equal((await told()).length, 1)
+  })
 })

@@ -79,9 +79,10 @@ const reported = (who, ago, check = null) => [
 
 /**
  * A board over a made-up project, `week` and `fiveHour` percent used. `steps` is what the store holds for each worker (null: no
- * step): `{ id, state, history }`. Workers 2, 3 and 5 run a turn (busy), Worker 4 ended its turn (idle, free).
+ * step): `{ id, state, history }`. Workers 2, 3 and 5 run a turn (busy), Worker 4 ended its turn (idle, free). `fast` (B1555): the
+ * reconciler every 5 s and the look every second; B1577: false runs the board at its own timings (30 s, a minute), the file's one real-time case.
  */
-async function boardAt(t, { week = 10, fiveHour = 10, steps }) {
+async function boardAt(t, { week = 10, fiveHour = 10, steps, fast = true }) {
   const dir = await mkdtemp(join(tmpdir(), 'board-onstep-'))
   const started = []
   t.after(async () => {
@@ -120,8 +121,8 @@ async function boardAt(t, { week = 10, fiveHour = 10, steps }) {
   const usage = join(app, 'usage.json')
   await put(usage, JSON.stringify({ version: 2, samples: [{ t: NOW - MIN, org: 'org-1', u: { fh: fiveHour, sd: week } }] }))
   const port = await freePort()
-  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'onstep', project, port, gamePort: 7330, gameRepo: '', appSessions: app, transcripts, usageHistory: usage, refreshSeconds: 5 }))
-  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), WORKER_BOARD_TICK_MS: '1000' })
+  await writeFile(join(board, 'config.json'), JSON.stringify({ name: 'onstep', project, port, gamePort: 7330, gameRepo: '', appSessions: app, transcripts, usageHistory: usage, ...(fast ? { refreshSeconds: 5 } : {}) }))
+  await run(started, board, { WORKER_BOARD_HOME: join(dir, 'pc'), ...(fast ? { WORKER_BOARD_TICK_MS: '1000' } : {}) })
   const outbox = async () => JSON.parse(await readFile(join(board, 'data', 'outbox.jsonl'), 'utf8').then(text => `[${text.trim().split('\n').filter(Boolean).join(',')}]`, () => '[]'))
   const base = `http://127.0.0.1:${port}`
   // What each chat's mod reports of its turn: Worker 4 ended its turn (idle), the others run one (Worker 2's runs on after its report).
@@ -154,8 +155,8 @@ const EVENING = {
 
 // B1555 (faster slow tests): each case starts a board of its own on a port of its own, so they run side by side.
 describe('the stop word to the workers still on their steps', { concurrency: 4 }, () => {
-  test('the week at 98: Workers 3 and 5, still on their steps, are told once; Worker 2, which just reported B742, and Worker 4, which holds none, hear nothing', { timeout: 300_000 }, async t => {
-    const { outbox } = await boardAt(t, { week: 98, steps: EVENING })
+  test('the week at 98: Workers 3 and 5, still on their steps, are told once; Worker 2, which just reported B742, and Worker 4, which holds none, hear nothing (B1577: the file\'s real-time case, the board at its own timings)', { timeout: 300_000 }, async t => {
+    const { outbox } = await boardAt(t, { week: 98, steps: EVENING, fast: false })
     assert.deepEqual(await stopWords(outbox, 'week-stop', 2), ['Worker 3', 'Worker 5'])
     assert.deepEqual((await outbox()).filter(one => one.command === 'five-hour-stop'), [])
   })

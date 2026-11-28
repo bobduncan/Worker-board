@@ -314,10 +314,35 @@ describe('B1555: start-board.mjs against slow, held and lost ports, side by side
     assert.equal(said.stdout, '')
   })
 
+  // B1577: the two early ends, judged by their words (no clock), run side by side too.
+  test('F10, round 5: an early end that is no port race (the child dies before it is up) fails at once with the log\'s words, not after the 20 s wait', windows, async t => {
+    const port = String(await freePort())
+    t.after(() => sweep(port))
+    // The fallback route (the keeper as this script's child) hands the caller's env on; the test hook ends the board at once.
+    const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_START_ROUTE: 'child', WORKER_BOARD_FAIL_START: '1' } })
+    assert.equal(said.status, 1, `${said.stdout} ${said.stderr}`)
+    assert.match(said.stderr, /WORKER_BOARD_FAIL_START is set|before it was up/)
+    // B1577: "at once" by the words, as round 4 below: an end that waited the 20 s out ends on the wait's own line (a clock from this
+    // test's spawn also counts the script's start, which a full PC stretches).
+    assert.doesNotMatch(said.stderr, /did not answer on .* within 20 seconds/, 'at once, not after the wait')
+  })
 
+  test('F10, round 4: under --anew a lost race IS a failure (the winner is the old board the cold restart kills next): 1 at once, with the log\'s words; the verdict in words', windows, async t => {
+    const port = String(await freePort())
+    await fakeBoard(t, port, 120_000, RACE_FAKE)
+    t.after(() => sweep(port))
+    const said = await runAsync('--demo', '--port', port, '--anew')
+    assert.equal(said.status, 1, `${said.stdout} ${said.stderr}`)
+    // B1577: "at once" by the words, not by a clock: a lost race taken for no failure waits the 20 s out and ends on the wait's own line
+    // (the made-up winner answers only after 120 s). A 15 s clock from this test's spawn also counted the script's start and the keeper's
+    // WMI start, and failed at 16.5 s under a full PC (B1555's check).
+    assert.doesNotMatch(said.stderr, /did not answer on .* within 20 seconds/, 'at once, not after the wait')
+    assert.match(said.stderr, /is in use|before it was up/)
+    assert.deepEqual([earlyEndVerdict({ words: 'Port 4310 is in use: the board may be running already.', isAnew: false }), earlyEndVerdict({ words: 'Port 4310 is in use', isAnew: true }), earlyEndVerdict({ words: 'The board ended with code 1 before it was up', isAnew: false }), earlyEndVerdict({ words: '' })], ['race', 'fail', 'fail', 'fail'])
+  })
 })
 
-// B1555: these run alone, after the cases side by side: two time an end "at once" (under the 20 s wait), and the port race needs its winner up on time (side by side under a full gate the keeper won the port itself, twice).
+// B1555: this runs alone, after the cases side by side: the port race needs its winner up on time (side by side under a full gate the keeper won the port itself, twice).
 test('F10, re-check item 2: a keeper that loses the port race (another keeper\'s board holds the port and answers seconds later) is no failure: the script waits for the board and ends with 0', windows, async t => {
   const port = String(await freePort())
   // A board of this folder (the demo's own, by its command line) that holds the port and is up after 14 s: the race's winner. The check
@@ -331,27 +356,4 @@ test('F10, re-check item 2: a keeper that loses the port race (another keeper\'s
   assert.equal(said.status, 0, `${said.stdout} ${said.stderr}`)
   assert.ok(Date.now() - began >= 13_500, 'it waited for the winner\'s board, instead of failing on the keeper\'s early end')
   assert.match(said.stdout, new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\(another keeper won the port; this one, process \\d+, ended\\)`))
-})
-test('F10, round 5: an early end that is no port race (the child dies before it is up) fails at once with the log\'s words, not after the 20 s wait', windows, async t => {
-  const port = String(await freePort())
-  t.after(() => sweep(port))
-  // The fallback route (the keeper as this script's child) hands the caller's env on; the test hook ends the board at once.
-  const began = Date.now()
-  const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_START_ROUTE: 'child', WORKER_BOARD_FAIL_START: '1' } })
-  assert.equal(said.status, 1, `${said.stdout} ${said.stderr}`)
-  assert.ok(Date.now() - began < 12_000, `at once, not after the wait: ${Date.now() - began} ms`)
-  assert.match(said.stderr, /WORKER_BOARD_FAIL_START is set|before it was up/)
-  assert.doesNotMatch(said.stderr, /did not answer on .* within 20 seconds/)
-})
-
-test('F10, round 4: under --anew a lost race IS a failure (the winner is the old board the cold restart kills next): 1 at once, with the log\'s words; the verdict in words', windows, async t => {
-  const port = String(await freePort())
-  await fakeBoard(t, port, 120_000, RACE_FAKE)
-  t.after(() => sweep(port))
-  const began = Date.now()
-  const said = await runAsync('--demo', '--port', port, '--anew')
-  assert.equal(said.status, 1, `${said.stdout} ${said.stderr}`)
-  assert.ok(Date.now() - began < 15_000, `at once, not after the wait: ${Date.now() - began} ms`)
-  assert.match(said.stderr, /is in use|before it was up/)
-  assert.deepEqual([earlyEndVerdict({ words: 'Port 4310 is in use: the board may be running already.', isAnew: false }), earlyEndVerdict({ words: 'Port 4310 is in use', isAnew: true }), earlyEndVerdict({ words: 'The board ended with code 1 before it was up', isAnew: false }), earlyEndVerdict({ words: '' })], ['race', 'fail', 'fail', 'fail'])
 })
