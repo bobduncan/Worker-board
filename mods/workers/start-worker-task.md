@@ -38,7 +38,8 @@ and its routine `<folder>-worker-N` is tried first (then its "-2"; renaming it t
 shared task only after them. B1586: the board sends only the ids it finds stored on this PC (up to four, in that order),
 and the mod tries each and names every one in its why when none starts; when none is stored for the new worker the
 board closes the word at once, its why ("Worker 6 has no routine of its own yet: the setup check's line makes it") on
-the setup check's "Start a new worker" row. The board runs a worker's own routine only when that worker has no chat. The new chat
+the setup check's "Start a new worker" row. The task folders hold every login's routines, so an id a hand found missing
+on its login is remembered and not sent again until its file changes (made again on this login). The board runs a worker's own routine only when that worker has no chat. The new chat
 joins the list by itself and reports idle, and the board hands it a task. This needs the app to allow the chat's code
 `mcp__scheduled-tasks__update_scheduled_task` and `mcp__scheduled-tasks__run_scheduled_task` with no question (allow
 rules in the project's `.claude/settings.local.json`; the mod checks them with `$.tool.check`). Without them the word

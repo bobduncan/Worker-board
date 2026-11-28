@@ -1096,7 +1096,11 @@ just like now". The picture is `art-inbox/worker-board/b124/2026-10-14-b124-resu
   title and the ids; B1586 (X2, 2026-11-28: three spawns of Worker 6 failed "not found" with routines stored for Workers
   1-5 only): only the ids the setup check found stored (`readCodeJobs`, read again before a word is closed), and with
   none for the new worker the spawn word is closed at once with its why, which the "Start a new worker" row shows as
-  `spawnFail` and board.log names; the mod keeps all four ids, not three, and its why names each id tried), so the mod's rename of a worker's own routine to its own title changes nothing and the board runs
+  `spawnFail` and board.log names; the mod keeps all four ids, not three, and its why names each id tried. Chat 1's review:
+  the task folders hold every login's routines, so a folder is no proof this login has one: an id a hand's why says was
+  not found (`notFoundIds`) is kept in data/spawn-not-found.json with its SKILL.md's time and sent no more until that file
+  changes (`usableTasks`); the read reaches the next worker's number above maxWorkers too; the mod's why groups the ids
+  not found under their shared start, so all four fit rule 8's 120 characters; a failure clears once a new id may be tried), so the mod's rename of a worker's own routine to its own title changes nothing and the board runs
   a worker's routine only when that worker has no chat; a PC without the per-worker routines goes on with the shared
   task. The setup check (`src/codeJobs.mjs`) reads the stored ids of both, counts a routine as a stored task, and
   while some slots have one and others not, says "needs routines for Worker 4, 5" on the "Start a new worker" row
