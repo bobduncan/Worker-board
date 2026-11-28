@@ -279,14 +279,24 @@ export const workerTaskIds = (folder, n) => {
 }
 
 /**
- * T12: the next new worker as a hand job needs it, `{ title, tasks }`: its title and the task ids the hand tries in order,
+ * T12: the next new worker as a hand job needs it, `{ title, tasks, why }`: its title and the task ids the hand tries in order,
  * the worker's own routine first (its title is already its name, so the rename is no change), the shared task only as the
  * fallback, so a PC without the per-worker routines goes on working.
+ * B1586 (X2, 2026-11-28 11:50: three spawns of Worker 6 failed "not found", routines stored for Workers 1-5 only): only the
+ * ids `stored` holds (the stored tasks' ids the setup check read, codeJobs.mjs `readCodeJobs`), never a blind guess; none
+ * stored: `tasks` empty and `why` says so, and the server closes the spawn word at once with it. Without `stored` (an array)
+ * every id, as before.
  */
-export function nextSpawn(names, prefix, folder) {
+export function nextSpawn(names, prefix, folder, stored = null) {
   const { title, n } = nextWorker(names, prefix)
-  return { title, tasks: [...workerTaskIds(folder, n), ...startTaskIds(folder)] }
+  const all = [...workerTaskIds(folder, n), ...startTaskIds(folder)]
+  const tasks = Array.isArray(stored) ? all.filter(id => stored.includes(id)) : all
+  const why = tasks.length > 0 ? null : `Worker ${n} has no routine of its own yet: the setup check's line makes it`
+  return { title, tasks, why }
 }
+
+/** B1586: a worker's spawn word (no routine of its own: the Product owner's names one) waiting for a hand. */
+export const isWaitingSpawn = message => message?.command === 'spawn' && message.state === 'waiting' && (message.routine ?? null) === null
 
 /**
  * The jobs for the chat `caller` (its name) out of the hand words it took (`taken`, the outbox's): `{ jobs, back }`.
@@ -311,7 +321,8 @@ export function handJobs({ caller, taken = [], lanes = [], now, spawn = null, us
       // The Product owner (2026-10-31): a spawn word that names a routine of its own (talkPartner.mjs `ownerStartWords`) runs
       // that routine, the owner's, not the next worker's.
       const own = routineOf(message)
-      const made = own ?? spawn
+      // B1586: a spawn with no stored task id to try is none (the server closed its word already, with its why).
+      const made = own ?? (spawn !== null && spawn.tasks.length > 0 ? spawn : null)
       if (made === null || spawning) back.push(message.id)
       else jobs.push({ id: message.id, chat: made.title, spawn: { title: made.title, tasks: [...made.tasks] } })
       spawning = true

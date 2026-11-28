@@ -18,7 +18,7 @@ import type { OpenInstruction, TaskChange } from './chats'
 import { clearRun } from './clearrun'
 import { blockAsksLine, forYouTail, isForYouCut, leftOutLine } from './foryou'
 import { STUCK_SHOWN_MS, isShownForTime, popupText } from './popup'
-import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_SESSION_MS, NO_SESSION_WHY, NOT_TRIED_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
+import { ARCHIVE_TOOL, CAN_SET_MS, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_MS, HANDS_PATH, LIST_TOOL, MODEL_TOOL, NO_SESSION_MS, NO_SESSION_WHY, NOT_TRIED_WHY, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, archivedOf, canFrom, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, spawnWhy, usageResult } from './hands'
 import type { HandJob, HandResult, HandSet } from './hands'
 import {
   SELF, UNKNOWN, branchList, branchName, detached, folderName, inFolder, isListed, ordered, summary,
@@ -2847,19 +2847,21 @@ async function removeChat($: EngineInterface, id: string, to: string | null, nam
 
 /**
  * B766: starts one new worker: gives the stored start-worker task the worker's title and runs it once (start-worker-task.md);
- * the new chat joins the board by itself and the board hands it a task. The first of `tasks` this login has is used.
+ * the new chat joins the board by itself and the board hands it a task. The first of `tasks` this login has is used
+ * (B1586: the board sends only the ids it found stored, the worker's own first; up to four).
  */
 async function startWorker($: EngineInterface, id: string, title: string, tasks: string[]): Promise<HandResult> {
-  let why = 'no stored start-worker task on this login'
+  // B1586 (X2): the why names every id tried, not only the last one's answer.
+  const tried: { task: string; why: string }[] = []
   for (const task of tasks) {
     const renamed = plainResult(id, await $.tool.call({ tool: TASK_UPDATE_TOOL, taskId: task, title } as never))
     if (!renamed.ok) {
-      why = renamed.why ?? why
+      tried.push({ task, why: renamed.why ?? 'not renamed' })
       continue
     }
     return plainResult(id, await $.tool.call({ tool: TASK_RUN_TOOL, taskId: task } as never))
   }
-  return { id, ok: false, why }
+  return { id, ok: false, why: spawnWhy(tried) }
 }
 
 /** B755: sets the chat `to`'s model (when the job names one) and then its effort; the result says why not, if not. */

@@ -116,11 +116,23 @@ function setOf(raw: unknown): HandSet | null {
   return { model, effort: raw.effort }
 }
 
-/** B766: a new worker's job read safely: a title of plain words and the stored task's ids, three at most. */
+/** B1586 (X2): the most task ids a new worker's job keeps: all the board sends (the worker's own two, the shared two). */
+export const SPAWN_TASKS_MAX = 4
+
+/**
+ * B766: a new worker's job read safely: a title of plain words and the stored task's ids. B1586: up to SPAWN_TASKS_MAX, never
+ * three as before: the cut dropped the shared task a login may have alone.
+ */
 function spawnOf(raw: unknown): { title: string; tasks: string[] } | null {
   if (!isRecord(raw) || typeof raw.title !== 'string' || !/^[\w .·:-]{1,60}$/.test(raw.title) || !Array.isArray(raw.tasks)) return null
-  const tasks = raw.tasks.filter((one): one is string => typeof one === 'string' && /^[a-z0-9-]{1,80}$/.test(one)).slice(0, 3)
+  const tasks = raw.tasks.filter((one): one is string => typeof one === 'string' && /^[a-z0-9-]{1,80}$/.test(one)).slice(0, SPAWN_TASKS_MAX)
   return tasks.length === 0 ? null : { title: raw.title, tasks }
+}
+
+/** B1586: why a new worker did not start, naming each stored task id tried and the app's answer to it. */
+export function spawnWhy(tried: { task: string; why: string }[]): string {
+  if (tried.length === 0) return 'no stored start-worker task on this login'
+  return `no stored task started it: ${tried.map(one => `${one.task} (${one.why})`).join('; ')}`.slice(0, 600)
 }
 
 /**

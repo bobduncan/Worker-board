@@ -121,7 +121,7 @@ import { effortOf, setsRefusedOf } from './src/work/effort.mjs'
 import { PAUSE_FILE, chatsAsking, chatsWithoutProcess, isHolding, parsePause, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
-import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
+import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, isWaitingSpawn, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, handMayTakeOver, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
@@ -3273,11 +3273,16 @@ async function main(args) {
   }
   /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
   let codeRead = { at: -Infinity, max: null, read: null }
+  /** The setup check's reading of this PC (allow rules, stored tasks), read again when 30 s old, the worker limit changed or `fresh`. */
+  const codeReadNow = async (fresh = false) => {
+    if (fresh || clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers) codeRead = { at: clock(), max: config.maxWorkers, read: await readCodeJobs({ project: resolve(HERE, chatHomeOf(config)), folder: routineFolderOf(config), maxWorkers: config.maxWorkers }) }
+    return codeRead.read
+  }
   const codeJobsNow = async (prefix = '', owner = null) => {
     if (isDemo || config.project === '') return null
     // T12: one routine per worker slot up to `maxWorkers`, so a changed limit is read again at once.
     const folder = routineFolderOf(config)
-    if (clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers) codeRead = { at: clock(), max: config.maxWorkers, read: await readCodeJobs({ project: resolve(HERE, chatHomeOf(config)), folder, maxWorkers: config.maxWorkers }) }
+    await codeReadNow()
     // The Product owner (2026-10-31): once the list names one, its own routine is checked and made the same way.
     const view = codeJobsView({ claims: codeClaims, ...codeRead.read, folder, maxWorkers: config.maxWorkers, spawnFail, now: clock(), owner: typeof owner === 'string' && owner !== '' })
     // T13 part 4: and the board's own opening of a chat when none runs.
@@ -4226,14 +4231,26 @@ async function main(args) {
       const carried = new Set(store.outbox().filter(one => isCarryWord(one) && ['waiting', 'taken'].includes(one.state) && typeof one.of === 'string').map(one => one.of))
       // B1307 (chat 1's review 1): a side word starts a model turn, so none goes while a limit is full.
       // F63 (chat 1's review of 40da0260, 2): nor one this state closes (its window over, or its wait ended), before the look closes it.
+      // T12: the new worker's own routine first, the shared start-worker task only as the fallback. B1586 (X2): only the task
+      // ids stored on this PC; with none for the next worker its spawn word closes at once with the why, shown on the setup check.
+      const prefix = state.chatPrefix ?? ''
+      const spawnOf = async fresh => nextSpawn((state.chats ?? []).map(lane => lane.name), prefix, routineFolderOf(config), (await codeReadNow(fresh)).tasks)
+      let spawn = can.has('spawn') && config.project !== '' ? await spawnOf(false) : null
+      // A routine made in the last 30 s counts: the files are read again before a word is closed.
+      if (spawn !== null && spawn.tasks.length === 0 && store.outbox().some(isWaitingSpawn)) spawn = await spawnOf(true)
+      if (spawn !== null && spawn.tasks.length === 0) {
+        for (const message of store.outbox().filter(one => isWaitingSpawn(one) && !isMootSpawn(one, onBoard))) {
+          if (!(await store.close(message.id, 'dropped', spawn.why, clock()))) continue
+          spawnFail = { at: clock(), why: spawn.why }
+          console.log(`B1586: the spawn word ${message.id} closed at ${timeOf(clock())}: ${spawn.why}.`)
+          readState.reset()
+        }
+      }
       const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers, isFull: state.limitFull === true, sideCloses: state.sideWordsClose })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
       const pause = read?.pause ?? null
       const resumeList = pause?.state === 'resuming' ? pauseAnswer({ pause, items: read.items, lanes, prefix: state.chatPrefix ?? '', chat: checked.chat, role: 'main', assets: Array.isArray(state.assets) ? state.assets : [] }).resumeList : []
-      const prefix = state.chatPrefix ?? ''
-      // T12: the new worker's own routine first, the shared start-worker task only as the fallback.
-      const spawn = can.has('spawn') && config.project !== '' ? nextSpawn((state.chats ?? []).map(lane => lane.name), prefix, routineFolderOf(config)) : null
       // B769: the person's stop and remove words carried out by code: a stop is settled once its worker's turn ended; a
       // remove is a job for a chat that may close chats (never the worker itself), once its worker is idle or off.
       const removing = []

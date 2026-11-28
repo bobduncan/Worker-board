@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { HAND_LINE, HANDS_FIRST_MS, handJobs, handResults, isForHandsYet, isHandWord, nextSpawn, nextWorker, nextWorkerTitle, setOf, startTaskIds, workerNames, workerTaskIds } from '../src/hands.mjs'
+import { HAND_LINE, HANDS_FIRST_MS, handJobs, handResults, isForHandsYet, isHandWord, isWaitingSpawn, nextSpawn, nextWorker, nextWorkerTitle, setOf, startTaskIds, workerNames, workerTaskIds } from '../src/hands.mjs'
 import { memoryStore } from '../src/store.mjs'
 import { POST_ROUTES } from '../server.mjs'
 
@@ -168,15 +168,42 @@ test('T12: the next worker is the lowest free number, its title and its number; 
 
 test('T12: a new worker\'s task ids: its own routine first, then the shared task\'s as the fallback, for the lowest free number', () => {
   // Workers 1, 2 and 4 are on the board: the new one is Worker 3, its own routine's ids come before the shared ones.
-  assert.deepEqual(nextSpawn(['Main', 'Studio · Worker 1', 'Studio · Worker 2', 'Studio · Worker 4'], 'Studio · ', 'my-project'), { title: 'Studio · Worker 3', tasks: [...OWN_3, ...SHARED] })
+  assert.deepEqual(nextSpawn(['Main', 'Studio · Worker 1', 'Studio · Worker 2', 'Studio · Worker 4'], 'Studio · ', 'my-project'), { title: 'Studio · Worker 3', tasks: [...OWN_3, ...SHARED], why: null })
   assert.deepEqual(nextSpawn([], '', 'my-project').tasks, ['my-project-worker-1', 'my-project-worker-1-2', ...SHARED])
   // No folder: no task to try at all.
   assert.deepEqual(nextSpawn([], '', '').tasks, [])
 })
 
+test("B1586 (X2): a new worker's task ids are only those stored; none stored for it: no ids, the why, and no job", () => {
+  // The real case, 2026-11-28 11:50: maxWorkers 10, routines stored for Workers 1-5 only (the "-2" ids), no shared task,
+  // Workers 1-5 on the board: Worker 6 has no id to try, so no job and the why the server closes its word with.
+  const folder = 'lava-tactics-project'
+  const stored = [1, 2, 3, 4, 5].map(n => `${folder}-worker-${n}-2`)
+  const names = ['Game - Main', ...[1, 2, 3, 4, 5].map(n => `Game - Worker ${n}`)]
+  const spawn = nextSpawn(names, 'Game - ', folder, stored)
+  assert.deepEqual(spawn, { title: 'Game - Worker 6', tasks: [], why: "Worker 6 has no routine of its own yet: the setup check's line makes it" })
+  const { jobs, back } = handJobs({ caller: 'Game - Worker 3', taken: [spawnWord('s')], lanes: LANES, now: 0, spawn })
+  assert.deepEqual([jobs, back], [[], ['s']])
+  // Worker 6's own routine stored: it alone; only the shared task stored: it alone.
+  assert.deepEqual(nextSpawn(names, 'Game - ', folder, [...stored, `${folder}-worker-6-2`]).tasks, [`${folder}-worker-6-2`])
+  assert.deepEqual(nextSpawn(names, 'Game - ', folder, [`${folder}-start-worker`]), { title: 'Game - Worker 6', tasks: [`${folder}-start-worker`], why: null })
+  // A word of the Product owner's own routine is never a worker's spawn word to close.
+  assert.equal(isWaitingSpawn({ command: 'spawn', state: 'waiting' }), true)
+  assert.equal(isWaitingSpawn({ command: 'spawn', state: 'waiting', routine: { title: 'PO', tasks: ['x'] } }), false)
+  assert.equal(isWaitingSpawn({ command: 'spawn', state: 'taken' }), false)
+})
+
+test('B1586: the server sends a spawn only with the stored ids and closes the word it cannot start, its why on the setup check', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
+  assert.match(server, /nextSpawn\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix, routineFolderOf\(config\), \(await codeReadNow\(fresh\)\)\.tasks\)/)
+  assert.match(server, /store\.close\(message\.id, 'dropped', spawn\.why, clock\(\)\)/)
+  assert.match(server, /spawnFail = \{ at: clock\(\), why: spawn\.why \}/)
+})
+
 test('B766: the jobs: a restart names the board\'s chats to reopen; one new worker per claim, the next free title and the task ids', () => {
   const spawn = nextSpawn(['Main', 'Worker 1', 'Worker 2', 'Worker 4'], 'Studio · ', 'my-project')
-  assert.deepEqual(spawn, { title: 'Studio · Worker 3', tasks: [...OWN_3, ...SHARED] })
+  assert.deepEqual(spawn, { title: 'Studio · Worker 3', tasks: [...OWN_3, ...SHARED], why: null })
   const taken = [restartWord('a', 'Worker 1'), spawnWord('b'), spawnWord('c')]
   const { jobs, back } = handJobs({ caller: 'Supervisor', taken, lanes: LANES, now: 0, spawn })
   assert.deepEqual(jobs, [
@@ -198,7 +225,7 @@ test('B766: the server gives the restart and spawn words only by what the claimi
   // F63 (chat 1's review of 40da0260, 2): and no side word the state closes (`sideCloses`).
   assert.match(server, /isHandWord\(message, \{ canSend, canSet: can\.has\('set'\) && \(!setsRefusedNow \|\| message\?\.probe === true\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers, isFull: state\.limitFull === true, sideCloses: state\.sideWordsClose \}\)/)
   // T5.2 P2: the routine's folder name is the chats' home's (routineFolderOf: the project's when chatHome is empty).
-  assert.match(server, /nextSpawn\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix, routineFolderOf\(config\)\)/)
+  assert.match(server, /nextSpawn\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix, routineFolderOf\(config\), /)
   assert.match(server, /!isForHandsYet\(message, now, workers\)/)
 })
 

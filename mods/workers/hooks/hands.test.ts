@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { ARCHIVE_TOOL, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, NO_ANSWER_WHY, NO_SESSION_WHY, NOT_TRIED_WHY, archivedOf, canFrom, isNoSession, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, usageResult } from './hands'
+import { ARCHIVE_TOOL, CAN_TOOLS, EFFORT_TOOL, HAND_CALL_MS, HANDS_DONE_PATH, HANDS_PATH, LIST_TOOL, MODEL_TOOL, SEND_TOOL, TASK_RUN_TOOL, TASK_UPDATE_TOOL, UNARCHIVE_TOOL, USAGE_TOOL, NO_ANSWER_WHY, NO_SESSION_WHY, NOT_TRIED_WHY, archivedOf, canFrom, isNoSession, mayClaim, parseJobs, plainResult, raceJob, sendResult, setResult, spawnWhy, usageResult } from './hands'
 
 // B753: the board's hands in code: the jobs the board hands this chat, and what the app's tool answered for each.
 describe('the board\'s hands', () => {
@@ -92,6 +92,16 @@ describe('the board\'s hands', () => {
       { id: 'a', to: 'local_w1', chat: 'Worker 1', restart: { keep: ['local_main', 'local_w1'] } },
       { id: 'b', chat: 'Studio · Worker 6', spawn: { title: 'Studio · Worker 6', tasks: ['my-project-start-worker-2', 'my-project-start-worker'] } },
     ])
+  })
+
+  // B1586 (X2, 2026-11-28 11:50: Worker 6's spawn failed naming start-worker-2 only): all four ids the board sends are kept,
+  // and the why names each one tried.
+  test('a new worker keeps all four task ids the board sends; the why names each id tried', () => {
+    const four = ['p-worker-6', 'p-worker-6-2', 'p-start-worker-2', 'p-start-worker']
+    expect(parseJobs(JSON.stringify({ jobs: [{ id: 'f', spawn: { title: 'Worker 6', tasks: [...four, 'p-extra'] } }] }))).toEqual([{ id: 'f', chat: 'Worker 6', spawn: { title: 'Worker 6', tasks: four } }])
+    const why = spawnWhy(four.map(task => ({ task, why: `Scheduled task "${task}" not found` })))
+    for (const task of four) expect(why.includes(task)).toBe(true)
+    expect(spawnWhy([])).toBe('no stored start-worker task on this login')
   })
 
   test('a tool plain answer: done unless it refused or said it failed; the archived ids out of the app list', () => {
