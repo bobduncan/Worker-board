@@ -43,6 +43,7 @@ import { checkSetting, panelSettings, rebuildsApproved, settingChanged } from '.
 import { mainAskWords } from './src/work/autopilot.mjs'
 import { askCardOf } from './src/work/lists.mjs'
 import { cpuLimiter, helperMask, levelWho, logicalCores, powershell, sessionsOfCards, windowsProcesses } from './src/cpu.mjs'
+import { EVERY_MS as LAG_EVERY_MS, lagRecorder, nvidiaGpu, probeChild } from './src/lag.mjs'
 import { masksOf, modeFileOf, modeWriter, TOPOLOGY_SCRIPT, topologyOf, writesModeOf } from './src/cpuTopology.mjs'
 import { BrokenConfig, configProblem, readProviders, settingFileFor, settingsFileOf, firstStart, followApp, isOwnWork, loadConfig, ownMapNow, projectFile, workFolder } from './src/config.mjs'
 // T5.2 P2: where the project's things live (the chats' home, the data home, the stored paths): one table, today's paths with the settings empty.
@@ -2859,6 +2860,10 @@ async function main(args) {
       await heavyMode.masks(masks)
     })
   }
+  // The lag recorder (chat 1's brief, 2026-11-27): the person's board only (the mode writer), one line a minute in data/perf/lag.jsonl,
+  // from the CPU limiter's own listings and a probe child that sleeps between its seconds.
+  const lagProbe = heavyMode === null ? null : probeChild()
+  let lag = null
   const cpu = isDemo || historyFrom !== undefined || config.project === '' ? null : cpuLimiter({
     file: join(HERE, 'data', 'cpu.json'),
     fallback: isShowOnly ? 'full' : config.cpuLimit,
@@ -2873,11 +2878,22 @@ async function main(args) {
     note: () => coreMapNote,
     fence: () => workMask,
     project: config.project,
+    onList: listing => lag?.hear(listing),
   })
   if (cpu !== null && cpu.available) {
     const applyCpu = () => loops.run('cpu', () => cpu.apply()).then(() => heavyMode?.beat())
     applyCpu()
     setInterval(applyCpu, Math.max(5, config.refreshSeconds) * 1000)
+    if (lagProbe !== null) {
+      const heavyLock = modeFileOf().replace(/\.mode\.json$/, '')
+      lag = lagRecorder({
+        file: join(HERE, 'data', 'perf', 'lag.jsonl'), cores: logicalCores(), probe: lagProbe.run, gpu: nvidiaGpu(),
+        held: () => existsSync(heavyLock), level: () => cpu.view().level, boardPids: typeof process.send === 'function' ? [process.pid, process.ppid] : [process.pid],
+        log: line => console.log(line),
+      })
+      process.on('exit', () => lagProbe.stop())
+      setInterval(() => { lag.minute().catch(error => console.log(`Lag recorder: the minute's line was not written (${error.message}).`)) }, LAG_EVERY_MS).unref()
+    }
   }
 
   /** The person's words to a chat (POST /api/say), also for the board's own "resume" after Resume all. */
