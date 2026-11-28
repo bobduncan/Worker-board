@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path'
 import test, { describe } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 
 import { ANSWER_MS, boardAt, earlyEndVerdict } from '../start-board.mjs'
 import { startEnv } from '../src/keeper.mjs'
@@ -136,7 +136,9 @@ const HERE = join(dirname(fileURLToPath(import.meta.url)), '..')
 const FAKE = "const http = require('node:http'); const [port, delay] = process.argv.slice(-2); http.createServer((q, r) => setTimeout(() => r.end('<title>Worker board</title>'), Number(delay))).listen(Number(port), '127.0.0.1')"
 /** The race's winner: a board that is up after `delay` ms from its start and answers every request at once from then on. */
 const RACE_FAKE = "const http = require('node:http'); const [port, delay] = process.argv.slice(-2); const ready = Date.now() + Number(delay); http.createServer((q, r) => setTimeout(() => r.end('<title>Worker board</title>'), Math.max(0, ready - Date.now()))).listen(Number(port), '127.0.0.1')"
-/** A made-up board of this folder on `port` that answers after `delayMs`; resolves once it listens. */
+/** B1577: the race's winner that answers every request once the file `sign` is there (the test writes it when the loser is gone). */
+const SIGN_FAKE = "const http = require('node:http'); const fs = require('node:fs'); const [port, sign] = process.argv.slice(-2); http.createServer((q, r) => { const answer = () => fs.existsSync(sign) ? r.end('<title>Worker board</title>') : setTimeout(answer, 100); answer() }).listen(Number(port), '127.0.0.1')"
+/** A made-up board of this folder on `port` that answers after `delayMs` (SIGN_FAKE: the sign's path); resolves once it listens. */
 async function fakeBoard(t, port, delayMs, script = FAKE) {
   // Its command line is the demo's own board's (this folder's server.mjs, --demo, the port): what start-board.mjs --demo looks for.
   const child = spawn(process.execPath, ['-e', script, join(HERE, 'server.mjs'), '--demo', '--port', String(port), String(port), String(delayMs)], { stdio: 'ignore', windowsHide: true })
@@ -340,20 +342,37 @@ describe('B1555: start-board.mjs against slow, held and lost ports, side by side
     assert.match(said.stderr, /is in use|before it was up/)
     assert.deepEqual([earlyEndVerdict({ words: 'Port 4310 is in use: the board may be running already.', isAnew: false }), earlyEndVerdict({ words: 'Port 4310 is in use', isAnew: true }), earlyEndVerdict({ words: 'The board ended with code 1 before it was up', isAnew: false }), earlyEndVerdict({ words: '' })], ['race', 'fail', 'fail', 'fail'])
   })
-})
 
-// B1555: this runs alone, after the cases side by side: the port race needs its winner up on time (side by side under a full gate the keeper won the port itself, twice).
-test('F10, re-check item 2: a keeper that loses the port race (another keeper\'s board holds the port and answers seconds later) is no failure: the script waits for the board and ends with 0', windows, async t => {
-  const port = String(await freePort())
-  // A board of this folder (the demo's own, by its command line) that holds the port and is up after 14 s: the race's winner. The check
-  // before the start is skipped by a test hook here (WORKER_BOARD_SKIP_CHECK, this test's alone), as a second keeper's start would be
-  // in flight when a chat's start and a landing's restart cross.
-  // B1555: the winner is up 14 s after its own start, so the wait counts from there (side by side, its start to listening takes seconds).
-  const began = Date.now()
-  await fakeBoard(t, port, 14_000, RACE_FAKE)
-  t.after(() => sweep(port))
-  const said = await spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_SKIP_CHECK: '1' } })
-  assert.equal(said.status, 0, `${said.stdout} ${said.stderr}`)
-  assert.ok(Date.now() - began >= 13_500, 'it waited for the winner\'s board, instead of failing on the keeper\'s early end')
-  assert.match(said.stdout, new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\(another keeper won the port; this one, process \\d+, ended\\)`))
+  test('F10, re-check item 2: a keeper that loses the port race (another keeper\'s board holds the port and answers seconds later) is no failure: the script waits for the board and ends with 0', windows, async t => {
+    const port = String(await freePort())
+    // A board of this folder (the demo's own, by its command line) that holds the port: the race's winner. The check before the start is
+    // skipped by a test hook here (WORKER_BOARD_SKIP_CHECK, this test's alone), as a second keeper's start would be in flight when a
+    // chat's start and a landing's restart cross.
+    // B1577 (B1585, the big suite of 11-27 20:09 and 11-28 09:13): the winner answered 14 s after its own start, a clock; on a full PC
+    // the loser's keeper was still alive then, so the script took the winner's answer for its own board ("runs", not "runs already"),
+    // also alone. Now the winner answers once the loser's board said the port is in use and its keeper is gone: the race's order,
+    // whatever the PC's speed, and so side by side.
+    const sign = join(tmpdir(), `start-board-race-${process.pid}-${port}.sign`)
+    t.after(() => rmSync(sign, { force: true }))
+    const log = join(DATA, 'board.log')
+    const from = existsSync(log) ? statSync(log).size : 0
+    await fakeBoard(t, port, sign, SIGN_FAKE)
+    t.after(() => sweep(port))
+    const saying = spawnAsync(process.execPath, [SCRIPT, '--demo', '--port', port], { timeout: 40_000, env: { ...startEnv(process.env), WORKER_BOARD_SKIP_CHECK: '1' } })
+    const psRun = command => spawnAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', command]).then(said => said.stdout.trim())
+    const keepers = () => psRun(`@(Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*server.mjs*--log*--demo --port ${port}*' }).Count`)
+    let lost = false
+    for (const until = Date.now() + 30_000; Date.now() < until && !lost;) {
+      lost = existsSync(log) && readFileSync(log).subarray(from).toString('utf8').includes(`Port ${port} is in use`)
+      if (!lost) await new Promise(done => setTimeout(done, 200))
+    }
+    assert.ok(lost, 'the loser\'s board said the port is in use')
+    let left = await keepers()
+    for (const until = Date.now() + 15_000; Date.now() < until && left !== '0';) left = await keepers()
+    assert.equal(left, '0', 'the loser\'s keeper is gone')
+    writeFileSync(sign, '')
+    const said = await saying
+    assert.equal(said.status, 0, `${said.stdout} ${said.stderr}`)
+    assert.match(said.stdout, new RegExp(`^The worker board runs already: http://127\\.0\\.0\\.1:${port}/ \\(another keeper won the port; this one, process \\d+, ended\\)`), 'it waited for the winner\'s board, instead of failing on the keeper\'s early end')
+  })
 })
