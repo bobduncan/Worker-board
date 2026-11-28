@@ -121,7 +121,7 @@ import { effortOf, setsRefusedOf } from './src/work/effort.mjs'
 import { PAUSE_FILE, chatsAsking, chatsWithoutProcess, isHolding, parsePause, pauseAnswer, resumeEnds, resumeRetypeTo, resumeTypeTo, withAway } from './src/work/pause.mjs'
 import { allowCodeJobs, codeJobsView, readCodeJobs, taskWords } from './src/codeJobs.mjs'
 import { OWNER_JOB, OWNER_ROLE, ownerFirst, ownerStartWords, talkPartnerOf } from './src/talkPartner.mjs'
-import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, isWaitingSpawn, mootWhy, maySend, nextSpawn, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
+import { HAND_LINE, isAppId as isHandAppId, STOP_MOD, handJobs, handResults, isForHandsYet, isHandWord, isMootSpawn, isTaskStopWord, isWaitingSpawn, mootWhy, maySend, nextSpawn, nextWorker, notFoundIds, usableTasks, stopSettleWhy, stopStep, stopTaskOf, usageDue, workerNames } from './src/hands.mjs'
 import { HANDS_GONE_MS, OPEN_CHECK_MS, OPEN_FIRST_MS, chatToOpen, handsGone, isFolder, isProgram, newestSender, openChat } from './src/opener.mjs'
 import { BOARD_KEY, WAKE_JOB, WORDS_LINE, claim as claimWake, emptyWakes, handMayTakeOver, inFirstTurn, isWakeOnItsWay, launchPlan, takeLine, wakeCarriedTake, failedToSend as wakeFailedToSend, givenBack as wakeGivenBack, handTried, carrierWords, carryAfterSilent, carryPlan, heard as wakeHeard, heardClaim as wakeHeardClaim, newSpell, nextPath as wakeNextPath, nobodyRunsSpell, pass as wakeVerdicts, pathsOf as wakePathsOf, reopenLanesOf, noteRun as wakeNoteRun, personAgain, readWakes, reopenSpells as wakeReopen, rowOf as wakeRow, sent as wakeSent, spellOf, triedWords, turnEnded as wakeTurnEnded, wakeJobId, wakeNeeds, wakesSaver } from './src/wake.mjs'
 import { wakeIdsOf } from './src/ownChat.mjs'
@@ -3273,11 +3273,31 @@ async function main(args) {
   }
   /** B767: the setup check as the page shows it; the files are read at most every 30 seconds. */
   let codeRead = { at: -Infinity, max: null, read: null }
-  /** The setup check's reading of this PC (allow rules, stored tasks), read again when 30 s old, the worker limit changed or `fresh`. */
-  const codeReadNow = async (fresh = false) => {
-    if (fresh || clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers) codeRead = { at: clock(), max: config.maxWorkers, read: await readCodeJobs({ project: resolve(HERE, chatHomeOf(config)), folder: routineFolderOf(config), maxWorkers: config.maxWorkers }) }
+  /**
+   * The setup check's reading of this PC (allow rules, stored tasks and their times), read again when 30 s old, the worker
+   * limit changed, `fresh`, or (B1586) a worker number `upTo` above what the last read covered is asked for.
+   */
+  const codeReadNow = async (fresh = false, upTo = 0) => {
+    const want = Math.max(upTo, config.maxWorkers ?? 0)
+    if (fresh || clock() - codeRead.at >= 30_000 || codeRead.max !== config.maxWorkers || (codeRead.upTo ?? 0) < want) codeRead = { at: clock(), max: config.maxWorkers, upTo: want, read: await readCodeJobs({ project: resolve(HERE, chatHomeOf(config)), folder: routineFolderOf(config), maxWorkers: config.maxWorkers, upTo: want }) }
     return codeRead.read
   }
+  // B1586 (chat 1's review 1): the stored task ids a hand found missing on its login, each with its SKILL.md's time then, kept
+  // with the project: the task folders hold every login's routines, so only a hand's "not found" tells this login has none.
+  // Such an id is sent no more until its file changes (hands.mjs `usableTasks`). `spawnTasks` the ids each spawn job was sent.
+  const NOT_FOUND_FILE = isDemo || config.project === '' ? null : localFile(config, 'spawn-not-found.json')
+  let notFoundTasks = null
+  const notFoundNow = async () => {
+    if (notFoundTasks !== null) return notFoundTasks
+    notFoundTasks = {}
+    if (NOT_FOUND_FILE === null) return notFoundTasks
+    try {
+      const read = JSON.parse((await readHead(NOT_FOUND_FILE, 16 * 1024))?.text ?? '')
+      if (read !== null && typeof read === 'object' && !Array.isArray(read)) for (const [id, at] of Object.entries(read)) if (Number.isFinite(at)) notFoundTasks[id] = at
+    } catch {}
+    return notFoundTasks
+  }
+  const spawnTasks = new Map()
   const codeJobsNow = async (prefix = '', owner = null) => {
     if (isDemo || config.project === '') return null
     // T12: one routine per worker slot up to `maxWorkers`, so a changed limit is read again at once.
@@ -4234,18 +4254,26 @@ async function main(args) {
       // T12: the new worker's own routine first, the shared start-worker task only as the fallback. B1586 (X2): only the task
       // ids stored on this PC; with none for the next worker its spawn word closes at once with the why, shown on the setup check.
       const prefix = state.chatPrefix ?? ''
-      const spawnOf = async fresh => nextSpawn((state.chats ?? []).map(lane => lane.name), prefix, routineFolderOf(config), (await codeReadNow(fresh)).tasks)
+      // B1586 (chat 1's review 1, 3): minus the ids a hand found missing on its login; read up to the next worker's number.
+      const names = (state.chats ?? []).map(lane => lane.name)
+      const spawnOf = async fresh => {
+        const read = await codeReadNow(fresh, nextWorker(names, prefix).n)
+        return nextSpawn(names, prefix, routineFolderOf(config), usableTasks(read.tasks, read.times, await notFoundNow()))
+      }
       let spawn = can.has('spawn') && config.project !== '' ? await spawnOf(false) : null
       // A routine made in the last 30 s counts: the files are read again before a word is closed.
       if (spawn !== null && spawn.tasks.length === 0 && store.outbox().some(isWaitingSpawn)) spawn = await spawnOf(true)
       if (spawn !== null && spawn.tasks.length === 0) {
         for (const message of store.outbox().filter(one => isWaitingSpawn(one) && !isMootSpawn(one, onBoard))) {
           if (!(await store.close(message.id, 'dropped', spawn.why, clock()))) continue
-          spawnFail = { at: clock(), why: spawn.why }
+          spawnFail = { at: clock(), why: spawn.why, tasks: [] }
           console.log(`B1586: the spawn word ${message.id} closed at ${timeOf(clock())}: ${spawn.why}.`)
           readState.reset()
         }
       }
+      // B1586 (chat 1's review 5): a failure stands only while nothing new may be tried: a routine stored since (or one found
+      // missing whose file changed) clears it, so the row no longer says the main chat does it.
+      if (spawn !== null && spawnFail !== null && Array.isArray(spawnFail.tasks) && spawn.tasks.some(id => !spawnFail.tasks.includes(id))) spawnFail = null
       const isHand = message => !carried.has(message?.id) && !isMootSpawn(message, onBoard) && isHandWord(message, { canSend, canSet: can.has('set') && (!setsRefusedNow || message?.probe === true), canRestart: can.has('restart'), canSpawn: can.has('spawn'), workers, isFull: state.limitFull === true, sideCloses: state.sideWordsClose })
       const taken = isHolding(state.pause) ? [] : await store.takeHands(checked.chat, clock(), keep, isHand)
       const read = workDir === null ? null : await readStore(workDir)
@@ -4269,6 +4297,7 @@ async function main(args) {
       if (usage) usageGivenAt = clock()
       // The Product owner (2026-10-31): its start, wake and resume go first: the person waits for its talk.
       const { jobs, back } = handJobs({ caller: checked.chat, taken, lanes, now: clock(), spawn, usage, canSend, first: state.productOwner?.name ?? null })
+      for (const job of jobs) if (job.spawn !== undefined) spawnTasks.set(job.id, job.spawn.tasks)
       // Signals change 4, B.4: a start or wake word a hand took (the page's start, a closed worker's start, B577's wake of a
       // stopped chat) is a message that wakes a chat: claimed in the wake record too, by the word's id. A word whose chat
       // runs still goes (it is the person's or B577's), unrecorded; one whose chat has a wake on its way was closed above.
@@ -4486,7 +4515,18 @@ async function main(args) {
       // B767: a new worker that failed shows on the setup check with its why, until one is started.
       // The Product owner's own routine (its spawn word names `routine`) is no new worker: its result leaves the row alone.
       for (const message of store.outbox().filter(one => one.command === 'spawn' && (one.routine ?? null) === null && words.includes(one.id))) {
-        spawnFail = failed.includes(message.id) ? { at: clock(), why: why[message.id] ?? 'not started' } : null
+        spawnFail = failed.includes(message.id) ? { at: clock(), why: why[message.id] ?? 'not started', tasks: spawnTasks.get(message.id) ?? [] } : null
+      }
+      // B1586 (chat 1's review 1): the ids a failed spawn's hand did not find on its login are remembered with their files' times.
+      for (const id of words.filter(one => spawnTasks.has(one))) {
+        const missing = failed.includes(id) ? notFoundIds(why[id], spawnTasks.get(id)) : []
+        spawnTasks.delete(id)
+        if (missing.length === 0) continue
+        const times = (await codeReadNow(true)).times ?? {}
+        const kept = await notFoundNow()
+        for (const task of missing) if (Number.isFinite(times[task])) kept[task] = times[task]
+        if (NOT_FOUND_FILE !== null && !isShowOnly) await writeAtomic(NOT_FOUND_FILE, JSON.stringify(kept))
+        console.log(`B1586: not on this login, sent no more until made again: ${missing.join(', ')} (${timeOf(clock())}).`)
       }
       const byTo = new Map()
       // B880: only the words this hand holds: one given back and taken by another meanwhile is that one's to report.

@@ -227,8 +227,9 @@ minutes (its call never answered) comes back to waiting, for another hand or for
 that is on the board by then (`start the Product owner` once its chat is there) is closed as moot, never yours. B891:
 such a word waits in doubt for 5 minutes first (its call may have gone), so it never reaches you or another hand while
 it may have been done; a `spawn workers` whose new worker is on the board by then is closed as done. B1586: a `spawn
-workers` for a worker with no stored routine on this PC is closed by the board at once, its why on the setup check's
-"Start a new worker" row; it never reaches you, and the fix is the setup check's line, pasted by the person.
+workers` for a worker with no routine on this login (none stored, or each a hand found missing) is closed by the board
+at once when a running chat may start workers, its why on the setup check's "Start a new worker" row; when none may, it
+reaches you after a minute as any spawn does: then tell the person the setup check's line makes the routine.
 
 - `resume`: the user resumed all chats after a pause (the board's Resume all). The Workers mod puts the list beside
   it, or beside your chat's start when you were not running: "Resume: wake each chat below that has not started",

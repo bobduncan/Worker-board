@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { HAND_LINE, HANDS_FIRST_MS, handJobs, handResults, isForHandsYet, isHandWord, isWaitingSpawn, nextSpawn, nextWorker, nextWorkerTitle, setOf, startTaskIds, workerNames, workerTaskIds } from '../src/hands.mjs'
+import { HAND_LINE, HANDS_FIRST_MS, handJobs, handResults, isForHandsYet, isHandWord, isWaitingSpawn, nextSpawn, nextWorker, notFoundIds, usableTasks, nextWorkerTitle, setOf, startTaskIds, workerNames, workerTaskIds } from '../src/hands.mjs'
 import { memoryStore } from '../src/store.mjs'
 import { POST_ROUTES } from '../server.mjs'
 
@@ -193,12 +193,35 @@ test("B1586 (X2): a new worker's task ids are only those stored; none stored for
   assert.equal(isWaitingSpawn({ command: 'spawn', state: 'taken' }), false)
 })
 
+test('B1586 (chat 1 review 1): the real folder: both shared tasks on disk but not on this login; a not-found from the hand is remembered', () => {
+  // 2026-11-28 11:50 on this PC: SKILL.md folders for start-worker (10-14), start-worker-2 (10-28) and worker-1..5-2; the login's
+  // task list has only the worker routines. The first spawn of Worker 6 is sent the two shared ids and fails "not found".
+  const folder = 'lava-tactics-project'
+  const shared = [`${folder}-start-worker-2`, `${folder}-start-worker`]
+  const stored = [...shared, ...[1, 2, 3, 4, 5].map(n => `${folder}-worker-${n}-2`)]
+  const times = Object.fromEntries(stored.map((id, at) => [id, 1000 + at]))
+  const names = ['Game - Main', ...[1, 2, 3, 4, 5].map(n => `Game - Worker ${n}`)]
+  const first = nextSpawn(names, 'Game - ', folder, usableTasks(stored, times, {}))
+  assert.deepEqual(first.tasks, shared)
+  // The mod 0.37.1 why, and an older mod's (the app's words for its last try only): the ids read back.
+  assert.deepEqual(notFoundIds('not found: lava-tactics-project-{start-worker-2, start-worker}', first.tasks), shared)
+  assert.deepEqual(notFoundIds('Scheduled task "lava-tactics-project-start-worker" not found', first.tasks), [shared[1]])
+  assert.deepEqual(notFoundIds('the app refused it', first.tasks), [])
+  // Remembered with their times: the next press has no id, so the word is closed with the why.
+  const notFound = Object.fromEntries(shared.map(id => [id, times[id]]))
+  const next = nextSpawn(names, 'Game - ', folder, usableTasks(stored, times, notFound))
+  assert.deepEqual([next.tasks, next.why], [[], "Worker 6 has no routine of its own yet: the setup check's line makes it"])
+  // The shared task made again on this login (its file changed): tried again.
+  assert.deepEqual(usableTasks(stored, { ...times, [shared[1]]: 9999 }, notFound).filter(id => shared.includes(id)), [shared[1]])
+})
+
 test('B1586: the server sends a spawn only with the stored ids and closes the word it cannot start, its why on the setup check', async () => {
   const { readFile } = await import('node:fs/promises')
   const server = await readFile(new URL('../server.mjs', import.meta.url), 'utf8')
-  assert.match(server, /nextSpawn\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix, routineFolderOf\(config\), \(await codeReadNow\(fresh\)\)\.tasks\)/)
+  assert.match(server, /nextSpawn\(names, prefix, routineFolderOf\(config\), usableTasks\(read\.tasks, read\.times, await notFoundNow\(\)\)\)/)
+  assert.match(server, /notFoundIds\(why\[id\], spawnTasks\.get\(id\)\)/)
   assert.match(server, /store\.close\(message\.id, 'dropped', spawn\.why, clock\(\)\)/)
-  assert.match(server, /spawnFail = \{ at: clock\(\), why: spawn\.why \}/)
+  assert.match(server, /spawnFail = \{ at: clock\(\), why: spawn\.why, tasks: \[\] \}/)
 })
 
 test('B766: the jobs: a restart names the board\'s chats to reopen; one new worker per claim, the next free title and the task ids', () => {
@@ -225,7 +248,7 @@ test('B766: the server gives the restart and spawn words only by what the claimi
   // F63 (chat 1's review of 40da0260, 2): and no side word the state closes (`sideCloses`).
   assert.match(server, /isHandWord\(message, \{ canSend, canSet: can\.has\('set'\) && \(!setsRefusedNow \|\| message\?\.probe === true\), canRestart: can\.has\('restart'\), canSpawn: can\.has\('spawn'\), workers, isFull: state\.limitFull === true, sideCloses: state\.sideWordsClose \}\)/)
   // T5.2 P2: the routine's folder name is the chats' home's (routineFolderOf: the project's when chatHome is empty).
-  assert.match(server, /nextSpawn\(\(state\.chats \?\? \[\]\)\.map\(lane => lane\.name\), prefix, routineFolderOf\(config\), /)
+  assert.match(server, /nextSpawn\(names, prefix, routineFolderOf\(config\), /)
   assert.match(server, /!isForHandsYet\(message, now, workers\)/)
 })
 

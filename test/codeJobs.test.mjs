@@ -167,10 +167,14 @@ test('T12: routines for some workers only: the row says which are missing, whate
 
 test('B1586 (X2): the real case: routines for Workers 1-5 only ("-2"), ten slots; the why of the closed spawn shows on the spawn row', async () => {
   const PROJECT_FOLDER = 'lava-tactics-project'
-  const stored = [1, 2, 3, 4, 5].map(n => `${PROJECT_FOLDER}-worker-${n}-2`)
-  const fs = { readFile: async () => '', stat: async path => (stored.some(id => path.split(/[\\/]/).includes(id)) ? { isFile: () => true } : Promise.reject(new Error('none'))) }
+  // The real folder: both shared tasks on disk too (every login's tasks are there), and a routine of Worker 11's own.
+  const stored = [`${PROJECT_FOLDER}-start-worker-2`, `${PROJECT_FOLDER}-start-worker`, ...[1, 2, 3, 4, 5].map(n => `${PROJECT_FOLDER}-worker-${n}-2`), `${PROJECT_FOLDER}-worker-11`]
+  const fs = { readFile: async () => '', stat: async path => (stored.some(id => path.split(/[\\/]/).includes(id)) ? { isFile: () => true, mtimeMs: 7 } : Promise.reject(new Error('none'))) }
   const read = await readCodeJobs({ project: 'P', folder: PROJECT_FOLDER, maxWorkers: 10, home: 'H', fs })
-  assert.deepEqual(read.tasks, stored)
+  assert.deepEqual(read.tasks, stored.slice(0, -1))
+  assert.equal(read.times[stored[0]], 7)
+  // Chat 1's review 3: a worker above maxWorkers is read when asked for (`upTo`).
+  assert.ok((await readCodeJobs({ project: 'P', folder: PROJECT_FOLDER, maxWorkers: 10, upTo: 11, home: 'H', fs })).tasks.includes(`${PROJECT_FOLDER}-worker-11`))
   const why = "Worker 6 has no routine of its own yet: the setup check's line makes it"
   const row = byKey(codeJobsView({ claims: claims(['Worker 3', ['spawn']]), allowed: new Set(ALL), tasks: read.tasks, folder: PROJECT_FOLDER, maxWorkers: 10, spawnFail: { at: NOW, why }, now: NOW })).spawn
   assert.equal(row.why, `the last try failed: ${why}`)
@@ -237,7 +241,7 @@ test('the server keeps each chat\'s claim, shows the check in the state and allo
   // T12: one routine per worker slot up to the limit: read for it, shown by it, and the pasted line makes the missing ones.
   // T5.2 P2: the routines and the allow rules are the CHATS' home's (chatHomeOf, routineFolderOf), the project's when chatHome is empty.
   assert.match(server, /const folder = routineFolderOf\(config\)/)
-  assert.match(server, /readCodeJobs\(\{ project: resolve\(HERE, chatHomeOf\(config\)\), folder: routineFolderOf\(config\), maxWorkers: config\.maxWorkers \}\)/)
+  assert.match(server, /readCodeJobs\(\{ project: resolve\(HERE, chatHomeOf\(config\)\), folder: routineFolderOf\(config\), maxWorkers: config\.maxWorkers, upTo: want \}\)/)
   assert.match(server, /codeJobsView\(\{ claims: codeClaims, \.\.\.codeRead\.read, folder, maxWorkers: config\.maxWorkers, spawnFail, now: clock\(\), owner: typeof owner === 'string' && owner !== '' \}\)/)
   assert.match(server, /taskWords\(\{ folder, prefix, board: HERE, slots: view\.missingRoutines, owner \}\)/)
   assert.match(server, /'\/api\/code-jobs': \{ kind: 'json', guard: 'lock' \}/)

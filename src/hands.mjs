@@ -295,6 +295,29 @@ export function nextSpawn(names, prefix, folder, stored = null) {
   return { title, tasks, why }
 }
 
+/**
+ * B1586 (chat 1's review 1): the task ids of a failed spawn job (`tasks`, the ids it was sent) that the hand's why says the
+ * app did not find on its login: the mod's group "not found: <start>{a, b}" (0.37.1, `spawnWhy`) or the app's own words
+ * 'Scheduled task "<id>" not found' (an older mod names its last answer only). The task folders on disk hold every login's
+ * routines, so a folder there is no proof this login has it: the board remembers these ids (`usableTasks`).
+ */
+export function notFoundIds(why, tasks = []) {
+  const text = String(why ?? '')
+  const found = new Set()
+  for (const group of text.matchAll(/not found: ([a-z0-9-]*)\{([^}]*)\}/g)) {
+    for (const part of group[2].split(',')) found.add(`${group[1]}${part.trim()}`)
+  }
+  for (const one of text.matchAll(/task "?([a-z0-9-]+)"? (?:was )?not found/gi)) found.add(one[1])
+  return tasks.filter(id => found.has(id))
+}
+
+/**
+ * B1586: the stored ids (`stored`, the setup check's read) a spawn may send: all but those a hand found missing on its login
+ * (`notFound`, id to the time of its SKILL.md then), until that file changes (`times`, id to its time now): a routine made
+ * again on this login is tried again.
+ */
+export const usableTasks = (stored = [], times = {}, notFound = {}) => stored.filter(id => !(id in notFound) || notFound[id] !== times[id])
+
 /** B1586: a worker's spawn word (no routine of its own: the Product owner's names one) waiting for a hand. */
 export const isWaitingSpawn = message => message?.command === 'spawn' && message.state === 'waiting' && (message.routine ?? null) === null
 

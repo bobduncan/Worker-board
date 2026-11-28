@@ -129,10 +129,23 @@ function spawnOf(raw: unknown): { title: string; tasks: string[] } | null {
   return tasks.length === 0 ? null : { title: raw.title, tasks }
 }
 
-/** B1586: why a new worker did not start, naming each stored task id tried and the app's answer to it. */
+/**
+ * B1586: why a new worker did not start, naming each stored task id tried, short enough that the board's cut (rule 8 shows
+ * 120 characters) keeps all four: the ids the app did not find as one group with their shared start written once,
+ * "not found: lava-tactics-project-{worker-6, worker-6-2, start-worker-2, start-worker}", any other answer after it by id.
+ * The board reads the group back (src/hands.mjs `notFoundIds`) and sends those ids no more.
+ */
 export function spawnWhy(tried: { task: string; why: string }[]): string {
   if (tried.length === 0) return 'no stored start-worker task on this login'
-  return `no stored task started it: ${tried.map(one => `${one.task} (${one.why})`).join('; ')}`.slice(0, 600)
+  const missing = tried.filter(one => /not found/i.test(one.why)).map(one => one.task)
+  const other = tried.filter(one => !/not found/i.test(one.why)).map(one => `${one.task}: ${one.why.slice(0, 60)}`)
+  let head = ''
+  if (missing.length > 0) {
+    let common = missing.length > 1 ? missing.reduce((a, b) => { let n = 0; while (n < a.length && a[n] === b[n]) n += 1; return a.slice(0, n) }) : ''
+    common = common.slice(0, common.lastIndexOf('-') + 1)
+    head = `not found: ${common}{${missing.map(id => id.slice(common.length)).join(', ')}}`
+  }
+  return [head, ...other].filter(Boolean).join('; ').slice(0, 300)
 }
 
 /**

@@ -99,8 +99,12 @@ describe('the board\'s hands', () => {
   test('a new worker keeps all four task ids the board sends; the why names each id tried', () => {
     const four = ['p-worker-6', 'p-worker-6-2', 'p-start-worker-2', 'p-start-worker']
     expect(parseJobs(JSON.stringify({ jobs: [{ id: 'f', spawn: { title: 'Worker 6', tasks: [...four, 'p-extra'] } }] }))).toEqual([{ id: 'f', chat: 'Worker 6', spawn: { title: 'Worker 6', tasks: four } }])
-    const why = spawnWhy(four.map(task => ({ task, why: `Scheduled task "${task}" not found` })))
-    for (const task of four) expect(why.includes(task)).toBe(true)
+    // Chat 1's review 4: all four stay visible within rule 8's 120 characters, with this project's long folder name.
+    const real = ['lava-tactics-project-worker-11', 'lava-tactics-project-worker-11-2', 'lava-tactics-project-start-worker-2', 'lava-tactics-project-start-worker']
+    const why = spawnWhy(real.map(task => ({ task, why: `Scheduled task "${task}" not found` })))
+    expect(why).toBe('not found: lava-tactics-project-{worker-11, worker-11-2, start-worker-2, start-worker}')
+    expect(why.length <= 120).toBe(true)
+    expect(spawnWhy([{ task: 'p-worker-6', why: 'not found' }, { task: 'p-start-worker', why: 'refused by the app' }])).toBe('not found: {p-worker-6}; p-start-worker: refused by the app')
     expect(spawnWhy([])).toBe('no stored start-worker task on this login')
   })
 

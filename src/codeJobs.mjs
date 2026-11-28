@@ -193,16 +193,21 @@ export function taskWords({ folder, prefix, board, slots = [1], owner = null }) 
 const FILES = { readFile, writeFile, mkdir, stat }
 
 /**
- * What the setup check reads from this PC: `{ allowed, tasks }`, the allow rules and the stored tasks' ids found (T12: the
- * shared task's and each worker's own routine, one per slot up to `maxWorkers`).
+ * What the setup check reads from this PC: `{ allowed, tasks, times }`, the allow rules and the stored tasks' ids found (T12:
+ * the shared task's and each worker's own routine, one per slot up to `maxWorkers`, or `upTo` when higher) and their files'
+ * times. The folder holds every login's tasks (start-worker-task.md): a task here may be missing on this login.
  */
-export async function readCodeJobs({ project, folder, maxWorkers, home = homedir(), fs = FILES }) {
+export async function readCodeJobs({ project, folder, maxWorkers, upTo = 0, home = homedir(), fs = FILES }) {
   const read = path => fs.readFile(path, 'utf8').catch(() => '')
   const texts = await Promise.all([join(home, '.claude', 'settings.json'), join(project, '.claude', 'settings.json'), join(project, '.claude', 'settings.local.json')].map(read))
   // The Product owner's own routine too (2026-10-31): the view counts it only while the list names an owner.
-  const ids = [...startTaskIds(folder), ...slotsOf(maxWorkers).flatMap(n => workerTaskIds(folder, n)), ...ownerTaskIds(folder)]
-  const there = await Promise.all(ids.map(id => fs.stat(join(home, '.claude', 'scheduled-tasks', id, 'SKILL.md')).then(found => found.isFile(), () => false)))
-  return { allowed: allowedIn(texts), tasks: ids.filter((id, at) => there[at]) }
+  // B1586 (chat 1's review 3): up to `upTo` too, the next new worker's number when it is above maxWorkers.
+  const slots = slotsOf(Math.max(Number.isInteger(upTo) ? upTo : 0, slotsOf(maxWorkers).length))
+  const ids = [...startTaskIds(folder), ...slots.flatMap(n => workerTaskIds(folder, n)), ...ownerTaskIds(folder)]
+  const there = await Promise.all(ids.map(id => fs.stat(join(home, '.claude', 'scheduled-tasks', id, 'SKILL.md')).then(found => (found.isFile() ? (Number.isFinite(found.mtimeMs) ? found.mtimeMs : 0) : null), () => null)))
+  // B1586: each stored task's file time (`times`), so a task a hand found missing is tried again once its file changes.
+  const tasks = ids.filter((id, at) => there[at] !== null)
+  return { allowed: allowedIn(texts), tasks, times: Object.fromEntries(tasks.map(id => [id, there[ids.indexOf(id)]])) }
 }
 
 /** Writes `rules` into the project's `.claude/settings.local.json` under `permissions.<key>`, made when missing: `{ ok, added }` or why not. */
