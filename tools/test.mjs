@@ -16,6 +16,8 @@
 // to a file of their own). A stalled run is a refusal (src/landing.mjs gatePassed), never rerun file by file: node --test held
 // back the results of the files after the open one. The watchdog also ends what the run started outside its tree that names its
 // folder (on a path boundary; never in a folder that is or holds a board's, nor when the list of boards cannot be read).
+// B1575: a second stall line names the files that failed before the stall ("failed before the stall: ..."), which the big suite
+// reruns alone; land.ps1's refusal of a stall stays.
 //
 // F68 (chat 1, 2026-11-25): a gate refusal names the priority of each run. The full run stays low; land.ps1's rerun alone of a failed
 // file asks for its priority by name (`--priority=below-normal` for now: the PC plan keeps Full free of lag until the core fence, S5,
@@ -107,7 +109,8 @@ export function openFiles(text) {
     } catch {
       continue
     }
-    if (typeof read?.file !== 'string') continue
+    // B1575: a fail line says nothing of open or ended (failedFiles reads it).
+    if (typeof read?.file !== 'string' || read.at === 'fail') continue
     const one = files.get(read.file) ?? { file: read.file, open: false, tests: new Map() }
     files.set(read.file, one)
     if (read.test === null || read.test === undefined) one.open = read.at === 'start'
@@ -162,12 +165,34 @@ export function timeLines(times, changed = undefined, slowS = SLOW_NEW_S) {
  * F39: the line a stalled run ends with: what happened and the files still open (paths from `cwd`, with /). A stalled run is a
  * refusal (chat 1's review, blocker 2): node --test holds back the output of the files after the earliest unfinished one, so their
  * failures are lost and a rerun of the open files alone proves nothing; src/landing.mjs gatePassed reads this line as the verdict.
+ * B1575: a second line names the files that failed before the stall and are not open (`failed`, from failedFiles): the big suite
+ * reruns those alone (the stall hid them in the big run of 2093e58, 2026-11-27); land.ps1 still refuses a stall without a rerun.
  */
-export function stallLines(open, stallMs, cwd = process.cwd()) {
+export function stallLines(open, stallMs, cwd = process.cwd(), failed = []) {
   const span = stallMs >= 60000 ? `${Math.round(stallMs / 60000)} minutes` : `${Math.round(stallMs / 1000)} seconds`
   const shown = file => relative(cwd, file).replace(/\\/g, '/')
   const named = open.map(one => `${shown(one.file)}${one.tests.length === 0 ? ' (at its top level)' : ` (${one.tests.join('; ')})`}`)
-  return [`stalled: no test output for ${span}; files still open: ${named.length === 0 ? 'none named' : named.join(', ')}`]
+  const openNow = new Set(open.map(one => one.file))
+  const before = failed.filter(file => !openNow.has(file)).map(shown)
+  return [
+    `stalled: no test output for ${span}; files still open: ${named.length === 0 ? 'none named' : named.join(', ')}`,
+    ...(before.length > 0 ? [`failed before the stall: ${before.join(', ')}`] : []),
+  ]
+}
+
+/** B1575: the files the reporter's lines name in a fail line (a failed test, or the file itself), in the order they first failed. PURE. */
+export function failedFiles(text) {
+  const failed = []
+  for (const line of String(text ?? '').split('\n')) {
+    let read
+    try {
+      read = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (read?.at === 'fail' && typeof read.file === 'string' && !failed.includes(read.file)) failed.push(read.file)
+  }
+  return failed
 }
 
 /** F39, review 9: the folders of the boards on this PC (boards.json): a run there never sweeps them. */
@@ -225,7 +250,7 @@ export function stopInside(folder, since, run = spawnSync, boards = boardFolders
   }
 }
 
-function stopTree(child) {
+export function stopTree(child) {
   try {
     if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
     else child.kill('SIGKILL')
@@ -301,7 +326,7 @@ export function runTests({
       } catch {
         // nothing reported yet
       }
-      out.write(`\n${stallLines(openFiles(text), stallMs, cwd).join('\n')}\n`)
+      out.write(`\n${stallLines(openFiles(text), stallMs, cwd, failedFiles(text)).join('\n')}\n`)
       stopTree(child)
       stopInside(cwd, began, spawnSync, boardFolders(env))
     }, watchMs)

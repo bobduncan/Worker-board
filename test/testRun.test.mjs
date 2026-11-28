@@ -10,7 +10,7 @@ import os from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { failingFiles, gateVerdict } from '../src/landing.mjs'
-import { LOW, NORMAL, SLOW_NEW_S, STALL_MS, TEST_TIMEOUT_MS, boardFolders, cliOf, fileTimes, halfTheCores, holdsBoard, insidePattern, openFiles, priorityWord, runTests, stallLines, stopInside, timeLines } from '../tools/test.mjs'
+import { LOW, NORMAL, SLOW_NEW_S, STALL_MS, TEST_TIMEOUT_MS, boardFolders, cliOf, failedFiles, fileTimes, halfTheCores, holdsBoard, insidePattern, openFiles, priorityWord, runTests, stallLines, stopInside, timeLines } from '../tools/test.mjs'
 import openFilesReporter from '../tools/openFilesReporter.mjs'
 
 // Hotfix (2026-11-27): these tests judge runTests on its own, never inside the fence of the run around them. A gate inside the live
@@ -143,6 +143,36 @@ test('F39: the files still open, from the reporter\'s lines, and the lines a sta
   assert.equal(verdict.ok, false)
   assert.match(verdict.why, /^the test run stalled \(stalled: no test output for 15 minutes; files still open: test\/a\.test\.mjs/)
   assert.equal(verdict.files, undefined)
+})
+
+test('B1575: the reporter\'s fail lines name the files that failed before a stall; an open file is not named twice; a fail line opens or ends nothing', () => {
+  const lines = [
+    { at: 'start', file: 'C:/b/test/a.test.mjs', test: null }, { at: 'fail', file: 'C:/b/test/a.test.mjs' }, { at: 'end', file: 'C:/b/test/a.test.mjs', test: null },
+    { at: 'start', file: 'C:/b/test/b.test.mjs', test: null }, { at: 'fail', file: 'C:/b/test/b.test.mjs' }, { at: 'fail', file: 'C:/b/test/a.test.mjs' },
+    { at: 'start', file: 'C:/b/test/c.test.mjs', test: null }, { at: 'end', file: 'C:/b/test/c.test.mjs', test: null },
+  ].map(one => JSON.stringify(one)).join('\n')
+  const open = openFiles(lines)
+  assert.deepEqual(open, [{ file: 'C:/b/test/b.test.mjs', tests: [] }], 'a fail line keeps b open (mutant: read as an end)')
+  assert.deepEqual(failedFiles(lines), ['C:/b/test/a.test.mjs', 'C:/b/test/b.test.mjs'])
+  assert.deepEqual(stallLines(open, 15 * 60 * 1000, 'C:/b', failedFiles(lines)), [
+    'stalled: no test output for 15 minutes; files still open: test/b.test.mjs (at its top level)',
+    'failed before the stall: test/a.test.mjs',
+  ])
+  assert.equal(stallLines(open, 15 * 60 * 1000, 'C:/b', ['C:/b/test/b.test.mjs']).length, 1, 'only open files failed: no second line')
+  // land.ps1 still refuses the stall and names no file to rerun.
+  const verdict = gateVerdict(stallLines(open, 15 * 60 * 1000, 'C:/b', failedFiles(lines)).join('\n'), 'board', 1)
+  assert.deepEqual([verdict.ok, verdict.files], [false, undefined])
+})
+
+test('B1575, for real: a file that fails a test and ends, then a file that hangs at its top level: the stall names both apart', { timeout: 200_000 }, async t => {
+  const { folder, file: hangs } = hangFolder(t, 'hangs.test.mjs', "import { test } from 'node:test'\ntest('ok', () => {})\nsetInterval(() => {}, 1000)\nawait new Promise(() => {})\n")
+  const fails = join(folder, 'fails.test.mjs').replace(/\\/g, '/')
+  writeFileSync(fails, "import { test } from 'node:test'\nimport assert from 'node:assert/strict'\ntest('breaks', () => assert.equal(1, 2))\n")
+  const { seen, stream } = sink()
+  const code = await runTests({ files: [fails, hangs], cores: 4, start: realStart(), setPriority: () => {}, timeoutMs: 60_000, stallMs: 8000, watchMs: 250, out: stream, err: stream, cwd: folder })
+  assert.equal(code, 1)
+  assert.match(seen.text, /^stalled: no test output for 8 seconds; files still open: hangs\.test\.mjs \(at its top level\)$/m)
+  assert.match(seen.text, /^failed before the stall: fails\.test\.mjs$/m)
 })
 
 test('F39, the real case: a test that hangs inside itself and leaves a timer (taskWindowPage, 2026-11-21) ends the run at the watchdog, naming its file', { timeout: 200_000 }, async t => {

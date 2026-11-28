@@ -15,6 +15,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { hhmm } from '../src/landing.mjs'
+import { endRuns, runTree } from './runTree.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SCRIPT = join(ROOT, 'tools', 'land.ps1')
@@ -50,10 +51,11 @@ async function makeWorld(t, { live = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'land-script-'))
   const world = {
     root, main: join(root, 'main'), trial: join(root, 'trial'), remote: join(root, 'remote.git'), tmp: join(root, 'tmp'), configFile: join(root, 'config.json'),
-    processesFile: join(root, 'processes.json'), connectionsFile: join(root, 'connections.json'), started: [], ports: [await freePort(), await freePort()],
+    processesFile: join(root, 'processes.json'), connectionsFile: join(root, 'connections.json'), started: [], runs: new Set(), ports: [await freePort(), await freePort()],
   }
   world.data = join(world.main, 'data')
   t.after(async () => {
+    endRuns(world.runs)
     const pids = [...world.started.map(child => child.pid), ...[world.main, world.trial].map(dir => Number(existsSync(join(dir, 'data', 'pid.txt')) ? readFileSync(join(dir, 'data', 'pid.txt'), 'utf8') : 0))]
     for (const pid of pids.filter(Boolean)) spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
     await sleep(300)
@@ -142,17 +144,8 @@ async function makeWorld(t, { live = false } = {}) {
     return git(world.main, 'rev-parse', 'HEAD')
   }
   /** Runs the script as a chat does, with the made-up settings. `{ status, out }`; the words as lines. */
-  world.land = (...args) => new Promise(done => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', SCRIPT, ...args, '-Config', world.configFile], { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...world.env } })
-    let out = ''
-    child.stdout.on('data', chunk => { out += chunk })
-    child.stderr.on('data', chunk => { out += chunk })
-    const late = setTimeout(() => child.kill(), 380_000)
-    child.on('exit', status => {
-      clearTimeout(late)
-      done({ status, out: out.replace(/\r/g, '').trim() })
-    })
-  })
+  // B1575: a late landing is ended with its whole tree, and one still running at the clean-up too (test/runTree.mjs).
+  world.land = (...args) => runTree('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', SCRIPT, ...args, '-Config', world.configFile], { cwd: root, env: { ...process.env, ...world.env } }, { lateMs: 380_000, runs: world.runs })
   world.landings = () => (existsSync(join(world.data, 'landings.jsonl')) ? readFileSync(join(world.data, 'landings.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [])
   world.worktrees = () => git(world.main, 'worktree', 'list', '--porcelain').split('\n').filter(line => line.startsWith('worktree ')).length
   return world
@@ -795,14 +788,8 @@ test('without settings the boards are found, not named: git\'s first working tre
   writeFileSync(join(home, 'boards.json'), JSON.stringify({ boards: [entry(world.trial, 4412), entry(world.main, 4411), entry(copy, 4413), entry(join(world.root, 'gone'), 4414)] }))
   const configFile = join(world.root, 'print.json')
   writeFileSync(configFile, JSON.stringify({ printBoards: true }))
-  const boards = (home, ...flags) => new Promise(done => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(world.main, 'tools', 'land.ps1'), 'unused', ...flags, '-Config', configFile],
-      { cwd: world.root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, WORKER_BOARD_HOME: home } })
-    let out = ''
-    child.stdout.on('data', chunk => { out += chunk })
-    child.stderr.on('data', chunk => { out += chunk })
-    child.on('exit', status => done({ status, out: out.replace(/\r/g, '').trim() }))
-  })
+  const boards = (home, ...flags) => runTree('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(world.main, 'tools', 'land.ps1'), 'unused', ...flags, '-Config', configFile],
+    { cwd: world.root, env: { ...process.env, WORKER_BOARD_HOME: home } }, { lateMs: 120_000, runs: world.runs })
   const said = answer => JSON.parse(answer.out.replace(/^boards: /, ''))
   const listed = await boards(home)
   assert.equal(listed.status, 0, listed.out)
@@ -892,11 +879,13 @@ test('a push that times out but landed is found out with git ls-remote and the l
   const world = await makeWorld(t)
   const head = world.branch('feat')
   await world.boards()
-  world.slowRemote(8)
-  world.config({ pushTimeoutSeconds: 3 })
+  // B1575: the push must reach the remote's ref update before its timeout, so the timeout has room under load (3 s did not: the
+  // push was stopped before origin took the head, and the landing was refused); the hook outlasts it and is stopped with the push.
+  world.slowRemote(60)
+  world.config({ pushTimeoutSeconds: 15 })
   const ran = await world.land('feat')
   assert.equal(ran.status, 0, ran.out)
-  assert.ok(lines(ran.out).some(line => /^note: the push to origin said it failed \(timed out after 3 s\), but origin\/main has [0-9a-f]{7}: going on$/.test(line)), ran.out)
+  assert.ok(lines(ran.out).some(line => /^note: the push to origin said it failed \(timed out after 15 s\), but origin\/main has [0-9a-f]{7}: going on$/.test(line)), ran.out)
   assert.equal(git(world.remote, 'rev-parse', 'main'), head)
   assert.equal(git(world.main, 'rev-parse', 'HEAD'), head)
   for (const port of world.ports) assert.equal((await boardState(port)).commit, head.slice(0, 7))
